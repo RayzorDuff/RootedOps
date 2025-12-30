@@ -13,9 +13,9 @@ useradd -m singaturegate
 passwd signaturegate
 usermod -aG sudo signaturegate
 ```
-- Configure UFW: allow 22, 80, 443
+- Configure UFW: allow 22, 80, 443, 8080
 ```bash
-sudo ufw allow 22/tcp && sudo ufw allow 80/tcp && sudo ufw allow 443/tcp
+sudo ufw allow 22/tcp && sudo ufw allow 80/tcp && sudo ufw allow 443/tcp && sudo ufw allow 8080/tcp
 ```
 - Install fail2ban
 ```bash
@@ -36,12 +36,57 @@ git clone git@github.com/RayzorDuff/SignatureGate.git signaturegate
 cd signaturegate
 cp .env.example .env
 # edit secrets in .env
-docker compose -f deploy/docker/docker-compose.yml up -d
+sudo docker compose --env-file ./.env -f deploy/docker/docker-compose.yml up -d
+sudo docker ps
+sudo docker logs nocodb
 ```
 
 ## 4. Add TLS + reverse proxy (recommended)
+Set up NGINX as a reverse proxy.  Change n8n.yourdomain.com to match your server name.
+
+```bash
+sudo nano /etc/nginx/sites-available/n8n.conf
+
+server {
+    listen 80;
+    server_name n8n.yourdomain.com;
+
+    location / {
+        proxy_pass http://localhost:5678/;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+}
+```
+
+Enable NGINX and restart
+```bash
+sudo ln -s /etc/nginx/sites-available/n8n.conf /etc/nginx/sites-enabled/n8n.conf
+sudo nginx -t # Test the configuration for syntax errors
+sudo systemctl restart nginx
+```
+Ensure your DNS is configured correctly and obtain an SSL Certificate with certbot
+```bash
+sudo certbot --nginx -d yourdomain.com
+```
+
+Configure your .env 
+```bash
+N8N_HOST=n8n.yourdomain.com
+N8N_PORT=5678
+N8N_PROTOCOL=https
+WEBHOOK_URL=https://n8n.yourdomain.com/
+```
+
+Reload n8n
+```bash
+docker-compose up -d
+```
+
 Use Caddy or Traefik (not included yet).
-- Terminate TLS for NocoDB, n8n, Appsmith
+- Terminate TLS for NocoDB, Appsmith
 - Put n8n and Appsmith behind auth / VPN if you want them internal-only
 
 ## 5. Backups
