@@ -40,9 +40,9 @@ services:
     image: postgres:16
     container_name: nocodb-meta-postgres
     environment:
-      POSTGRES_DB: nocodb_meta
-      POSTGRES_USER: nocodb
-      POSTGRES_PASSWORD: nocodb_password
+      POSTGRES_DB: ${NC_DB_NAME}
+      POSTGRES_USER: ${NC_DB_USER}
+      POSTGRES_PASSWORD: ${NC_DB_PASSWORD}   
     volumes:
       - nocodb_meta_pgdata:/var/lib/postgresql/data
 
