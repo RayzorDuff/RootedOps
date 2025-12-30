@@ -8,8 +8,19 @@ This is intentionally high-level and points you to upstream docs where appropria
 
 ## 1. Baseline hardening
 - Create non-root user, add to sudo
+```bash
+useradd -m singaturegate
+passwd signaturegate
+usermod -aG sudo signaturegate
+```
 - Configure UFW: allow 22, 80, 443
+```bash
+sudo ufw allow 22/tcp && sudo ufw allow 80/tcp && sudo ufw allow 443/tcp
+```
 - Install fail2ban
+```bash
+sudo apt-get install fail2ban
+```
 - Keep system updated
 
 ## 2. Install Docker
@@ -18,7 +29,10 @@ https://docs.docker.com/engine/install/ubuntu/
 
 ## 3. Deploy SignatureGate stack
 ```bash
-git clone <your-fork-url> signaturegate
+su signaturegate
+ssh-keygen -t ed25519 -C "your@email.com"
+cat ~/.ssh/id_ed25519.pub (For access to SignatureGate git)
+git clone git@github.com/RayzorDuff/SignatureGate.git signaturegate
 cd signaturegate
 cp .env.example .env
 # edit secrets in .env
