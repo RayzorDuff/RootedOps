@@ -1,0 +1,96 @@
+services:
+  # --- SignatureGate Postgres ---
+  signaturegate-postgres:
+    image: postgres:16
+    container_name: signaturegate-postgres
+    environment:
+      POSTGRES_DB: ${SIG_DB_NAME}
+      POSTGRES_USER: ${SIG_DB_USER}
+      POSTGRES_PASSWORD: ${SIG_DB_PASSWORD}
+    ports:
+      - "5433:5432"
+    volumes:
+      - signaturegate_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${SIG_DB_USER} -d ${SIG_DB_NAME}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  # --- MushroomProcess bridge Postgres (optional) ---
+  mushroomprocess-bridge-postgres:
+    image: postgres:16
+    container_name: mushroomprocess-bridge-postgres
+    environment:
+      POSTGRES_DB: ${MP_BRIDGE_DB_NAME}
+      POSTGRES_USER: ${MP_BRIDGE_DB_USER}
+      POSTGRES_PASSWORD: ${MP_BRIDGE_DB_PASSWORD}
+    ports:
+      - "5434:5432"
+    volumes:
+      - mushroomprocess_bridge_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${MP_BRIDGE_DB_USER} -d ${MP_BRIDGE_DB_NAME}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  # --- NocoDB metadata Postgres ---
+  nocodb-meta-postgres:
+    image: postgres:16
+    container_name: nocodb-meta-postgres
+    environment:
+      POSTGRES_DB: nocodb_meta
+      POSTGRES_USER: nocodb
+      POSTGRES_PASSWORD: nocodb_password
+    volumes:
+      - nocodb_meta_pgdata:/var/lib/postgresql/data
+
+  nocodb:
+    image: nocodb/nocodb:latest
+    container_name: nocodb
+    depends_on:
+      - nocodb-meta-postgres
+      - signaturegate-postgres
+      - mushroomprocess-bridge-postgres
+    environment:
+      NC_DB: ${NC_DB}
+      NC_AUTH_JWT_SECRET: ${NC_AUTH_JWT_SECRET}
+    ports:
+      - "8080:8080"
+    volumes:
+      - nocodb_data:/usr/app/data
+
+  n8n:
+    image: n8nio/n8n:latest
+    container_name: n8n
+    environment:
+      N8N_BASIC_AUTH_ACTIVE: ${N8N_BASIC_AUTH_ACTIVE}
+      N8N_BASIC_AUTH_USER: ${N8N_BASIC_AUTH_USER}
+      N8N_BASIC_AUTH_PASSWORD: ${N8N_BASIC_AUTH_PASSWORD}
+      N8N_ENCRYPTION_KEY: ${N8N_ENCRYPTION_KEY}
+      N8N_HOST: ${N8N_HOST}
+      N8N_PORT: ${N8N_PORT}
+      N8N_PROTOCOL: ${N8N_PROTOCOL}
+      WEBHOOK_URL: ${WEBHOOK_URL}
+      TZ: America/Denver
+    ports:
+      - "5678:5678"
+    volumes:
+      - n8n_data:/home/node/.n8n
+
+  appsmith:
+    image: appsmith/appsmith-ce:latest
+    container_name: appsmith
+    ports:
+      - "8081:80"
+    volumes:
+      - appsmith_stacks:/appsmith-stacks
+
+volumes:
+  signaturegate_pgdata:
+  mushroomprocess_bridge_pgdata:
+  nocodb_meta_pgdata:
+  nocodb_data:
+  n8n_data:
+  appsmith_stacks:
