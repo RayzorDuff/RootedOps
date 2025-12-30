@@ -16,6 +16,7 @@ services:
       interval: 10s
       timeout: 5s
       retries: 10
+    restart: unless-stopped
 
   # --- MushroomProcess bridge Postgres (optional) ---
   mushroomprocess-bridge-postgres:
@@ -34,6 +35,7 @@ services:
       interval: 10s
       timeout: 5s
       retries: 10
+    restart: unless-stopped
 
   # --- NocoDB metadata Postgres ---
   nocodb-meta-postgres:
@@ -45,6 +47,7 @@ services:
       POSTGRES_PASSWORD: ${NC_DB_PASSWORD}   
     volumes:
       - nocodb_meta_pgdata:/var/lib/postgresql/data
+    restart: unless-stopped
 
   nocodb:
     image: nocodb/nocodb:latest
@@ -54,12 +57,13 @@ services:
       - signaturegate-postgres
       - mushroomprocess-bridge-postgres
     environment:
-      NC_DB: ${NC_DB}
+      NC_DB: pg://${NC_DB_HOST}:${NC_DB_PORT}?u=${NC_DB_USER}&p=${NC_DB_PASSWORD}&d=${NC_DB_NAME}
       NC_AUTH_JWT_SECRET: ${NC_AUTH_JWT_SECRET}
     ports:
       - "8080:8080"
     volumes:
       - nocodb_data:/usr/app/data
+    restart: unless-stopped
 
   n8n:
     image: n8nio/n8n:latest
