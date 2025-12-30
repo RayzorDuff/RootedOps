@@ -76,6 +76,7 @@ services:
       N8N_HOST: ${N8N_HOST}
       N8N_PORT: ${N8N_PORT}
       N8N_PROTOCOL: ${N8N_PROTOCOL}
+      N8N_SECURE_COOKIE: ${N8N_SECURE_COOKIE}
       WEBHOOK_URL: ${WEBHOOK_URL}
       TZ: America/Denver
     ports:
