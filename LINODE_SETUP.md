@@ -15,11 +15,11 @@ usermod -aG sudo signaturegate
 ```
 - Configure UFW: allow 22, 80, 443, 8080
 ```bash
-sudo ufw allow 22/tcp && sudo ufw allow 80/tcp && sudo ufw allow 443/tcp && sudo ufw allow 8080/tcp
+sudo ufw allow 22/tcp && sudo ufw allow 80/tcp && sudo ufw allow 443/tcp && sudo ufw allow 8080/tcp && sudo ufw --force enable
 ```
-- Install fail2ban
+- Install fail2ban and dotenv
 ```bash
-sudo apt-get install fail2ban
+sudo apt-get install -y ca-certificates curl gnupg ufw fail2ban git python3 python3-dotenv-cli
 ```
 - Keep system updated
 
