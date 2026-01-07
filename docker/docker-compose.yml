@@ -119,7 +119,7 @@ services:
   documenso:
     build:
       context: .
-      dockerfile: deploy/docker/documenso.playwright.Dockerfile
+      dockerfile: documenso.playwright.Dockerfile
     container_name: documenso
     depends_on:
       - documenso-postgres
