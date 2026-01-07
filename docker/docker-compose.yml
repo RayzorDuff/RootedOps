@@ -119,7 +119,10 @@ services:
   documenso:
     build:
       context: .
-      dockerfile: documenso.playwright.Dockerfile
+      # Alpine based
+      # dockerfile: documenso.playwright.Dockerfile
+      # Debian based (preferred)
+      dockerfile: documenso.Dockerfile
     container_name: documenso
     depends_on:
       - documenso-postgres
@@ -130,7 +133,7 @@ services:
       # IMPORTANT (fixes job internal URL issue):
       NEXT_PRIVATE_INTERNAL_WEBAPP_URL: http://documenso:3000
       NEXT_PRIVATE_JOBS_PROVIDER: local
-
+  
       # Secrets  
       NEXTAUTH_SECRET: ${DOCUMENSO_NEXTAUTH_SECRET}
       NEXT_PRIVATE_ENCRYPTION_KEY: ${DOCUMENSO_ENCRYPTION_KEY}
@@ -157,7 +160,7 @@ services:
       # Optional: disable public signup once you have an admin user
       NEXT_PUBLIC_DISABLE_SIGNUP: "true"
         
-      # Match the cache path in your error:
+      # Match the cache path:
       PLAYWRIGHT_BROWSERS_PATH: /home/nodejs/.cache/ms-playwright
   
     ports:
