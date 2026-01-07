@@ -19,3 +19,7 @@ sudo ufw --force enable
 
 echo "Base packages installed. Next: install Docker per official docs:"
 echo "https://docs.docker.com/engine/install/ubuntu/"
+
+echo ""
+echo "If you will host Documenso too, ensure ports 80/443 are open and NGINX is installed (already done here)."
+echo "Documenso will run on localhost:3002 behind NGINX (documenso.yourdomain.com)."

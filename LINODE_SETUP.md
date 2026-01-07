@@ -9,7 +9,7 @@ This is intentionally high-level and points you to upstream docs where appropria
 ## 1. Baseline hardening
 - Create non-root user, add to sudo
 ```bash
-useradd -m singaturegate
+useradd -m signaturegate
 passwd signaturegate
 usermod -aG sudo signaturegate
 ```
@@ -42,6 +42,34 @@ sudo docker logs nocodb
 ```
 
 ## 4. Add TLS + reverse proxy (recommended)
+
+## 4a. Use the provided NGINX site configs (recommended)
+
+This repo includes example NGINX site configs under:
+
+- `deploy/nginx/n8n.conf`
+- `deploy/nginx/nocodb.conf`
+- `deploy/nginx/appsmith.conf`
+- `deploy/nginx/documenso.conf`  *(added)*
+
+Install them like this:
+
+```bash
+sudo cp deploy/nginx/*.conf /etc/nginx/sites-available/
+sudo ln -sf /etc/nginx/sites-available/n8n.conf /etc/nginx/sites-enabled/n8n.conf
+sudo ln -sf /etc/nginx/sites-available/nocodb.conf /etc/nginx/sites-enabled/nocodb.conf
+sudo ln -sf /etc/nginx/sites-available/appsmith.conf /etc/nginx/sites-enabled/appsmith.conf
+sudo ln -sf /etc/nginx/sites-available/documenso.conf /etc/nginx/sites-enabled/documenso.conf
+sudo nginx -t
+sudo systemctl reload nginx
+```
+
+Then issue certificates (example):
+
+```bash
+sudo certbot --nginx -d n8n.yourdomain.com -d nocodb.yourdomain.com -d appsmith.yourdomain.com -d documenso.yourdomain.com
+```
+
 Set up NGINX as a reverse proxy.  Change n8n.yourdomain.com to match your server name.
 
 ```bash
@@ -82,15 +110,63 @@ WEBHOOK_URL=https://n8n.yourdomain.com/
 
 Reload n8n
 ```bash
-docker-compose up -d
+sudo docker compose --env-file ./.env -f deploy/docker/docker-compose.yml up -d
 ```
-
-Use Caddy or Traefik (not included yet).
-- Terminate TLS for NocoDB, Appsmith
-- Put n8n and Appsmith behind auth / VPN if you want them internal-only
+You may do the same for Appsmith (appsmith.yourdomain.com) and NocoDB (nocodb.yourdomain.com)
 
 ## 5. Backups
 - pg_dump nightly for each Postgres volume
 - snapshot volumes
 - store agreement evidence files in object storage and back it up
 
+## 6. Documenso (self-hosted signing)
+
+Documenso runs as a Docker container exposed on localhost port `3002` (proxied by NGINX).
+
+### 6.1 Configure environment variables
+Edit `.env` and set:
+
+- `DOCUMENSO_PUBLIC_URL=https://documenso.yourdomain.com`
+- `DOCUMENSO_NEXTAUTH_SECRET` (random)
+- `DOCUMENSO_ENCRYPTION_KEY` (random)
+- `DOCUMENSO_ENCRYPTION_SECONDARY_KEY` (random)
+- `DOCUMENSO_SIGNING_PASSPHRASE` (random but memorable)
+- SMTP settings (`DOCUMENSO_SMTP_*`)
+
+Documenso needs SMTP to send signing links.
+
+### 6.2 Create the signing certificate file
+Documenso expects a `.p12` file mounted at `deploy/documenso/certs/cert.p12`.
+
+Create the folder:
+
+```bash
+mkdir -p deploy/documenso/certs
+```
+
+Start the stack (Documenso + its Postgres):
+
+```bash
+sudo docker compose --env-file ./.env -f deploy/docker/docker-compose.yml up -d documenso-postgres documenso
+```
+
+Generate a self-signed `.p12` inside the container (recommended by Documenso):
+
+```bash
+read -s -p "Enter Documenso cert passphrase (DOCUMENSO_SIGNING_PASSPHRASE): " CERT_PASS
+echo
+sudo docker exec -e CERT_PASS="$CERT_PASS" -it documenso bash -c "
+  openssl req -x509 -nodes -days 365 -newkey rsa:2048     -keyout /tmp/private.key     -out /tmp/certificate.crt     -subj '/C=US/ST=Colorado/L=Denver/O=SignatureGate/CN=documenso' &&   openssl pkcs12 -export -out /opt/documenso/cert.p12     -inkey /tmp/private.key -in /tmp/certificate.crt     -passout env:CERT_PASS &&   rm /tmp/private.key /tmp/certificate.crt
+"
+```
+
+Restart Documenso:
+
+```bash
+sudo docker compose --env-file ./.env -f deploy/docker/docker-compose.yml restart documenso
+```
+
+### 6.3 Verify
+- Documenso should be reachable at `https://documenso.yourdomain.com`
+- Health endpoint (from the Linode):
+  - `curl http://localhost:3002/api/health`
