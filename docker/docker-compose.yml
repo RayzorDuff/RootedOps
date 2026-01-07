@@ -117,26 +117,29 @@ services:
 
   # --- Documenso ---
   documenso:
-    image: documenso/documenso:latest
+    build:
+      context: .
+      dockerfile: deploy/docker/documenso.playwright.Dockerfile
     container_name: documenso
     depends_on:
       - documenso-postgres
     environment:
       # Public URL used for auth callbacks + links
       NEXT_PUBLIC_WEBAPP_URL: ${DOCUMENSO_PUBLIC_URL}
-      # Job provider
-      NEXT_PRIVATE_JOBS_PROVIDER: ${DOCUMENSO_PRIVATE_JOBS_PROVIDER}
-      NEXT_PRIVATE_INTERNAL_WEBAPP_URL: ${DOCUMENSO_PRIVATE_INTERNAL_WEBAPP_URL}
-      
-      # Secrets
+  
+      # IMPORTANT (fixes job internal URL issue):
+      NEXT_PRIVATE_INTERNAL_WEBAPP_URL: http://documenso:3000
+      NEXT_PRIVATE_JOBS_PROVIDER: local
+
+      # Secrets  
       NEXTAUTH_SECRET: ${DOCUMENSO_NEXTAUTH_SECRET}
       NEXT_PRIVATE_ENCRYPTION_KEY: ${DOCUMENSO_ENCRYPTION_KEY}
       NEXT_PRIVATE_ENCRYPTION_SECONDARY_KEY: ${DOCUMENSO_ENCRYPTION_SECONDARY_KEY}
-
+  
       # DB
       NEXT_PRIVATE_DATABASE_URL: postgresql://${DOCUMENSO_DB_USER}:${DOCUMENSO_DB_PASSWORD}@${DOCUMENSO_DB_HOST}:${DOCUMENSO_DB_PORT}/${DOCUMENSO_DB_NAME}
       NEXT_PRIVATE_DIRECT_DATABASE_URL: postgresql://${DOCUMENSO_DB_USER}:${DOCUMENSO_DB_PASSWORD}@${DOCUMENSO_DB_HOST}:${DOCUMENSO_DB_PORT}/${DOCUMENSO_DB_NAME}
-
+  
       # SMTP
       NEXT_PRIVATE_SMTP_TRANSPORT: ${DOCUMENSO_SMTP_TRANSPORT}
       NEXT_PRIVATE_SMTP_HOST: ${DOCUMENSO_SMTP_HOST}
@@ -147,17 +150,22 @@ services:
       NEXT_PRIVATE_SMTP_FROM_ADDRESS: ${DOCUMENSO_SMTP_FROM_ADDRESS}
       NEXT_PRIVATE_SMTP_SECURE: ${DOCUMENSO_PRIVATE_SMTP_SECURE}
       NEXT_PRIVATE_SMTP_UNSAFE_IGNORE_TLS: ${DOCUMENSO_PRIVATE_SMTP_UNSAFE_IGNORE_TLS}
-
+  
       # Signing certificate passphrase
       NEXT_PRIVATE_SIGNING_PASSPHRASE: ${DOCUMENSO_SIGNING_PASSPHRASE}
 
       # Optional: disable public signup once you have an admin user
       NEXT_PUBLIC_DISABLE_SIGNUP: "true"
+        
+      # Match the cache path in your error:
+      PLAYWRIGHT_BROWSERS_PATH: /home/nodejs/.cache/ms-playwright
+  
     ports:
       - "3002:3000"
     volumes:
       # Create this file once (see LINODE_SETUP.md), or mount your existing .p12 cert:
-      - ../documenso/certs/cert.p12:/opt/documenso/cert.p12
+      - ../deploy/documenso/certs/cert.p12:/opt/documenso/cert.p12
+      - documenso_playwright_cache:/home/nodejs/.cache/ms-playwright
     restart: unless-stopped
 
 volumes:
@@ -166,5 +174,6 @@ volumes:
   nocodb_meta_pgdata:
   nocodb_data:
   documenso_pgdata:
+  documenso_playwright_cache:
   n8n_data:
   appsmith_stacks:
