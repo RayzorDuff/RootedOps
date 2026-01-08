@@ -172,3 +172,10 @@ sudo docker compose --env-file ./.env -f deploy/docker/docker-compose.yml restar
 - Documenso should be reachable at `https://documenso.yourdomain.com`
 - Health endpoint (from the Linode):
   - `curl http://localhost:3002/api/health`
+
+
+## Documenso certificate signing
+
+If Documenso documents get stuck in “Processing document…” after both recipients sign, see:
+
+- `deploy/DOCUMENSO_CERT_TROUBLESHOOTING.md`
