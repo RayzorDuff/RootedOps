@@ -138,7 +138,7 @@ services:
       NEXTAUTH_SECRET: ${DOCUMENSO_NEXTAUTH_SECRET}
       NEXT_PRIVATE_ENCRYPTION_KEY: ${DOCUMENSO_ENCRYPTION_KEY}
       NEXT_PRIVATE_ENCRYPTION_SECONDARY_KEY: ${DOCUMENSO_ENCRYPTION_SECONDARY_KEY}
-  
+
       # DB
       NEXT_PRIVATE_DATABASE_URL: postgresql://${DOCUMENSO_DB_USER}:${DOCUMENSO_DB_PASSWORD}@${DOCUMENSO_DB_HOST}:${DOCUMENSO_DB_PORT}/${DOCUMENSO_DB_NAME}
       NEXT_PRIVATE_DIRECT_DATABASE_URL: postgresql://${DOCUMENSO_DB_USER}:${DOCUMENSO_DB_PASSWORD}@${DOCUMENSO_DB_HOST}:${DOCUMENSO_DB_PORT}/${DOCUMENSO_DB_NAME}
@@ -155,6 +155,7 @@ services:
       NEXT_PRIVATE_SMTP_UNSAFE_IGNORE_TLS: ${DOCUMENSO_PRIVATE_SMTP_UNSAFE_IGNORE_TLS}
   
       # Signing certificate passphrase
+      NEXT_PRIVATE_SIGNING_CERT_PATH: /opt/documenso/cert.p12
       NEXT_PRIVATE_SIGNING_PASSPHRASE: ${DOCUMENSO_SIGNING_PASSPHRASE}
 
       # Optional: disable public signup once you have an admin user
@@ -167,8 +168,9 @@ services:
       - "3002:3000"
     volumes:
       # Create this file once (see LINODE_SETUP.md), or mount your existing .p12 cert:
-      - ../deploy/documenso/certs/cert.p12:/opt/documenso/cert.p12
-      - documenso_playwright_cache:/home/nodejs/.cache/ms-playwright
+      - ../documenso/certs/cert.p12:/opt/documenso/cert.p12
+      # Used with Alpine image
+      #- documenso_playwright_cache:/home/nodejs/.cache/ms-playwright
     restart: unless-stopped
 
 volumes:
@@ -177,6 +179,7 @@ volumes:
   nocodb_meta_pgdata:
   nocodb_data:
   documenso_pgdata:
-  documenso_playwright_cache:
+  # Used with Alpine image
+  #documenso_playwright_cache:
   n8n_data:
   appsmith_stacks:

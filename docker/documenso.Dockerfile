@@ -1,5 +1,5 @@
 # Build stage
-FROM node:20-bookworm AS build
+FROM node:20-bookworm AS fetch
 WORKDIR /app
 
 # Install build deps
@@ -11,10 +11,19 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # Pin a tag/commit once you confirm a stable version you like.
 RUN git clone https://github.com/documenso/documenso.git ./
 
-# Install deps and build
+# Install deps
 RUN corepack enable
-RUN pnpm install --frozen-lockfile
-RUN pnpm build
+RUN npm install -g npm
+RUN npm ci --verbose
+
+FROM node:20-bookworm AS build
+WORKDIR /app
+
+# Copy built app
+COPY --from=fetch /app /app
+
+# Build
+RUN npm run build 
 
 # Runtime stage
 FROM node:20-bookworm AS runtime
@@ -29,6 +38,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libx11-xcb1 libxcomposite1 libxdamage1 libxrandr2 \
     xdg-utils \
   && rm -rf /var/lib/apt/lists/*
+
+# Enable pnpm in runtime
+RUN corepack enable
 
 # Copy built app
 COPY --from=build /app /app

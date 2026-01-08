@@ -148,7 +148,7 @@ Start the stack (Documenso + its Postgres):
 
 ```bash
 sudo touch deploy/documenso/certs/cert.p12
-sudo chmod 777 deploy/documenso/certs/cert.p12
+sudo chmod 644 deploy/documenso/certs/cert.p12
 sudo docker compose --env-file ./.env -f deploy/docker/docker-compose.yml up -d documenso-postgres documenso
 ```
 
@@ -158,8 +158,8 @@ Generate a self-signed `.p12` inside the container (recommended by Documenso):
 read -s -p "Enter Documenso cert passphrase (DOCUMENSO_SIGNING_PASSPHRASE): " CERT_PASS
 echo
 sudo docker exec --env-file ./.env -e CERT_PASS="$CERT_PASS" -it documenso openssl req -x509 -nodes -days 365 -newkey rsa:2048     -keyout /tmp/private.key     -out /tmp/certificate.crt     -subj '/C=US/ST=Colorado/L=Denver/O=SignatureGate/CN=documenso'
-sudo docker exec --env-file ./.env -e CERT_PASS="$CERT_PASS" -it documenso openssl pkcs12 -export -out /opt/documenso/cert.p12     -inkey /tmp/private.key -in /tmp/certificate.crt     -passout env:CERT_PASS 
-sudo docker exec --env-file ./.env -e CERT_PASS="$CERT_PASS" -it documenso rm /tmp/private.key /tmp/certificate.crt
+sudo docker exec --env-file ./.env -e CERT_PASS="$CERT_PASS" -it documenso openssl pkcs12 -export -legacy -out /opt/documenso/cert.p12     -inkey /tmp/private.key -in /tmp/certificate.crt     -passout env:CERT_PASS
+sudo docker exec --env-file ./.env -it documenso rm /tmp/private.key /tmp/certificate.crt
 ```
 
 Restart Documenso:
