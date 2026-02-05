@@ -188,6 +188,15 @@ services:
       #- documenso_playwright_cache:/home/nodejs/.cache/ms-playwright
     restart: unless-stopped
 
+  grav:
+    image: getgrav/grav:latest
+    container_name: grav
+    restart: unless-stopped
+    ports:
+      - "8085:80"   
+    volumes:
+      - ../grav:/var/www/html:rw
+                                                    B
 volumes:
   signaturegate_pgdata:
   mushroomprocess_bridge_pgdata:

@@ -50,7 +50,8 @@ This repo includes example NGINX site configs under:
 - `deploy/nginx/n8n.conf`
 - `deploy/nginx/nocodb.conf`
 - `deploy/nginx/appsmith.conf`
-- `deploy/nginx/documenso.conf`  *(added)*
+- `deploy/nginx/documenso.conf`
+- `deploy/nginx/grav.conf`
 
 Install them like this:
 
@@ -60,6 +61,7 @@ sudo ln -sf /etc/nginx/sites-available/n8n.conf /etc/nginx/sites-enabled/n8n.con
 sudo ln -sf /etc/nginx/sites-available/nocodb.conf /etc/nginx/sites-enabled/nocodb.conf
 sudo ln -sf /etc/nginx/sites-available/appsmith.conf /etc/nginx/sites-enabled/appsmith.conf
 sudo ln -sf /etc/nginx/sites-available/documenso.conf /etc/nginx/sites-enabled/documenso.conf
+sudo ln -sf /etc/nginx/sites-available/grav.conf /etc/nginx/sites-enabled/grav.conf
 sudo nginx -t
 sudo systemctl reload nginx
 ```
@@ -67,7 +69,7 @@ sudo systemctl reload nginx
 Then issue certificates (example):
 
 ```bash
-sudo certbot --nginx -d n8n.yourdomain.com -d nocodb.yourdomain.com -d appsmith.yourdomain.com -d documenso.yourdomain.com
+sudo certbot --nginx -d n8n.yourdomain.com -d nocodb.yourdomain.com -d appsmith.yourdomain.com -d documenso.yourdomain.com -d www.yourdomain.com -d yourdomain.com
 ```
 
 Set up NGINX as a reverse proxy.  Change n8n.yourdomain.com to match your server name.
@@ -97,7 +99,7 @@ sudo systemctl restart nginx
 ```
 Ensure your DNS is configured correctly and obtain an SSL Certificate with certbot
 ```bash
-sudo certbot --nginx -d yourdomain.com
+sudo certbot --nginx -d n8n.yourdomain.com
 ```
 
 Configure your .env 
@@ -174,8 +176,33 @@ sudo docker compose --env-file ./.env -f deploy/docker/docker-compose.yml restar
   - `curl http://localhost:3002/api/health`
 
 
-## Documenso certificate signing
+### Documenso certificate signing
 
 If Documenso documents get stuck in “Processing document…” after both recipients sign, see:
 
 - `deploy/DOCUMENSO_CERT_TROUBLESHOOTING.md`
+
+## 7 Grav
+
+Launch Grav
+```bash
+sudo docker compose -f deploy/docker/docker-compose.yml --env-file ./.env up grav
+```
+
+Configure the Grav Administration interface at http://localhost:8085/admin
+
+
+Enable NGINX and restart
+```bash
+sudo ln -s /etc/nginx/sites-available/grav.conf /etc/nginx/sites-enabled/grav.conf
+sudo nginx -t # Test the configuration for syntax errors
+sudo systemctl restart nginx
+```
+Ensure your DNS is configured correctly and obtain an SSL Certificate with certbot
+```bash
+sudo certbot --nginx -d www.yourdomain.com yourdomain.com
+```
+
+Edit deploy/grav/user/pages/01.home/default.md 
+
+Point your web browser to https://www.yourdomain.com
