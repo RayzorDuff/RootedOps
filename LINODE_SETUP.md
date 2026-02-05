@@ -200,7 +200,7 @@ sudo systemctl restart nginx
 ```
 Ensure your DNS is configured correctly and obtain an SSL Certificate with certbot
 ```bash
-sudo certbot --nginx -d www.yourdomain.com yourdomain.com
+sudo certbot --nginx -d www.yourdomain.com -d yourdomain.com
 ```
 
 Edit deploy/grav/user/pages/01.home/default.md 
