@@ -248,7 +248,7 @@ services:
       bench set-config -g redis_cache "redis://${ERPNEXT_REDIS_CACHE_HOST}:${ERPNEXT_REDIS_CACHE_PORT}" &&
       bench set-config -g redis_queue "redis://${ERPNEXT_REDIS_QUEUE_HOST}:${ERPNEXT_REDIS_QUEUE_PORT}" &&
       bench set-config -g redis_socketio "redis://${ERPNEXT_REDIS_QUEUE_HOST}:${ERPNEXT_REDIS_QUEUE_PORT}" &&
-      bench set-config -gp socketio_port ${ERPNEXT_SOCKETIO_PORT}
+      bench set-config -gp socketio_port ${ERPNEXT_SOCKETIO_PORT:-9000}
     volumes:
       - erpnext_apps:/home/frappe/frappe-bench/apps
       - erpnext_sites:/home/frappe/frappe-bench/sites

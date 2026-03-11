@@ -17,6 +17,33 @@ wait_for_file() {
   done
 }
 
+ensure_common_site_config_value() {
+  local key="$1"
+  local raw_value="$2"
+  local json_path="sites/common_site_config.json"
+
+  python3 - "$json_path" "$key" "$raw_value" <<'PY'
+import json, pathlib, sys
+path = pathlib.Path(sys.argv[1])
+key = sys.argv[2]
+raw = sys.argv[3]
+obj = {}
+if path.exists():
+    obj = json.loads(path.read_text())
+# preserve integers when possible for socketio_port/db_port
+try:
+    value = int(raw)
+except ValueError:
+    value = raw
+if obj.get(key) != value:
+    obj[key] = value
+    path.write_text(json.dumps(obj, indent=2, sort_keys=True) + "\n")
+    print(f"Set {key} in {path} to {value!r}")
+else:
+    print(f"{key} already present in {path}: {value!r}")
+PY
+}
+
 echo "Waiting for MariaDB and Redis..."
 wait-for-it -t 180 "${ERPNEXT_DB_HOST}:${ERPNEXT_DB_PORT}"
 wait-for-it -t 180 "${ERPNEXT_REDIS_CACHE_HOST}:${ERPNEXT_REDIS_CACHE_PORT}"
@@ -28,6 +55,14 @@ wait_for_file "apps/erpnext"
 
 echo "Waiting for common_site_config.json from configurator..."
 wait_for_file "sites/common_site_config.json"
+
+echo "Ensuring required Frappe settings exist in common_site_config.json..."
+ensure_common_site_config_value db_host "${ERPNEXT_DB_HOST}"
+ensure_common_site_config_value db_port "${ERPNEXT_DB_PORT}"
+ensure_common_site_config_value redis_cache "redis://${ERPNEXT_REDIS_CACHE_HOST}:${ERPNEXT_REDIS_CACHE_PORT}"
+ensure_common_site_config_value redis_queue "redis://${ERPNEXT_REDIS_QUEUE_HOST}:${ERPNEXT_REDIS_QUEUE_PORT}"
+ensure_common_site_config_value redis_socketio "redis://${ERPNEXT_REDIS_QUEUE_HOST}:${ERPNEXT_REDIS_QUEUE_PORT}"
+ensure_common_site_config_value socketio_port "${ERPNEXT_SOCKETIO_PORT:-9000}"
 
 if [ ! -f "sites/${ERPNEXT_SITE_NAME}/site_config.json" ]; then
   echo "Creating ERPNext site ${ERPNEXT_SITE_NAME}..."
@@ -46,6 +81,10 @@ if [ ! -d "apps/hrms" ]; then
 else
   echo "HRMS app already present in apps/."
 fi
+
+# HRMS frontend build reads sites/common_site_config.json directly.
+# Re-assert socketio_port after fetching the app in case previous steps or an empty env var removed it.
+ensure_common_site_config_value socketio_port "${ERPNEXT_SOCKETIO_PORT:-9000}"
 
 if ! bench --site "${ERPNEXT_SITE_NAME}" list-apps | grep -qx "hrms"; then
   echo "Installing HRMS on site ${ERPNEXT_SITE_NAME}..."
