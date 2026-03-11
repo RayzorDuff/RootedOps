@@ -30,7 +30,6 @@ raw = sys.argv[3]
 obj = {}
 if path.exists():
     obj = json.loads(path.read_text())
-# preserve integers when possible for socketio_port/db_port
 try:
     value = int(raw)
 except ValueError:
@@ -64,21 +63,9 @@ ensure_common_site_config_value redis_queue "redis://${ERPNEXT_REDIS_QUEUE_HOST}
 ensure_common_site_config_value redis_socketio "redis://${ERPNEXT_REDIS_QUEUE_HOST}:${ERPNEXT_REDIS_QUEUE_PORT}"
 ensure_common_site_config_value socketio_port "${ERPNEXT_SOCKETIO_PORT:-9000}"
 
-if [ ! -f "sites/${ERPNEXT_SITE_NAME}/site_config.json" ]; then
-  echo "Creating ERPNext site ${ERPNEXT_SITE_NAME}..."
-  bench new-site "${ERPNEXT_SITE_NAME}" \
-    --no-mariadb-socket \
-    --db-root-password "${ERPNEXT_DB_ROOT_PASSWORD}" \
-    --admin-password "${ERPNEXT_ADMIN_PASSWORD}" \
-    --install-app erpnext
-else
-  echo "Site ${ERPNEXT_SITE_NAME} already exists."
-fi
-
-# If a previous failed run left hrms in apps.txt but the app folder is gone,
-# Bench can crash before bootstrap completes.
+# Remove stale hrms registration before any bench site-level commands.
 if [ -f "sites/apps.txt" ] && [ ! -d "apps/hrms" ]; then
-  echo "Removing stale hrms entry from sites/apps.txt until the app is fetched..."
+  echo "Removing stale hrms entry from sites/apps.txt..."
   grep -vx 'hrms' sites/apps.txt > sites/apps.txt.tmp || true
   mv sites/apps.txt.tmp sites/apps.txt
 fi
@@ -104,14 +91,15 @@ if [ -f "sites/apps.txt" ] && ! grep -qx 'hrms' sites/apps.txt; then
   printf 'hrms\n' >> sites/apps.txt
 fi
 
-# HRMS frontend build reads sites/common_site_config.json directly.
 ensure_common_site_config_value socketio_port "${ERPNEXT_SOCKETIO_PORT:-9000}"
 
-if ! bench --site "${ERPNEXT_SITE_NAME}" list-apps | grep -qx "hrms"; then
+# Do not call "bench list-apps" here; it can crash if hrms registration is stale.
+if [ ! -f "sites/${ERPNEXT_SITE_NAME}/.hrms_installed" ]; then
   echo "Installing HRMS on site ${ERPNEXT_SITE_NAME}..."
   bench --site "${ERPNEXT_SITE_NAME}" install-app hrms
+  touch "sites/${ERPNEXT_SITE_NAME}/.hrms_installed"
 else
-  echo "HRMS already installed on ${ERPNEXT_SITE_NAME}."
+  echo "HRMS already marked installed for ${ERPNEXT_SITE_NAME}."
 fi
 
 echo "Setting ERPNext host_name..."
