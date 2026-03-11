@@ -44,7 +44,7 @@ services:
     environment:
       POSTGRES_DB: ${NC_DB_NAME}
       POSTGRES_USER: ${NC_DB_USER}
-      POSTGRES_PASSWORD: ${NC_DB_PASSWORD}   
+      POSTGRES_PASSWORD: ${NC_DB_PASSWORD}
     volumes:
       - nocodb_meta_pgdata:/var/lib/postgresql/data
     restart: unless-stopped
@@ -99,6 +99,7 @@ services:
       - "5678:5678"
     volumes:
       - n8n_data:/home/node/.n8n
+    restart: unless-stopped
 
   appsmith:
     image: appsmith/appsmith-ce:latest
@@ -110,6 +111,7 @@ services:
       - "8081:80"
     volumes:
       - appsmith_stacks:/appsmith-stacks
+    restart: unless-stopped
 
   # --- Documenso Postgres ---
   documenso-postgres:
@@ -134,31 +136,19 @@ services:
   documenso:
     build:
       context: .
-      # Alpine based
-      # dockerfile: documenso.playwright.Dockerfile
-      # Debian based (preferred)
       dockerfile: documenso.Dockerfile
     container_name: documenso
     depends_on:
       - documenso-postgres
     environment:
-      # Public URL used for auth callbacks + links
       NEXT_PUBLIC_WEBAPP_URL: ${DOCUMENSO_PUBLIC_URL}
-  
-      # IMPORTANT (fixes job internal URL issue):
       NEXT_PRIVATE_INTERNAL_WEBAPP_URL: http://documenso:3000
       NEXT_PRIVATE_JOBS_PROVIDER: local
-  
-      # Secrets  
       NEXTAUTH_SECRET: ${DOCUMENSO_NEXTAUTH_SECRET}
       NEXT_PRIVATE_ENCRYPTION_KEY: ${DOCUMENSO_ENCRYPTION_KEY}
       NEXT_PRIVATE_ENCRYPTION_SECONDARY_KEY: ${DOCUMENSO_ENCRYPTION_SECONDARY_KEY}
-
-      # DB
       NEXT_PRIVATE_DATABASE_URL: postgresql://${DOCUMENSO_DB_USER}:${DOCUMENSO_DB_PASSWORD}@${DOCUMENSO_DB_HOST}:${DOCUMENSO_DB_PORT}/${DOCUMENSO_DB_NAME}
       NEXT_PRIVATE_DIRECT_DATABASE_URL: postgresql://${DOCUMENSO_DB_USER}:${DOCUMENSO_DB_PASSWORD}@${DOCUMENSO_DB_HOST}:${DOCUMENSO_DB_PORT}/${DOCUMENSO_DB_NAME}
-  
-      # SMTP
       NEXT_PRIVATE_SMTP_TRANSPORT: ${DOCUMENSO_SMTP_TRANSPORT}
       NEXT_PRIVATE_SMTP_HOST: ${DOCUMENSO_SMTP_HOST}
       NEXT_PRIVATE_SMTP_PORT: ${DOCUMENSO_SMTP_PORT}
@@ -168,24 +158,14 @@ services:
       NEXT_PRIVATE_SMTP_FROM_ADDRESS: ${DOCUMENSO_SMTP_FROM_ADDRESS}
       NEXT_PRIVATE_SMTP_SECURE: ${DOCUMENSO_PRIVATE_SMTP_SECURE}
       NEXT_PRIVATE_SMTP_UNSAFE_IGNORE_TLS: ${DOCUMENSO_PRIVATE_SMTP_UNSAFE_IGNORE_TLS}
-  
-      # Signing certificate passphrase
       NEXT_PRIVATE_SIGNING_CERT_PATH: /opt/documenso/cert.p12
       NEXT_PRIVATE_SIGNING_PASSPHRASE: ${DOCUMENSO_SIGNING_PASSPHRASE}
-
-      # Optional: disable public signup once you have an admin user
       NEXT_PUBLIC_DISABLE_SIGNUP: "true"
-        
-      # Match the cache path:
       PLAYWRIGHT_BROWSERS_PATH: /home/nodejs/.cache/ms-playwright
-  
     ports:
       - "3002:3000"
     volumes:
-      # Create this file once (see LINODE_SETUP.md), or mount your existing .p12 cert:
       - ../documenso/certs/cert.p12:/opt/documenso/cert.p12
-      # Used with Alpine image
-      #- documenso_playwright_cache:/home/nodejs/.cache/ms-playwright
     restart: unless-stopped
 
   grav:
@@ -193,17 +173,223 @@ services:
     container_name: grav
     restart: unless-stopped
     ports:
-      - "8085:80"   
+      - "8085:80"
     volumes:
       - ../grav:/var/www/html:rw
-                                                    B
+
+  # --- ERPNext / Frappe HR ---
+  erpnext-db:
+    image: mariadb:${ERPNEXT_MARIADB_VERSION}
+    container_name: erpnext-db
+    command:
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_unicode_ci
+      - --skip-character-set-client-handshake
+      - --skip-innodb-read-only-compressed
+    environment:
+      MYSQL_ROOT_PASSWORD: ${ERPNEXT_DB_ROOT_PASSWORD}
+      MARIADB_ROOT_PASSWORD: ${ERPNEXT_DB_ROOT_PASSWORD}
+    volumes:
+      - erpnext_db_data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h localhost --password=${ERPNEXT_DB_ROOT_PASSWORD}"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+    restart: unless-stopped
+
+  erpnext-redis-cache:
+    image: redis:${ERPNEXT_REDIS_VERSION}
+    container_name: erpnext-redis-cache
+    volumes:
+      - erpnext_redis_cache_data:/data
+    restart: unless-stopped
+
+  erpnext-redis-queue:
+    image: redis:${ERPNEXT_REDIS_VERSION}
+    container_name: erpnext-redis-queue
+    volumes:
+      - erpnext_redis_queue_data:/data
+    restart: unless-stopped
+
+  erpnext-configurator:
+    image: frappe/erpnext:${ERPNEXT_IMAGE_TAG}
+    container_name: erpnext-configurator
+    depends_on:
+      - erpnext-db
+      - erpnext-redis-cache
+      - erpnext-redis-queue
+    entrypoint:
+      - bash
+      - -lc
+    command: >
+      ls -1 apps > sites/apps.txt &&
+      bench set-config -g db_host ${ERPNEXT_DB_HOST} &&
+      bench set-config -g db_port ${ERPNEXT_DB_PORT} &&
+      bench set-config -g redis_cache "redis://${ERPNEXT_REDIS_CACHE_HOST}:${ERPNEXT_REDIS_CACHE_PORT}" &&
+      bench set-config -g redis_queue "redis://${ERPNEXT_REDIS_QUEUE_HOST}:${ERPNEXT_REDIS_QUEUE_PORT}" &&
+      bench set-config -g redis_socketio "redis://${ERPNEXT_REDIS_QUEUE_HOST}:${ERPNEXT_REDIS_QUEUE_PORT}" &&
+      bench set-config -gp socketio_port ${ERPNEXT_SOCKETIO_PORT}
+    volumes:
+      - erpnext_apps:/home/frappe/frappe-bench/apps
+      - erpnext_sites:/home/frappe/frappe-bench/sites
+      - erpnext_logs:/home/frappe/frappe-bench/logs
+    restart: "no"
+
+  erpnext-backend:
+    image: frappe/erpnext:${ERPNEXT_IMAGE_TAG}
+    container_name: erpnext-backend
+    depends_on:
+      - erpnext-configurator
+    volumes:
+      - erpnext_apps:/home/frappe/frappe-bench/apps
+      - erpnext_sites:/home/frappe/frappe-bench/sites
+      - erpnext_logs:/home/frappe/frappe-bench/logs
+    environment:
+      FRAPPE_REDIS_CACHE: redis://${ERPNEXT_REDIS_CACHE_HOST}:${ERPNEXT_REDIS_CACHE_PORT}
+      FRAPPE_REDIS_QUEUE: redis://${ERPNEXT_REDIS_QUEUE_HOST}:${ERPNEXT_REDIS_QUEUE_PORT}
+    restart: unless-stopped
+
+  erpnext-websocket:
+    image: frappe/erpnext:${ERPNEXT_IMAGE_TAG}
+    container_name: erpnext-websocket
+    depends_on:
+      - erpnext-backend
+    command:
+      - node
+      - /home/frappe/frappe-bench/apps/frappe/socketio.js
+    volumes:
+      - erpnext_apps:/home/frappe/frappe-bench/apps
+      - erpnext_sites:/home/frappe/frappe-bench/sites
+      - erpnext_logs:/home/frappe/frappe-bench/logs
+    environment:
+      FRAPPE_SITE_NAME_HEADER: ${ERPNEXT_SITE_NAME}
+      REDIS_URL: redis://${ERPNEXT_REDIS_QUEUE_HOST}:${ERPNEXT_REDIS_QUEUE_PORT}
+    restart: unless-stopped
+
+  erpnext-queue-short:
+    image: frappe/erpnext:${ERPNEXT_IMAGE_TAG}
+    container_name: erpnext-queue-short
+    depends_on:
+      - erpnext-backend
+    command:
+      - bench
+      - worker
+      - --queue
+      - short,default
+    volumes:
+      - erpnext_apps:/home/frappe/frappe-bench/apps
+      - erpnext_sites:/home/frappe/frappe-bench/sites
+      - erpnext_logs:/home/frappe/frappe-bench/logs
+    environment:
+      FRAPPE_REDIS_CACHE: redis://${ERPNEXT_REDIS_CACHE_HOST}:${ERPNEXT_REDIS_CACHE_PORT}
+      FRAPPE_REDIS_QUEUE: redis://${ERPNEXT_REDIS_QUEUE_HOST}:${ERPNEXT_REDIS_QUEUE_PORT}
+    restart: unless-stopped
+
+  erpnext-queue-long:
+    image: frappe/erpnext:${ERPNEXT_IMAGE_TAG}
+    container_name: erpnext-queue-long
+    depends_on:
+      - erpnext-backend
+    command:
+      - bench
+      - worker
+      - --queue
+      - long,default,short
+    volumes:
+      - erpnext_apps:/home/frappe/frappe-bench/apps
+      - erpnext_sites:/home/frappe/frappe-bench/sites
+      - erpnext_logs:/home/frappe/frappe-bench/logs
+    environment:
+      FRAPPE_REDIS_CACHE: redis://${ERPNEXT_REDIS_CACHE_HOST}:${ERPNEXT_REDIS_CACHE_PORT}
+      FRAPPE_REDIS_QUEUE: redis://${ERPNEXT_REDIS_QUEUE_HOST}:${ERPNEXT_REDIS_QUEUE_PORT}
+    restart: unless-stopped
+
+  erpnext-scheduler:
+    image: frappe/erpnext:${ERPNEXT_IMAGE_TAG}
+    container_name: erpnext-scheduler
+    depends_on:
+      - erpnext-backend
+    command:
+      - bench
+      - schedule
+    volumes:
+      - erpnext_apps:/home/frappe/frappe-bench/apps
+      - erpnext_sites:/home/frappe/frappe-bench/sites
+      - erpnext_logs:/home/frappe/frappe-bench/logs
+    environment:
+      FRAPPE_REDIS_CACHE: redis://${ERPNEXT_REDIS_CACHE_HOST}:${ERPNEXT_REDIS_CACHE_PORT}
+      FRAPPE_REDIS_QUEUE: redis://${ERPNEXT_REDIS_QUEUE_HOST}:${ERPNEXT_REDIS_QUEUE_PORT}
+    restart: unless-stopped
+
+  erpnext-frontend:
+    image: frappe/erpnext:${ERPNEXT_IMAGE_TAG}
+    container_name: erpnext-frontend
+    depends_on:
+      - erpnext-websocket
+    command:
+      - nginx-entrypoint.sh
+    environment:
+      BACKEND: erpnext-backend:8000
+      SOCKETIO: erpnext-websocket:${ERPNEXT_SOCKETIO_PORT}
+      FRAPPE_SITE_NAME_HEADER: ${ERPNEXT_SITE_NAME}
+      UPSTREAM_REAL_IP_ADDRESS: 127.0.0.1
+      UPSTREAM_REAL_IP_HEADER: X-Forwarded-For
+      UPSTREAM_REAL_IP_RECURSIVE: "off"
+      PROXY_READ_TIMEOUT: 120
+      CLIENT_MAX_BODY_SIZE: 50m
+    ports:
+      - "${ERPNEXT_HTTP_PORT}:8080"
+    volumes:
+      - erpnext_apps:/home/frappe/frappe-bench/apps
+      - erpnext_sites:/home/frappe/frappe-bench/sites
+      - erpnext_logs:/home/frappe/frappe-bench/logs
+    restart: unless-stopped
+
+  erpnext-bootstrap:
+    image: frappe/erpnext:${ERPNEXT_IMAGE_TAG}
+    container_name: erpnext-bootstrap
+    profiles: ["erpnext-init"]
+    depends_on:
+      - erpnext-db
+      - erpnext-redis-cache
+      - erpnext-redis-queue
+      - erpnext-configurator
+      - erpnext-backend
+    working_dir: /home/frappe/frappe-bench
+    entrypoint:
+      - bash
+      - /bootstrap/erpnext-bootstrap.sh
+    environment:
+      ERPNEXT_DB_HOST: ${ERPNEXT_DB_HOST}
+      ERPNEXT_DB_PORT: ${ERPNEXT_DB_PORT}
+      ERPNEXT_DB_ROOT_PASSWORD: ${ERPNEXT_DB_ROOT_PASSWORD}
+      ERPNEXT_ADMIN_PASSWORD: ${ERPNEXT_ADMIN_PASSWORD}
+      ERPNEXT_SITE_NAME: ${ERPNEXT_SITE_NAME}
+      ERPNEXT_PUBLIC_URL: ${ERPNEXT_PUBLIC_URL}
+      ERPNEXT_HRMS_BRANCH: ${ERPNEXT_HRMS_BRANCH}
+      ERPNEXT_REDIS_CACHE_HOST: ${ERPNEXT_REDIS_CACHE_HOST}
+      ERPNEXT_REDIS_CACHE_PORT: ${ERPNEXT_REDIS_CACHE_PORT}
+      ERPNEXT_REDIS_QUEUE_HOST: ${ERPNEXT_REDIS_QUEUE_HOST}
+      ERPNEXT_REDIS_QUEUE_PORT: ${ERPNEXT_REDIS_QUEUE_PORT}
+    volumes:
+      - ./erpnext-bootstrap.sh:/bootstrap/erpnext-bootstrap.sh:ro
+      - erpnext_apps:/home/frappe/frappe-bench/apps
+      - erpnext_sites:/home/frappe/frappe-bench/sites
+      - erpnext_logs:/home/frappe/frappe-bench/logs
+    restart: "no"
+
 volumes:
   signaturegate_pgdata:
   mushroomprocess_bridge_pgdata:
   nocodb_meta_pgdata:
   nocodb_data:
   documenso_pgdata:
-  # Used with Alpine image
-  #documenso_playwright_cache:
   n8n_data:
   appsmith_stacks:
+  erpnext_db_data:
+  erpnext_redis_cache_data:
+  erpnext_redis_queue_data:
+  erpnext_apps:
+  erpnext_sites:
+  erpnext_logs:

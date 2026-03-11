@@ -5,6 +5,7 @@ This is intentionally high-level and points you to upstream docs where appropria
 ## 0. Provision
 - Ubuntu 22.04/24.04 LTS
 - Enable backups, add an SSH key, disable password SSH.
+- Size the Linode for the combined workload. With Appsmith, NocoDB, Documenso, Grav, PostgreSQL, MariaDB, Redis, and ERPNext/Frappe HR on one host, start closer to an 8 GB / 4 vCPU plan than a minimal instance.
 
 ## 1. Baseline hardening
 - Create non-root user, add to sudo
@@ -13,13 +14,14 @@ useradd -m signaturegate
 passwd signaturegate
 usermod -aG sudo signaturegate
 ```
-- Configure UFW: allow 22, 80, 443, 8080
+- Configure UFW: allow 22, 80, 443
 ```bash
-sudo ufw allow 22/tcp && sudo ufw allow 80/tcp && sudo ufw allow 443/tcp && sudo ufw allow 8080/tcp && sudo ufw --force enable
+sudo ufw allow 22/tcp && sudo ufw allow 80/tcp && sudo ufw allow 443/tcp && sudo ufw --force enable
 ```
-- Install fail2ban and dotenv
+- Install fail2ban and base tooling
 ```bash
-sudo apt-get install -y ca-certificates curl gnupg ufw fail2ban git python3 python3-dotenv-cli
+sudo apt-get update
+sudo apt-get install -y ca-certificates curl gnupg ufw fail2ban git jq mariadb-client postgresql-client python3 python3-dotenv-cli
 ```
 - Keep system updated
 
@@ -27,23 +29,62 @@ sudo apt-get install -y ca-certificates curl gnupg ufw fail2ban git python3 pyth
 Follow Docker’s official instructions for Ubuntu:
 https://docs.docker.com/engine/install/ubuntu/
 
-## 3. Deploy SignatureGate stack
+## 3. Deploy the base SignatureGate stack
 ```bash
-su signaturegate
+su - signaturegate
 ssh-keygen -t ed25519 -C "your@email.com"
-cat ~/.ssh/id_ed25519.pub (For access to SignatureGate git)
+cat ~/.ssh/id_ed25519.pub   # add for repository access if needed
 git clone git@github.com/RayzorDuff/SignatureGate.git signaturegate
 cd signaturegate
 cp .env.example .env
-# edit secrets in .env
-sudo docker compose --env-file ./.env -f deploy/docker/docker-compose.yml up -d
-sudo docker ps
-sudo docker logs nocodb
+nano .env
 ```
 
-## 4. Add TLS + reverse proxy (recommended)
+Fill in all existing secrets, then also set the ERPNext section at the bottom of `.env`:
 
-## 4a. Use the provided NGINX site configs (recommended)
+- `ERPNEXT_PUBLIC_URL=https://erpnext.yourdomain.com`
+- `ERPNEXT_DB_ROOT_PASSWORD`
+- `ERPNEXT_ADMIN_PASSWORD`
+- `ERPNEXT_HRMS_BRANCH=version-16`
+
+Start the long-running services:
+
+```bash
+sudo docker compose --env-file ./.env -f deploy/docker/docker-compose.yml up -d
+sudo docker ps
+```
+
+## 4. Bootstrap ERPNext + Frappe HR (one time)
+
+ERPNext runs in the official `frappe/erpnext` container family, while payroll and HR features come from the separate Frappe HR / HRMS app. Run the one-time bootstrap service after the main compose stack is up.
+
+```bash
+sudo docker compose --env-file ./.env -f deploy/docker/docker-compose.yml --profile erpnext-init up erpnext-bootstrap
+```
+
+That bootstrap service will:
+
+- wait for MariaDB and Redis
+- create the initial ERPNext site if it does not already exist
+- fetch the HRMS app into the persistent ERPNext apps volume
+- install HRMS on the ERPNext site
+- set `host_name` to `ERPNEXT_PUBLIC_URL`
+- run a final migrate
+
+Re-running the bootstrap command is safe; it is written to be idempotent.
+
+### Useful ERPNext checks
+```bash
+sudo docker compose --env-file ./.env -f deploy/docker/docker-compose.yml logs -f erpnext-bootstrap
+sudo docker compose --env-file ./.env -f deploy/docker/docker-compose.yml exec erpnext-backend bench --site "$ERPNEXT_SITE_NAME" list-apps
+sudo docker compose --env-file ./.env -f deploy/docker/docker-compose.yml exec erpnext-backend bench --site "$ERPNEXT_SITE_NAME" doctor
+```
+
+Expected installed apps after bootstrap:
+- `erpnext`
+- `hrms`
+
+## 5. NGINX reverse proxy + TLS
 
 This repo includes example NGINX site configs under:
 
@@ -52,74 +93,35 @@ This repo includes example NGINX site configs under:
 - `deploy/nginx/appsmith.conf`
 - `deploy/nginx/documenso.conf`
 - `deploy/nginx/grav.conf`
+- `deploy/nginx/erpnext.conf`
 
 Install them like this:
 
 ```bash
+sudo apt-get install -y nginx certbot python3-certbot-nginx
 sudo cp deploy/nginx/*.conf /etc/nginx/sites-available/
 sudo ln -sf /etc/nginx/sites-available/n8n.conf /etc/nginx/sites-enabled/n8n.conf
 sudo ln -sf /etc/nginx/sites-available/nocodb.conf /etc/nginx/sites-enabled/nocodb.conf
 sudo ln -sf /etc/nginx/sites-available/appsmith.conf /etc/nginx/sites-enabled/appsmith.conf
 sudo ln -sf /etc/nginx/sites-available/documenso.conf /etc/nginx/sites-enabled/documenso.conf
 sudo ln -sf /etc/nginx/sites-available/grav.conf /etc/nginx/sites-enabled/grav.conf
+sudo ln -sf /etc/nginx/sites-available/erpnext.conf /etc/nginx/sites-enabled/erpnext.conf
 sudo nginx -t
 sudo systemctl reload nginx
 ```
 
-Then issue certificates (example):
+Issue certificates (example):
 
 ```bash
-sudo certbot --nginx -d n8n.yourdomain.com -d nocodb.yourdomain.com -d appsmith.yourdomain.com -d documenso.yourdomain.com -d www.yourdomain.com -d yourdomain.com
+sudo certbot --nginx   -d n8n.yourdomain.com   -d nocodb.yourdomain.com   -d appsmith.yourdomain.com   -d documenso.yourdomain.com   -d erpnext.yourdomain.com   -d yourdomain.com   -d www.yourdomain.com
 ```
 
-Set up NGINX as a reverse proxy.  Change n8n.yourdomain.com to match your server name.
+After DNS and certificates are in place, verify:
 
 ```bash
-sudo nano /etc/nginx/sites-available/n8n.conf
-
-server {
-    listen 80;
-    server_name n8n.yourdomain.com;
-
-    location / {
-        proxy_pass http://localhost:5678/;
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto $scheme;
-    }
-}
+curl -I http://localhost:8086
+curl -I https://erpnext.yourdomain.com
 ```
-
-Enable NGINX and restart
-```bash
-sudo ln -s /etc/nginx/sites-available/n8n.conf /etc/nginx/sites-enabled/n8n.conf
-sudo nginx -t # Test the configuration for syntax errors
-sudo systemctl restart nginx
-```
-Ensure your DNS is configured correctly and obtain an SSL Certificate with certbot
-```bash
-sudo certbot --nginx -d n8n.yourdomain.com
-```
-
-Configure your .env 
-```bash
-N8N_HOST=n8n.yourdomain.com
-N8N_PORT=5678
-N8N_PROTOCOL=https
-WEBHOOK_URL=https://n8n.yourdomain.com/
-```
-
-Reload n8n
-```bash
-sudo docker compose --env-file ./.env -f deploy/docker/docker-compose.yml up -d
-```
-You may do the same for Appsmith (appsmith.yourdomain.com) and NocoDB (nocodb.yourdomain.com)
-
-## 5. Backups
-- pg_dump nightly for each Postgres volume
-- snapshot volumes
-- store agreement evidence files in object storage and back it up
 
 ## 6. Documenso (self-hosted signing)
 
@@ -154,55 +156,52 @@ sudo chmod 644 deploy/documenso/certs/cert.p12
 sudo docker compose --env-file ./.env -f deploy/docker/docker-compose.yml up -d documenso-postgres documenso
 ```
 
-Generate a self-signed `.p12` inside the container (recommended by Documenso):
+Generate a self-signed `.p12` inside the container:
 
 ```bash
 read -s -p "Enter Documenso cert passphrase (DOCUMENSO_SIGNING_PASSPHRASE): " CERT_PASS
 echo
-sudo docker exec --env-file ./.env -e CERT_PASS="$CERT_PASS" -it documenso openssl req -x509 -nodes -days 365 -newkey rsa:2048     -keyout /tmp/private.key     -out /tmp/certificate.crt     -subj '/C=US/ST=Colorado/L=Denver/O=SignatureGate/CN=documenso'
-sudo docker exec --env-file ./.env -e CERT_PASS="$CERT_PASS" -it documenso openssl pkcs12 -export -legacy -out /opt/documenso/cert.p12     -inkey /tmp/private.key -in /tmp/certificate.crt     -passout env:CERT_PASS
-sudo docker exec --env-file ./.env -it documenso rm /tmp/private.key /tmp/certificate.crt
-```
-
-Restart Documenso:
-
-```bash
+sudo docker exec -e CERT_PASS="$CERT_PASS" -it documenso openssl req -x509 -nodes -days 365 -newkey rsa:2048 -keyout /tmp/private.key -out /tmp/certificate.crt -subj '/C=US/ST=Colorado/L=Denver/O=SignatureGate/CN=documenso'
+sudo docker exec -e CERT_PASS="$CERT_PASS" -it documenso openssl pkcs12 -export -legacy -out /opt/documenso/cert.p12 -inkey /tmp/private.key -in /tmp/certificate.crt -passout env:CERT_PASS
+sudo docker exec -it documenso rm /tmp/private.key /tmp/certificate.crt
 sudo docker compose --env-file ./.env -f deploy/docker/docker-compose.yml restart documenso
 ```
 
 ### 6.3 Verify
 - Documenso should be reachable at `https://documenso.yourdomain.com`
-- Health endpoint (from the Linode):
+- Health endpoint from the Linode:
   - `curl http://localhost:3002/api/health`
 
-
-### Documenso certificate signing
-
 If Documenso documents get stuck in “Processing document…” after both recipients sign, see:
-
 - `deploy/DOCUMENSO_CERT_TROUBLESHOOTING.md`
 
-## 7 Grav
+## 7. Grav
 
-Launch Grav
+Launch Grav if it is not already running:
 ```bash
-sudo docker compose -f deploy/docker/docker-compose.yml --env-file ./.env up grav
+sudo docker compose --env-file ./.env -f deploy/docker/docker-compose.yml up -d grav
 ```
 
-Configure the Grav Administration interface at http://localhost:8085/admin
+Configure Grav at `http://localhost:8085/admin`, then point your browser to `https://www.yourdomain.com`.
 
+## 8. Backups
+- Nightly database dumps for:
+  - SignatureGate Postgres
+  - MushroomProcess bridge Postgres
+  - NocoDB metadata Postgres
+  - Documenso Postgres
+  - ERPNext MariaDB
+- Snapshot Docker volumes regularly.
+- Back up `erpnext_sites`, `erpnext_apps`, and `erpnext_logs` alongside database dumps.
+- Store signed documents and other evidence files in durable off-server storage.
 
-Enable NGINX and restart
+### Example ERPNext backup commands
 ```bash
-sudo ln -s /etc/nginx/sites-available/grav.conf /etc/nginx/sites-enabled/grav.conf
-sudo nginx -t # Test the configuration for syntax errors
-sudo systemctl restart nginx
-```
-Ensure your DNS is configured correctly and obtain an SSL Certificate with certbot
-```bash
-sudo certbot --nginx -d www.yourdomain.com -d yourdomain.com
+sudo docker compose --env-file ./.env -f deploy/docker/docker-compose.yml exec erpnext-backend bench --site "$ERPNEXT_SITE_NAME" backup --with-files
+sudo docker compose --env-file ./.env -f deploy/docker/docker-compose.yml exec erpnext-db mariadb-dump -uroot -p"$ERPNEXT_DB_ROOT_PASSWORD" --all-databases > erpnext-all.sql
 ```
 
-Edit deploy/grav/user/pages/01.home/default.md 
-
-Point your web browser to https://www.yourdomain.com
+## 9. Operational notes
+- Use ERPNext Companies for both Dank Mushrooms and Rooted Psyche inside one ERPNext site unless you later decide you need strict application-level separation.
+- Keep SignatureGate / MushroomProcess application databases separate from ERPNext. Integration should happen through APIs, exports, or controlled ETL, not shared tables.
+- ERPNext and Frappe HR are resource-hungry compared with Grav or n8n; monitor memory pressure closely after enabling payroll and background jobs.
