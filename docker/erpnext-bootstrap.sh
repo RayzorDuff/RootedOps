@@ -76,10 +76,8 @@ else
 fi
 
 if [ ! -d "apps/hrms" ]; then
-  echo "Fetching HRMS app (${ERPNEXT_HRMS_BRANCH})..."
-  bench get-app --branch "${ERPNEXT_HRMS_BRANCH}" hrms https://github.com/frappe/hrms
-else
-  echo "HRMS app already present in apps/."
+  echo "ERROR: apps/hrms is missing from the ERPNext image. Rebuild the custom ERPNext image before running bootstrap." >&2
+  exit 1
 fi
 
 # HRMS frontend build reads sites/common_site_config.json directly.
