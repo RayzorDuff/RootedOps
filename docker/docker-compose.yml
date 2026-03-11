@@ -212,6 +212,23 @@ services:
       - erpnext_redis_queue_data:/data
     restart: unless-stopped
 
+  erpnext-apps-init:
+    image: frappe/erpnext:${ERPNEXT_IMAGE_TAG}
+    container_name: erpnext-apps-init
+    entrypoint:
+      - bash
+      - -lc
+    command: >
+      if [ ! -d /out-apps/frappe ] || [ ! -d /out-apps/erpnext ]; then
+        echo 'Initializing ERPNext apps volume from container image...' &&
+        cp -a /home/frappe/frappe-bench/apps/. /out-apps/;
+      else
+        echo 'ERPNext apps volume already initialized.';
+      fi
+    volumes:
+      - erpnext_apps:/out-apps
+    restart: "no"
+
   erpnext-configurator:
     image: frappe/erpnext:${ERPNEXT_IMAGE_TAG}
     container_name: erpnext-configurator
@@ -219,10 +236,12 @@ services:
       - erpnext-db
       - erpnext-redis-cache
       - erpnext-redis-queue
+      - erpnext-apps-init
     entrypoint:
       - bash
       - -lc
     command: >
+      mkdir -p sites &&
       ls -1 apps > sites/apps.txt &&
       bench set-config -g db_host ${ERPNEXT_DB_HOST} &&
       bench set-config -g db_port ${ERPNEXT_DB_PORT} &&
@@ -326,6 +345,7 @@ services:
     image: frappe/erpnext:${ERPNEXT_IMAGE_TAG}
     container_name: erpnext-frontend
     depends_on:
+      - erpnext-backend
       - erpnext-websocket
     command:
       - nginx-entrypoint.sh
@@ -341,7 +361,6 @@ services:
     ports:
       - "${ERPNEXT_HTTP_PORT}:8080"
     volumes:
-      - erpnext_apps:/home/frappe/frappe-bench/apps
       - erpnext_sites:/home/frappe/frappe-bench/sites
       - erpnext_logs:/home/frappe/frappe-bench/logs
     restart: unless-stopped
@@ -354,6 +373,7 @@ services:
       - erpnext-db
       - erpnext-redis-cache
       - erpnext-redis-queue
+      - erpnext-apps-init
       - erpnext-configurator
       - erpnext-backend
     working_dir: /home/frappe/frappe-bench
