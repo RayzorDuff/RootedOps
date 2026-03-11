@@ -1,5 +1,6 @@
 x-erpnext-image: &erpnext_image
   image: signaturegate-erpnext:${ERPNEXT_IMAGE_TAG}
+  pull_policy: never
   build:
     context: .
     dockerfile: erpnext-custom.Dockerfile
@@ -441,3 +442,9 @@ volumes:
   #documenso_playwright_cache:
   n8n_data:
   appsmith_stacks:
+  erpnext_db_data:
+  erpnext_redis_cache_data:
+  erpnext_redis_queue_data:
+  erpnext_sites:
+  erpnext_logs:
+  erpnext_apps:
