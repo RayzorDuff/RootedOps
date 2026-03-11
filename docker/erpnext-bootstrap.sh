@@ -75,9 +75,33 @@ else
   echo "Site ${ERPNEXT_SITE_NAME} already exists."
 fi
 
+# If a previous failed run left hrms in apps.txt but the app folder is gone,
+# Bench can crash before bootstrap completes.
+if [ -f "sites/apps.txt" ] && [ ! -d "apps/hrms" ]; then
+  echo "Removing stale hrms entry from sites/apps.txt until the app is fetched..."
+  grep -vx 'hrms' sites/apps.txt > sites/apps.txt.tmp || true
+  mv sites/apps.txt.tmp sites/apps.txt
+fi
+
+if [ ! -f "sites/${ERPNEXT_SITE_NAME}/site_config.json" ]; then
+  echo "Creating ERPNext site ${ERPNEXT_SITE_NAME}..."
+  bench new-site "${ERPNEXT_SITE_NAME}" \
+    --mariadb-user-host-login-scope='%' \
+    --db-root-password "${ERPNEXT_DB_ROOT_PASSWORD}" \
+    --admin-password "${ERPNEXT_ADMIN_PASSWORD}" \
+    --install-app erpnext
+else
+  echo "Site ${ERPNEXT_SITE_NAME} already exists."
+fi
+
 if [ ! -d "apps/hrms" ]; then
   echo "Fetching HRMS app..."
   bench get-app --branch "${ERPNEXT_HRMS_BRANCH}" hrms https://github.com/frappe/hrms.git
+fi
+
+if [ -f "sites/apps.txt" ] && ! grep -qx 'hrms' sites/apps.txt; then
+  echo "Registering hrms in sites/apps.txt..."
+  printf 'hrms\n' >> sites/apps.txt
 fi
 
 # HRMS frontend build reads sites/common_site_config.json directly.
