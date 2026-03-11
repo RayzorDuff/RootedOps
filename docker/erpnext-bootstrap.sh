@@ -76,12 +76,11 @@ else
 fi
 
 if [ ! -d "apps/hrms" ]; then
-  echo "ERROR: apps/hrms is missing from the ERPNext image. Rebuild the custom ERPNext image before running bootstrap." >&2
-  exit 1
+  echo "Fetching HRMS app..."
+  bench get-app --branch "${ERPNEXT_HRMS_BRANCH}" hrms https://github.com/frappe/hrms.git
 fi
 
 # HRMS frontend build reads sites/common_site_config.json directly.
-# Re-assert socketio_port after fetching the app in case previous steps or an empty env var removed it.
 ensure_common_site_config_value socketio_port "${ERPNEXT_SOCKETIO_PORT:-9000}"
 
 if ! bench --site "${ERPNEXT_SITE_NAME}" list-apps | grep -qx "hrms"; then
