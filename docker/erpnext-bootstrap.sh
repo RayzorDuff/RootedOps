@@ -82,8 +82,8 @@ else
 fi
 
 if [ ! -d "apps/hrms" ]; then
-  echo "Fetching HRMS app..."
-  bench get-app --branch "${ERPNEXT_HRMS_BRANCH}" hrms https://github.com/frappe/hrms.git
+  echo "ERROR: apps/hrms is missing from the built ERPNext image." >&2
+  exit 1
 fi
 
 if [ -f "sites/apps.txt" ] && ! grep -qx 'hrms' sites/apps.txt; then
@@ -93,13 +93,11 @@ fi
 
 ensure_common_site_config_value socketio_port "${ERPNEXT_SOCKETIO_PORT:-9000}"
 
-# Do not call "bench list-apps" here; it can crash if hrms registration is stale.
-if [ ! -f "sites/${ERPNEXT_SITE_NAME}/.hrms_installed" ]; then
+if ! bench --site "${ERPNEXT_SITE_NAME}" list-apps | grep -qx "hrms"; then
   echo "Installing HRMS on site ${ERPNEXT_SITE_NAME}..."
   bench --site "${ERPNEXT_SITE_NAME}" install-app hrms
-  touch "sites/${ERPNEXT_SITE_NAME}/.hrms_installed"
 else
-  echo "HRMS already marked installed for ${ERPNEXT_SITE_NAME}."
+  echo "HRMS already installed on ${ERPNEXT_SITE_NAME}."
 fi
 
 echo "Setting ERPNext host_name..."
