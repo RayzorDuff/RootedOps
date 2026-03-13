@@ -274,7 +274,7 @@ services:
       - -lc
     command: >
       mkdir -p sites &&
-      ls -1 apps > sites/apps.txt &&
+      printf "frappe\nerpnext\nhrms\n" > sites/apps.txt &&
       bench set-config -g db_host ${ERPNEXT_DB_HOST} &&
       bench set-config -g db_port ${ERPNEXT_DB_PORT} &&
       bench set-config -g redis_cache "redis://${ERPNEXT_REDIS_CACHE_HOST}:${ERPNEXT_REDIS_CACHE_PORT}" &&

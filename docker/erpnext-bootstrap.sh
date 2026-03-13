@@ -63,12 +63,12 @@ ensure_common_site_config_value redis_queue "redis://${ERPNEXT_REDIS_QUEUE_HOST}
 ensure_common_site_config_value redis_socketio "redis://${ERPNEXT_REDIS_QUEUE_HOST}:${ERPNEXT_REDIS_QUEUE_PORT}"
 ensure_common_site_config_value socketio_port "${ERPNEXT_SOCKETIO_PORT:-9000}"
 
-# Remove stale hrms registration before any bench site-level commands.
-if [ -f "sites/apps.txt" ] && [ ! -d "apps/hrms" ]; then
-  echo "Removing stale hrms entry from sites/apps.txt..."
-  grep -vx 'hrms' sites/apps.txt > sites/apps.txt.tmp || true
-  mv sites/apps.txt.tmp sites/apps.txt
-fi
+echo "Writing canonical sites/apps.txt..."
+cat > sites/apps.txt <<'EOF'
+frappe
+erpnext
+hrms
+EOF
 
 if [ ! -f "sites/${ERPNEXT_SITE_NAME}/site_config.json" ]; then
   echo "Creating ERPNext site ${ERPNEXT_SITE_NAME}..."
@@ -93,12 +93,13 @@ fi
 
 ensure_common_site_config_value socketio_port "${ERPNEXT_SOCKETIO_PORT:-9000}"
 
-if ! bench --site "${ERPNEXT_SITE_NAME}" list-apps | grep -qx "hrms"; then
-  echo "Installing HRMS on site ${ERPNEXT_SITE_NAME}..."
-  bench --site "${ERPNEXT_SITE_NAME}" install-app hrms
-else
-  echo "HRMS already installed on ${ERPNEXT_SITE_NAME}."
-fi
+echo "Installing HRMS on site ${ERPNEXT_SITE_NAME}..."
+bench --site "${ERPNEXT_SITE_NAME}" install-app hrms || true
+
+echo "Verifying HRMS install..."
+bench --site "${ERPNEXT_SITE_NAME}" mariadb -e "select app_name from \`tabInstalled Applications\` where app_name='hrms';" | grep -q hrms \
+  && echo "HRMS installed." \
+  || { echo "HRMS install did not complete cleanly."; exit 1; }
 
 echo "Setting ERPNext host_name..."
 bench --site "${ERPNEXT_SITE_NAME}" set-config host_name "${ERPNEXT_PUBLIC_URL}"
