@@ -281,7 +281,15 @@ mkdir -p /home/signaturegate/.cache/rclone
 mkdir -p /home/signaturegate/.local/state
 ```
 
-### 9.4 Install the example systemd unit
+### 9.4 Ensure allow-other is enabled 
+
+/etc/fuse.conf must contain the user_allow_other
+
+```bash
+sudo vim /etc/fuse.conf
+```
+
+### 9.5 Install the example systemd unit
 The repo includes `deploy/backup/rclone-gdrive.service.example`.
 
 Install it as root:
@@ -299,7 +307,7 @@ mount | grep google-drive
 ls -la /mnt/google-drive
 ```
 
-### 9.5 Notes
+### 9.6 Notes
 - The mount runs as the `signaturegate` user.
 - If you change the remote name, mount path, or username, update the service file.
 - If the service fails at boot, inspect:
@@ -329,7 +337,9 @@ Backups are written under:
 /mnt/google-drive/SignatureGateBackups/signaturegate/YYYYMMDD-HHMMSS/
 ```
 
-A `latest` symlink is also maintained.
+A `latest` symlink is not maintained due to Google Drive not supporting links natively.
+Future versions of the backup script may write to a temporary directory and sync so that rclone will 
+maintain links.
 
 ### 10.2 Run a manual test backup first
 
