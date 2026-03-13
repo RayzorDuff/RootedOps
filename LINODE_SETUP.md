@@ -289,7 +289,14 @@ mkdir -p /home/signaturegate/.local/state
 sudo vim /etc/fuse.conf
 ```
 
-### 9.5 Install the example systemd unit
+### 9.5 Ensure local user can use sudo without password
+
+```bash
+sudo visudo
+signaturegate ALL=(ALL) NOPASSWD: ALL
+```
+
+### 9.6 Install the example systemd unit
 The repo includes `deploy/backup/rclone-gdrive.service.example`.
 
 Install it as root:
@@ -307,7 +314,7 @@ mount | grep google-drive
 ls -la /mnt/google-drive
 ```
 
-### 9.6 Notes
+### 9.7 Notes
 - The mount runs as the `signaturegate` user.
 - If you change the remote name, mount path, or username, update the service file.
 - If the service fails at boot, inspect:
