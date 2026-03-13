@@ -72,7 +72,7 @@ backup_volume() {
     -v "$volume_name:/volume:ro" \
     -v "$BACKUP_DIR/volumes:/backup" \
     alpine:3.20 \
-    sh -lc "cd /volume && tar -czf /backup/$archive_name --numeric-owner --xattrs --acls ."
+    sh -lc "cd /volume && tar -czf /backup/$archive_name --numeric-owner ."
 }
 
 backup_bind_path() {
@@ -119,5 +119,8 @@ backup_bind_path "$REPO_ROOT/deploy/LINODE_SETUP.md" linode-setup-md.tgz
   find . -type f ! -name 'SHA256SUMS' -print0 | sort -z | xargs -0 sha256sum > SHA256SUMS
 )
 
-ln -sfn "$BACKUP_DIR" "$LATEST_LINK"
+#ln -sfn "$BACKUP_DIR" "$LATEST_LINK"
+#Google Drive support for links - alternative in the future may be rclone link handling
+echo "$BACKUP_DIR" > "$LATEST_LINK"
+
 log "Backup complete: $BACKUP_DIR"
