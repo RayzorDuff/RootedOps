@@ -1,0 +1,26 @@
+[Unit]
+Description=Mount Google Drive backup target with rclone
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=notify
+User=signaturegate
+Group=signaturegate
+ExecStart=/usr/bin/rclone mount signaturegate-gdrive: /mnt/google-drive \
+  --config=/home/signaturegate/.config/rclone/rclone.conf \
+  --cache-dir=/home/signaturegate/.cache/rclone \
+  --dir-cache-time=72h \
+  --poll-interval=1m \
+  --vfs-cache-mode=full \
+  --vfs-cache-max-age=24h \
+  --vfs-cache-max-size=10G \
+  --log-file=/home/signaturegate/.local/state/rclone-gdrive.log \
+  --log-level=INFO \
+  --allow-other
+ExecStop=/bin/fusermount -u /mnt/google-drive
+Restart=on-failure
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target

@@ -1,59 +1,84 @@
 # Linode setup (Linux)
 
-This is intentionally high-level and points you to upstream docs where appropriate.
+This is intentionally practical rather than exhaustive. It assumes Ubuntu 22.04 or 24.04 on a single Linode running the full SignatureGate stack from this repository.
 
 ## 0. Provision
 - Ubuntu 22.04/24.04 LTS
-- Enable backups, add an SSH key, disable password SSH.
-- Size the Linode for the combined workload. With Appsmith, NocoDB, Documenso, Grav, PostgreSQL, MariaDB, Redis, and ERPNext/Frappe HR on one host, start closer to an 8 GB / 4 vCPU plan than a minimal instance.
+- Enable Linode backups.
+- Add an SSH key during provisioning and disable password SSH.
+- Size the Linode for the combined workload. With Appsmith, NocoDB, Documenso, Grav, PostgreSQL, MariaDB, Redis, n8n, and ERPNext/Frappe HR on one host, start closer to an 8 GB / 4 vCPU plan than a minimal instance.
+- Add a DNS A record for each subdomain you intend to proxy.
 
 ## 1. Baseline hardening
-- Create non-root user, add to sudo
+- Create a non-root user and add it to sudo:
+
 ```bash
-useradd -m signaturegate
-passwd signaturegate
-usermod -aG sudo signaturegate
+sudo useradd -m signaturegate
+sudo passwd signaturegate
+sudo usermod -aG sudo signaturegate
 ```
-- Configure UFW: allow 22, 80, 443, 8080
+
+- Configure UFW:
+
 ```bash
-sudo ufw allow 22/tcp && sudo ufw allow 80/tcp && sudo ufw allow 443/tcp && sudo ufw allow 8080/tcp && sudo ufw --force enable
+sudo ufw allow 22/tcp
+sudo ufw allow 80/tcp
+sudo ufw allow 443/tcp
+sudo ufw allow 8080/tcp
+sudo ufw --force enable
 ```
-- Install fail2ban and base tooling
+
+- Install base tooling:
+
 ```bash
 sudo apt-get update
-sudo apt-get install -y ca-certificates curl gnupg ufw fail2ban git jq mariadb-client postgresql-client python3 python3-dotenv-cli
+sudo apt-get install -y \
+  ca-certificates \
+  curl \
+  fuse3 \
+  git \
+  gnupg \
+  jq \
+  mariadb-client \
+  postgresql-client \
+  python3 \
+  python3-dotenv-cli \
+  tar \
+  unzip \
+  ufw \
+  fail2ban
 ```
-- Keep system updated
+
+- Keep the system patched.
 
 ## 2. Install Docker
-Follow Docker’s official instructions for Ubuntu:
-https://docs.docker.com/engine/install/ubuntu/
+Follow Docker's official Ubuntu instructions.
 
 ## 3. Deploy the base SignatureGate stack
+
 ```bash
 su - signaturegate
 ssh-keygen -t ed25519 -C "your@email.com"
-cat ~/.ssh/id_ed25519.pub   # add for repository access if needed
+cat ~/.ssh/id_ed25519.pub
+# add the key for repository access if needed
+
 git clone git@github.com/RayzorDuff/SignatureGate.git signaturegate
 cd signaturegate
 cp .env.example .env
-# edit secrets in .env
+nano .env
 sudo docker compose --env-file ./.env -f deploy/docker/docker-compose.yml up -d
 sudo docker ps
-sudo docker logs nocodb
 ```
 
 ## 4. Add TLS + reverse proxy (recommended)
 
-## 4a. Use the provided NGINX site configs (recommended)
-
 This repo includes example NGINX site configs under:
-
 - `deploy/nginx/n8n.conf`
 - `deploy/nginx/nocodb.conf`
 - `deploy/nginx/appsmith.conf`
 - `deploy/nginx/documenso.conf`
 - `deploy/nginx/grav.conf`
+- `deploy/nginx/erpnext.conf`
 
 Install them like this:
 
@@ -65,170 +90,126 @@ sudo ln -sf /etc/nginx/sites-available/nocodb.conf /etc/nginx/sites-enabled/noco
 sudo ln -sf /etc/nginx/sites-available/appsmith.conf /etc/nginx/sites-enabled/appsmith.conf
 sudo ln -sf /etc/nginx/sites-available/documenso.conf /etc/nginx/sites-enabled/documenso.conf
 sudo ln -sf /etc/nginx/sites-available/grav.conf /etc/nginx/sites-enabled/grav.conf
+sudo ln -sf /etc/nginx/sites-available/erpnext.conf /etc/nginx/sites-enabled/erpnext.conf
 sudo nginx -t
 sudo systemctl reload nginx
 ```
 
-Then issue certificates (example):
+Then request certificates:
 
 ```bash
-sudo certbot --nginx -d n8n.yourdomain.com -d nocodb.yourdomain.com -d appsmith.yourdomain.com -d documenso.yourdomain.com -d www.yourdomain.com -d yourdomain.com
+sudo certbot --nginx \
+  -d n8n.yourdomain.com \
+  -d nocodb.yourdomain.com \
+  -d appsmith.yourdomain.com \
+  -d documenso.yourdomain.com \
+  -d erp.yourdomain.com \
+  -d www.yourdomain.com \
+  -d yourdomain.com
 ```
 
-Set up NGINX as a reverse proxy.  Change n8n.yourdomain.com to match your server name.
+Update `.env` values so each service knows its public URL.
 
-```bash
-sudo nano /etc/nginx/sites-available/n8n.conf
+## 5. Persistent data map in this stack
 
-server {
-    listen 80;
-    server_name n8n.yourdomain.com;
+Before defining backups, it helps to identify what actually needs to be preserved.
 
-    location / {
-        proxy_pass http://localhost:5678/;
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto $scheme;
-    }
-}
-```
+### Databases
+- `signaturegate-postgres` → `signaturegate_pgdata`
+- `mushroomprocess-bridge-postgres` → `mushroomprocess_bridge_pgdata`
+- `nocodb-meta-postgres` → `nocodb_meta_pgdata`
+- `documenso-postgres` → `documenso_pgdata`
+- `erpnext-db` (MariaDB) → `erpnext_db_data`
 
-Enable NGINX and restart
-```bash
-sudo ln -s /etc/nginx/sites-available/n8n.conf /etc/nginx/sites-enabled/n8n.conf
-sudo nginx -t # Test the configuration for syntax errors
-sudo systemctl restart nginx
-```
-Ensure your DNS is configured correctly and obtain an SSL Certificate with certbot
-```bash
-sudo certbot --nginx -d n8n.yourdomain.com
-```
+### Non-database Docker volumes to preserve
+- `nocodb_data` → NocoDB app data and uploads
+- `n8n_data` → n8n config, credentials, workflows, encryption state
+- `appsmith_stacks` → Appsmith persistent data
+- `erpnext_sites` → ERPNext sites and uploaded files
+- `erpnext_apps` → ERPNext apps volume initialized from the custom image
+- `erpnext_logs` → ERPNext logs
 
-Configure your .env 
-```bash
-N8N_HOST=n8n.yourdomain.com
-N8N_PORT=5678
-N8N_PROTOCOL=https
-WEBHOOK_URL=https://n8n.yourdomain.com/
-```
+### Usually disposable volumes
+- `erpnext_redis_cache_data`
+- `erpnext_redis_queue_data`
 
-Reload n8n
-```bash
-sudo docker compose --env-file ./.env -f deploy/docker/docker-compose.yml up -d
-```
-You may do the same for Appsmith (appsmith.yourdomain.com) and NocoDB (nocodb.yourdomain.com)
+These Redis volumes can still be backed up if you want a more literal snapshot, but they are not usually required for a clean restore.
 
-## 5. Backups
-- Nightly database dumps for:
-  - SignatureGate Postgres
-  - MushroomProcess bridge Postgres
-  - NocoDB metadata Postgres
-  - Documenso Postgres
-  - ERPNext MariaDB
-- Snapshot Docker volumes regularly.
-- Back up `erpnext_sites`, `erpnext_apps`, and `erpnext_logs` alongside database dumps.
-- Store signed documents and other evidence files in durable off-server storage.
-
-### Example ERPNext backup commands
-```bash
-sudo docker compose --env-file ./.env -f deploy/docker/docker-compose.yml exec erpnext-backend bench --site "$ERPNEXT_SITE_NAME" backup --with-files
-sudo docker compose --env-file ./.env -f deploy/docker/docker-compose.yml exec erpnext-db mariadb-dump -uroot -p"$ERPNEXT_DB_ROOT_PASSWORD" --all-databases > erpnext-all.sql
-
+### Bind-mounted paths to preserve
+- `deploy/documenso/certs/cert.p12`
+- `deploy/grav/`
+- `.env`
+- `deploy/nginx/`
 
 ## 6. Documenso (self-hosted signing)
 
-Documenso runs as a Docker container exposed on localhost port `3002` (proxied by NGINX).
+Documenso runs as a Docker container exposed on localhost port `3002` and proxied by NGINX.
 
 ### 6.1 Configure environment variables
-Edit `.env` and set:
-
+Set these in `.env`:
 - `DOCUMENSO_PUBLIC_URL=https://documenso.yourdomain.com`
-- `DOCUMENSO_NEXTAUTH_SECRET` (random)
-- `DOCUMENSO_ENCRYPTION_KEY` (random)
-- `DOCUMENSO_ENCRYPTION_SECONDARY_KEY` (random)
-- `DOCUMENSO_SIGNING_PASSPHRASE` (random but memorable)
-- SMTP settings (`DOCUMENSO_SMTP_*`)
+- `DOCUMENSO_NEXTAUTH_SECRET`
+- `DOCUMENSO_ENCRYPTION_KEY`
+- `DOCUMENSO_ENCRYPTION_SECONDARY_KEY`
+- `DOCUMENSO_SIGNING_PASSPHRASE`
+- `DOCUMENSO_SMTP_*`
 
 Documenso needs SMTP to send signing links.
 
 ### 6.2 Create the signing certificate file
 Documenso expects a `.p12` file mounted at `deploy/documenso/certs/cert.p12`.
 
-Create the folder:
-
 ```bash
 mkdir -p deploy/documenso/certs
-```
-
-Start the stack (Documenso + its Postgres):
-
-```bash
 sudo touch deploy/documenso/certs/cert.p12
 sudo chmod 644 deploy/documenso/certs/cert.p12
 sudo docker compose --env-file ./.env -f deploy/docker/docker-compose.yml up -d documenso-postgres documenso
 ```
 
-Generate a self-signed `.p12` inside the container (recommended by Documenso):
+Generate a self-signed `.p12` inside the container:
 
 ```bash
 read -s -p "Enter Documenso cert passphrase (DOCUMENSO_SIGNING_PASSPHRASE): " CERT_PASS
 echo
-sudo docker exec --env-file ./.env -e CERT_PASS="$CERT_PASS" -it documenso openssl req -x509 -nodes -days 365 -newkey rsa:2048     -keyout /tmp/private.key     -out /tmp/certificate.crt     -subj '/C=US/ST=Colorado/L=Denver/O=SignatureGate/CN=documenso'
-sudo docker exec --env-file ./.env -e CERT_PASS="$CERT_PASS" -it documenso openssl pkcs12 -export -legacy -out /opt/documenso/cert.p12     -inkey /tmp/private.key -in /tmp/certificate.crt     -passout env:CERT_PASS
-sudo docker exec --env-file ./.env -it documenso rm /tmp/private.key /tmp/certificate.crt
-```
+sudo docker exec -e CERT_PASS="$CERT_PASS" -it documenso \
+  openssl req -x509 -nodes -days 365 -newkey rsa:2048 \
+    -keyout /tmp/private.key \
+    -out /tmp/certificate.crt \
+    -subj '/C=US/ST=Colorado/L=Denver/O=SignatureGate/CN=documenso'
 
-Restart Documenso:
+sudo docker exec -e CERT_PASS="$CERT_PASS" -it documenso \
+  openssl pkcs12 -export -legacy -out /opt/documenso/cert.p12 \
+    -inkey /tmp/private.key \
+    -in /tmp/certificate.crt \
+    -passout env:CERT_PASS
 
-```bash
+sudo docker exec -it documenso rm /tmp/private.key /tmp/certificate.crt
 sudo docker compose --env-file ./.env -f deploy/docker/docker-compose.yml restart documenso
 ```
 
 ### 6.3 Verify
-- Documenso should be reachable at `https://documenso.yourdomain.com`
-- Health endpoint (from the Linode):
-  - `curl http://localhost:3002/api/health`
+- `curl http://localhost:3002/api/health`
+- Sign a test document end to end.
 
+If signed documents get stuck in `Processing document...`, see `deploy/DOCUMENSO_CERT_TROUBLESHOOTING.md`.
 
-### Documenso certificate signing
+## 7. Grav
 
-If Documenso documents get stuck in “Processing document…” after both recipients sign, see:
-
-- `deploy/DOCUMENSO_CERT_TROUBLESHOOTING.md`
-
-## 7 Grav
-
-Launch Grav
 ```bash
-sudo docker compose -f deploy/docker/docker-compose.yml --env-file ./.env up grav
+sudo docker compose --env-file ./.env -f deploy/docker/docker-compose.yml up -d grav
 ```
 
-Configure the Grav Administration interface at http://localhost:8085/admin
+Admin UI:
+- `http://localhost:8085/admin`
 
-
-Enable NGINX and restart
-```bash
-sudo ln -s /etc/nginx/sites-available/grav.conf /etc/nginx/sites-enabled/grav.conf
-sudo nginx -t # Test the configuration for syntax errors
-sudo systemctl restart nginx
-```
-Ensure your DNS is configured correctly and obtain an SSL Certificate with certbot
-```bash
-sudo certbot --nginx -d www.yourdomain.com -d yourdomain.com
-```
-
-Edit deploy/grav/user/pages/01.home/default.md 
-
-Point your web browser to https://www.yourdomain.com
+Then complete the NGINX and Certbot steps for your main site.
 
 ## 8. ERPNext + Frappe HR
 
-This repository now builds a **custom ERPNext image** that includes **HRMS at image build time**. That is important because installing HRMS later inside a running `frappe/erpnext` container is a known source of `ModuleNotFoundError: No module named 'hrms'` in Docker deployments. Frappe's Docker docs recommend building a custom image for additional apps, and the disposable demo setup is explicitly not meant for installing custom apps later. citeturn518640search0turn534888search1turn518640search7
+This repository builds a custom ERPNext image that includes HRMS at image build time.
 
 ### 8.1 Configure environment
-Set these values in `.env`:
-
+Set these in `.env`:
 - `ERPNEXT_PUBLIC_URL=https://erp.yourdomain.com`
 - `ERPNEXT_SITE_NAME=erp.yourdomain.com`
 - `ERPNEXT_DB_ROOT_PASSWORD`
@@ -239,7 +220,6 @@ Set these values in `.env`:
 
 ```bash
 sudo docker compose --env-file ./.env -f deploy/docker/docker-compose.yml build erpnext-backend
-
 sudo docker compose --env-file ./.env -f deploy/docker/docker-compose.yml up -d \
   erpnext-db \
   erpnext-redis-cache \
@@ -260,27 +240,217 @@ sudo docker compose --env-file ./.env -f deploy/docker/docker-compose.yml up -d 
 sudo docker compose --env-file ./.env -f deploy/docker/docker-compose.yml --profile erpnext-init up erpnext-bootstrap
 ```
 
-### 8.4 NGINX
+## 9. Mount Google Drive on the Linode for off-host backups
 
-Enable the provided site config:
+The backup plan below assumes a mounted Google Drive path such as `/mnt/google-drive`.
 
-```bash
-sudo cp deploy/nginx/erpnext.conf /etc/nginx/sites-available/erpnext.conf
-sudo ln -sf /etc/nginx/sites-available/erpnext.conf /etc/nginx/sites-enabled/erpnext.conf
-sudo nginx -t
-sudo systemctl reload nginx
-sudo certbot --nginx -d erp.yourdomain.com
-```
-
-### 8.5 If you previously tried runtime HRMS installation
-If you already attempted to install HRMS into a running container and hit `ModuleNotFoundError: No module named 'hrms'`, tear down the partially initialized ERPNext app/site volumes before rebuilding so the new custom image can seed them cleanly:
+### 9.1 Install rclone
 
 ```bash
-sudo docker compose --env-file ./.env -f deploy/docker/docker-compose.yml down
-sudo docker volume rm signaturegate_erpnext_apps signaturegate_erpnext_sites signaturegate_erpnext_logs 2>/dev/null || true
+sudo -v
+curl https://rclone.org/install.sh | sudo bash
+rclone version
 ```
 
-## 9. Operational notes
+### 9.2 Configure a Google Drive remote
+Run the interactive setup under the deployment user:
+
+```bash
+su - signaturegate
+rclone config
+```
+
+Recommended choices:
+- New remote name: `signaturegate-gdrive`
+- Storage type: `drive`
+- Scope: usually full drive access for a dedicated backup destination
+- Use auto config if you have a browser available; otherwise follow the headless flow
+
+Confirm the remote works:
+
+```bash
+rclone lsd signaturegate-gdrive:
+```
+
+### 9.3 Create local mount directories
+
+```bash
+sudo mkdir -p /mnt/google-drive
+sudo chown signaturegate:signaturegate /mnt/google-drive
+mkdir -p /home/signaturegate/.cache/rclone
+mkdir -p /home/signaturegate/.local/state
+```
+
+### 9.4 Install the example systemd unit
+The repo includes `deploy/backup/rclone-gdrive.service.example`.
+
+Install it as root:
+
+```bash
+sudo cp deploy/backup/rclone-gdrive.service.example /etc/systemd/system/rclone-gdrive.service
+sudo systemctl daemon-reload
+sudo systemctl enable --now rclone-gdrive.service
+```
+
+Verify the mount:
+
+```bash
+mount | grep google-drive
+ls -la /mnt/google-drive
+```
+
+### 9.5 Notes
+- The mount runs as the `signaturegate` user.
+- If you change the remote name, mount path, or username, update the service file.
+- If the service fails at boot, inspect:
+
+```bash
+sudo systemctl status rclone-gdrive.service
+journalctl -u rclone-gdrive.service -n 100 --no-pager
+```
+
+## 10. Automated backups to the mounted Google Drive
+
+This repo now includes two helper scripts:
+- `deploy/backup/backup-stack.sh`
+- `deploy/backup/restore-stack.sh`
+
+### 10.1 What the backup script does
+`backup-stack.sh` creates a timestamped backup directory on the mounted Google Drive and stores:
+- Logical SQL dumps for all Postgres and MariaDB databases
+- Tar archives of the important non-database Docker volumes
+- Tar archives of bind-mounted directories and certificate files
+- Copies of `.env` and `deploy/docker/docker-compose.yml`
+- A SHA-256 manifest for integrity checking
+
+Backups are written under:
+
+```text
+/mnt/google-drive/SignatureGateBackups/signaturegate/YYYYMMDD-HHMMSS/
+```
+
+A `latest` symlink is also maintained.
+
+### 10.2 Run a manual test backup first
+
+```bash
+cd ~/signaturegate
+bash deploy/backup/backup-stack.sh
+```
+
+Inspect the result:
+
+```bash
+find /mnt/google-drive/SignatureGateBackups/signaturegate/latest -maxdepth 2 -type f | sort
+```
+
+### 10.3 Install the nightly cron job
+Edit the crontab for the deployment user:
+
+```bash
+crontab -e
+```
+
+Recommended nightly job at 2:30 AM local time:
+
+```cron
+30 2 * * * cd /home/signaturegate/signaturegate && /usr/bin/bash deploy/backup/backup-stack.sh >> /home/signaturegate/.local/state/signaturegate-backup.log 2>&1
+```
+
+### 10.4 Recommended backup validation routine
+At least once before trusting the backups, perform a real restore test on a second Linode or disposable VM.
+
+## 11. Restore procedure on a fresh deployment
+
+The cleanest restore path is:
+1. Provision a fresh Linode.
+2. Install Docker, rclone, NGINX, and the base packages.
+3. Clone this repository.
+4. Restore `.env` from your backup.
+5. Bring up only the database containers and restore database dumps.
+6. Restore non-database volumes and bind mounts.
+7. Start the full stack.
+
+### 11.1 Fresh host preparation
+
+```bash
+git clone git@github.com/RayzorDuff/SignatureGate.git signaturegate
+cd signaturegate
+```
+
+Restore `.env` from the backup before running compose.
+
+### 11.2 Retrieve the desired backup set
+Mount Google Drive as above, then copy or reference the desired backup directory, for example:
+
+```bash
+/mnt/google-drive/SignatureGateBackups/signaturegate/20260313-023000
+```
+
+### 11.3 Run the restore helper
+
+```bash
+cd ~/signaturegate
+bash deploy/backup/restore-stack.sh /mnt/google-drive/SignatureGateBackups/signaturegate/20260313-023000
+```
+
+What the restore helper does:
+- Verifies checksums if `SHA256SUMS` is present
+- Restores the non-database Docker volumes
+- Restores `deploy/documenso/certs`, `deploy/grav`, and `deploy/nginx`
+- Starts only the database containers
+- Imports the Postgres and MariaDB dumps
+
+### 11.4 Start the full stack
+
+```bash
+sudo docker compose --env-file ./.env -f deploy/docker/docker-compose.yml up -d
+```
+
+### 11.5 Post-restore validation
+Check each service directly:
+
+```bash
+sudo docker ps
+curl -I http://localhost:8080
+curl -I http://localhost:8081
+curl -I http://localhost:3002/api/health
+curl -I http://localhost:8085
+curl -I http://localhost:5678
+curl -I http://localhost:8086
+```
+
+Then validate in the UI:
+- NocoDB tables and attachments
+- n8n workflows and credentials
+- Appsmith applications
+- Documenso login and completed documents
+- Grav content and admin login
+- ERPNext site, attachments, and HRMS
+
+## 12. Backup/restore caveats and recommendations
+
+- Do not rely on Docker images as your primary backup. Re-pull or rebuild images from code and preserve data separately.
+- Database dumps are more portable than raw database volume archives.
+- ERPNext file uploads live in `erpnext_sites`, so keep that archive alongside the MariaDB dump.
+- NocoDB uploads live in `nocodb_data`, so do not treat NocoDB as database-only.
+- Keep `.env` secure. It contains credentials and secrets required for restore.
+- Periodically prune old Docker build cache only after you have a known-good backup and restore procedure.
+
+## 13. Next steps
+
+### Trimming the Documenso image
+
+When backup and restore are working, the next phase should be to refactor `deploy/docker/documenso.Dockerfile` into a proper multi-stage build so the build dependencies stay in an intermediate stage and only the runtime artifacts are copied into the final image. That keeps the build process you already trust, while making the final runtime image significantly smaller.
+
+### ERPNext Operational notes
 - Use ERPNext Companies for both Dank Mushrooms and Rooted Psyche inside one ERPNext site unless you later decide you need strict application-level separation.
 - Keep SignatureGate / MushroomProcess application databases separate from ERPNext. Integration should happen through APIs, exports, or controlled ETL, not shared tables.
 - ERPNext and Frappe HR are resource-hungry compared with Grav or n8n; monitor memory pressure closely after enabling payroll and background jobs.
+
+### Break SignatureGate from Application/Database infrastructure
+
+The docker and linode configuration, along with backups for managing n8n, nocodb, appsmith, grav, postgres, erpnext, etc. is a separate functional requirement from the 
+original SignatureGate design.  SignatureGate is an appsmith application layer with postgres database schema that runs on top of the Linode infrastructure.
+
+The Linode infrastructure should be removed to a separate project so that SignatureGate may be exposed as a standalone open source project.
