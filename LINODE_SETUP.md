@@ -324,22 +324,47 @@ This repo now includes two helper scripts:
 - `deploy/backup/restore-stack.sh`
 
 ### 10.1 What the backup script does
-`backup-stack.sh` creates a timestamped backup directory on the mounted Google Drive and stores:
+`backup-stack.sh` now stages each backup on the local filesystem first, then uploads it to Google Drive with `rclone`, then deletes the local staged copy.
+
+The staged backup contains:
 - Logical SQL dumps for all Postgres and MariaDB databases
 - Tar archives of the important non-database Docker volumes
 - Tar archives of bind-mounted directories and certificate files
 - Copies of `.env` and `deploy/docker/docker-compose.yml`
 - A SHA-256 manifest for integrity checking
+- A `latest` symlink pointing to the newest timestamped backup directory
 
-Backups are written under:
+Suggested defaults used by the script:
 
 ```text
-/mnt/google-drive/SignatureGateBackups/signaturegate/YYYYMMDD-HHMMSS/
+LOCAL_STAGING_PARENT=/var/tmp/signaturegate-backups
+RCLONE_REMOTE=signaturegate-gdrive
+REMOTE_BACKUP_ROOT=signaturegate-gdrive:SignatureGateBackups
+BACKUP_PREFIX=signaturegate
 ```
 
-A `latest` symlink is not maintained due to Google Drive not supporting links natively.
-Future versions of the backup script may write to a temporary directory and sync so that rclone will 
-maintain links.
+The local staging layout looks like this during the run:
+
+```text
+/var/tmp/signaturegate-backups/<random>/
+├── 20260313-023000/
+└── latest -> 20260313-023000
+```
+
+The script then uploads that staged tree with:
+
+```bash
+rclone copy --links "$LOCAL_STAGE_ROOT/" "$REMOTE_BACKUP_ROOT/$BACKUP_PREFIX/"
+```
+
+With `--links`, rclone translates symlinks to and from regular files with a `.rclonelink` extension rather than requiring native symlink support on the remote. That means the `latest` pointer can round-trip through Google Drive even though Google Drive does not natively store Unix symlinks. citeturn328202view0
+
+After upload, the script applies retention on the remote backup set:
+- keep **all** backups from the last 7 days
+- for older backups in the **current month**, keep only the newest backup from each ISO week
+- for backups from **earlier months**, keep only the newest backup from each calendar month
+
+Then it removes the local staged backup directory.
 
 ### 10.2 Run a manual test backup first
 
@@ -348,11 +373,13 @@ cd ~/signaturegate
 bash deploy/backup/backup-stack.sh
 ```
 
-Inspect the result:
+Inspect the remote backup set:
 
 ```bash
-find /mnt/google-drive/SignatureGateBackups/signaturegate/latest -maxdepth 2 -type f | sort
+rclone lsf signaturegate-gdrive:SignatureGateBackups/signaturegate/
 ```
+
+If you also keep the Google Drive mounted, you can inspect it there too. The `latest` link will be represented remotely via rclone link translation, not as a native Google Drive symlink. citeturn328202view0
 
 ### 10.3 Install the nightly cron job
 Edit the crontab for the deployment user:
@@ -365,6 +392,12 @@ Recommended nightly job at 2:30 AM local time:
 
 ```cron
 30 2 * * * cd /home/signaturegate/signaturegate && /usr/bin/bash deploy/backup/backup-stack.sh >> /home/signaturegate/.local/state/signaturegate-backup.log 2>&1
+```
+
+Optional environment overrides for the cron job:
+
+```cron
+30 2 * * * cd /home/signaturegate/signaturegate && LOCAL_STAGING_PARENT=/var/tmp/signaturegate-backups RCLONE_REMOTE=signaturegate-gdrive REMOTE_BACKUP_ROOT=signaturegate-gdrive:SignatureGateBackups /usr/bin/bash deploy/backup/backup-stack.sh >> /home/signaturegate/.local/state/signaturegate-backup.log 2>&1
 ```
 
 ### 10.4 Recommended backup validation routine
@@ -391,17 +424,28 @@ cd signaturegate
 Restore `.env` from the backup before running compose.
 
 ### 11.2 Retrieve the desired backup set
-Mount Google Drive as above, then copy or reference the desired backup directory, for example:
+You can restore either from the mounted Google Drive path or by using `rclone` directly.
+
+Using `rclone` directly is often cleaner on a fresh host because it recreates the `latest` symlink correctly when `--links` is used:
 
 ```bash
-/mnt/google-drive/SignatureGateBackups/signaturegate/20260313-023000
+mkdir -p /tmp/signaturegate-restore
+rclone copy --links signaturegate-gdrive:SignatureGateBackups/signaturegate/20260313-023000 /tmp/signaturegate-restore/20260313-023000
+```
+
+If you want to restore the remote `latest` pointer too, you can also copy the whole prefix instead:
+
+```bash
+mkdir -p /tmp/signaturegate-restore-prefix
+rclone copy --links signaturegate-gdrive:SignatureGateBackups/signaturegate /tmp/signaturegate-restore-prefix
+ls -l /tmp/signaturegate-restore-prefix/latest
 ```
 
 ### 11.3 Run the restore helper
 
 ```bash
 cd ~/signaturegate
-bash deploy/backup/restore-stack.sh /mnt/google-drive/SignatureGateBackups/signaturegate/20260313-023000
+bash deploy/backup/restore-stack.sh /tmp/signaturegate-restore/20260313-023000
 ```
 
 What the restore helper does:
