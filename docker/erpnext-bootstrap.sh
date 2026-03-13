@@ -97,8 +97,7 @@ echo "Installing HRMS on site ${ERPNEXT_SITE_NAME}..."
 bench --site "${ERPNEXT_SITE_NAME}" install-app hrms || true
 
 echo "Verifying HRMS install..."
-bench --site "${ERPNEXT_SITE_NAME}" mariadb -e "select app_name from \`tabInstalled Applications\` where app_name='hrms';" | grep -q hrms \
-  && echo "HRMS installed." \
+bench --site "${ERPNEXT_SITE_NAME}" list-apps | grep -q "hrms" && echo "HRMS installed." \
   || { echo "HRMS install did not complete cleanly."; exit 1; }
 
 echo "Setting ERPNext host_name..."
