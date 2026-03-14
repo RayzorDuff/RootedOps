@@ -436,8 +436,7 @@ volumes:
   nocodb_meta_pgdata:
   nocodb_data:
   documenso_pgdata:
-  # Used with Alpine image
-  #documenso_playwright_cache:
+  documenso_playwright_cache:
   n8n_data:
   appsmith_stacks:
   erpnext_db_data:

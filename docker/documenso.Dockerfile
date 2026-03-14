@@ -55,13 +55,13 @@ RUN if [ -f pnpm-lock.yaml ]; then \
     fi
 
 # Prune dev dependencies after build
-RUN if [ -f pnpm-lock.yaml ]; then \
-      pnpm prune --prod; \
-    elif [ -f package-lock.json ]; then \
-      npm prune --omit=dev; \
-    elif [ -f yarn.lock ]; then \
-      yarn install --production --frozen-lockfile; \
-    fi
+#RUN if [ -f pnpm-lock.yaml ]; then \
+#      pnpm prune --prod; \
+#    elif [ -f package-lock.json ]; then \
+#      npm prune --omit=dev; \
+#    elif [ -f yarn.lock ]; then \
+#      yarn install --production --frozen-lockfile; \
+#    fi
 
 ############################
 # Runtime
@@ -71,6 +71,7 @@ FROM node:${NODE_VERSION}-bookworm-slim AS runtime
 ENV DEBIAN_FRONTEND=noninteractive
 ENV NODE_ENV=production
 ENV PLAYWRIGHT_BROWSERS_PATH=/home/nodejs/.cache/ms-playwright
+ENV TURBO_CACHE_DIR=/home/nodejs/.cache/turbo
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates \
@@ -117,12 +118,10 @@ RUN useradd -m -u 1001 -s /bin/bash nodejs
 COPY --from=builder /src /app
 
 # Remove source-control and caches that should not ship
-RUN rm -rf \
-    /app/.git \
-    /app/.github \
-    /app/.next/cache \
-    /root/.cache \
-    /tmp/*
+RUN npm install -g turbo@^1.13.4 && \
+    mkdir -p /home/nodejs/.cache/turbo /home/nodejs/.cache/ms-playwright /app/.turbo && \
+    chown -R nodejs:nodejs /app /home/nodejs 
+RUN rm -rf /app/.git /app/.github /root/.cache /tmp/*
 
 USER nodejs
 
@@ -130,5 +129,5 @@ EXPOSE 3000
 
 ENTRYPOINT ["dumb-init", "--"]
 
-# Keep this aligned with the start command from your current Dockerfile if it differs.
-CMD ["npm", "run", "start"]
+# Keep this aligned with the start command from your current Dockerfile if it differs
+CMD ["npm", "--workspace", "@documenso/remix", "run", "start"]

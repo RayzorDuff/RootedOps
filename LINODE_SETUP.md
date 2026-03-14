@@ -156,7 +156,43 @@ Set these in `.env`:
 
 Documenso needs SMTP to send signing links.
 
-### 6.2 Create the signing certificate file
+### 6.2 Build documenso
+The documenso docker container must be built.  After the build, the build artifacts and cache may 
+be deleted to free up space.
+
+If this is a rebuild, then clean up and remove the old documenso
+```bash
+sudo docker compose --env-file ./.env -f deploy/docker/docker-compose.yml stop documenso
+sudo docker system df -v | grep -i gb # Identify the large image
+sudo docker images | grep documenso
+sudo docker rmi docker-documenso:latest # Or reference the id of the large image(s)
+sudo docker builder prune -a
+```
+
+Once the old documenso is removed or if this is a new installation, first build the image
+
+```bash
+sudo docker compose --env-file ./.env -f deploy/docker/docker-compose.yml  build --no-cache documenso
+sudo docker compose --env-file ./.env -f deploy/docker/docker-compose.yml up documenso
+```
+
+If the schema has been updated you may need to perform migrations
+
+```bash
+sudo docker compose --env-file ./.env -f deploy/docker/docker-compose.yml run --rm documenso sh -lc "cd /app/packages/prisma && npx prisma migrate deploy"
+```
+
+Launch all images before pruning the system
+
+```bash
+df -h
+sudo docker compose --env-file ./.env -f deploy/docker/docker-compose.yml up
+sudo docker image prune -a
+sudo docker builder prune -a
+df -h
+```
+
+### 6.3 Create the signing certificate file
 Documenso expects a `.p12` file mounted at `deploy/documenso/certs/cert.p12`.
 
 ```bash
@@ -187,7 +223,7 @@ sudo docker exec -it documenso rm /tmp/private.key /tmp/certificate.crt
 sudo docker compose --env-file ./.env -f deploy/docker/docker-compose.yml restart documenso
 ```
 
-### 6.3 Verify
+### 6.4 Verify
 - `curl http://localhost:3002/api/health`
 - Sign a test document end to end.
 
@@ -499,10 +535,6 @@ Then validate in the UI:
 - Periodically prune old Docker build cache only after you have a known-good backup and restore procedure.
 
 ## 13. Next steps
-
-### Trimming the Documenso image
-
-When backup and restore are working, the next phase should be to refactor `deploy/docker/documenso.Dockerfile` into a proper multi-stage build so the build dependencies stay in an intermediate stage and only the runtime artifacts are copied into the final image. That keeps the build process you already trust, while making the final runtime image significantly smaller.
 
 ### ERPNext Operational notes
 - Use ERPNext Companies for both Dank Mushrooms and Rooted Psyche inside one ERPNext site unless you later decide you need strict application-level separation.
