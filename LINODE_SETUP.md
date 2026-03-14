@@ -234,7 +234,9 @@ If signed documents get stuck in `Processing document...`, inspect the Documenso
 ## 7. Grav
 
 ```bash
+mkdir grav && sudo chmod 777 grav -R
 sudo docker compose --env-file ./.env -f docker/docker-compose.yml up -d grav
+chmod 777 grav.mysite/* && sudo cp -a grav.mysite/* grav/
 ```
 
 Admin UI:
