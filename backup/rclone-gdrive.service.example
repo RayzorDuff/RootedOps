@@ -5,17 +5,17 @@ After=network-online.target
 
 [Service]
 Type=notify
-User=signaturegate
-Group=signaturegate
-ExecStart=/usr/bin/rclone mount signaturegate-gdrive: /mnt/google-drive \
-  --config=/home/signaturegate/.config/rclone/rclone.conf \
-  --cache-dir=/home/signaturegate/.cache/rclone \
+User=rootedops
+Group=rootedops
+ExecStart=/usr/bin/rclone mount rootedops-gdrive: /mnt/google-drive \
+  --config=/home/rootedops/.config/rclone/rclone.conf \
+  --cache-dir=/home/rootedops/.cache/rclone \
   --dir-cache-time=72h \
   --poll-interval=1m \
   --vfs-cache-mode=full \
   --vfs-cache-max-age=24h \
   --vfs-cache-max-size=10G \
-  --log-file=/home/signaturegate/.local/state/rclone-gdrive.log \
+  --log-file=/home/rootedops/.local/state/rclone-gdrive.log \
   --log-level=INFO \
   --allow-other
 ExecStop=/bin/fusermount -u /mnt/google-drive

@@ -1,5 +1,5 @@
 x-erpnext-image: &erpnext_image
-  image: signaturegate-erpnext:${ERPNEXT_IMAGE_TAG}
+  image: rootedops-erpnext:${ERPNEXT_IMAGE_TAG}
   pull_policy: never
   build:
     context: .
@@ -160,7 +160,7 @@ services:
       NEXT_PRIVATE_INTERNAL_WEBAPP_URL: http://documenso:3000
       NEXT_PRIVATE_JOBS_PROVIDER: local
 
-      # Secrets  
+      # Secrets
       NEXTAUTH_SECRET: ${DOCUMENSO_NEXTAUTH_SECRET}
       NEXT_PRIVATE_ENCRYPTION_KEY: ${DOCUMENSO_ENCRYPTION_KEY}
       NEXT_PRIVATE_ENCRYPTION_SECONDARY_KEY: ${DOCUMENSO_ENCRYPTION_SECONDARY_KEY}

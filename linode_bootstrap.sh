@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# SignatureGate bootstrap (Ubuntu). Review before running.
-# This script is a convenience starter — adapt for your environment.
+# RootedOps bootstrap (Ubuntu). Review before running.
+# This script is a convenience starter for a new RootedOps host - adapt for your environment.
 
 sudo apt-get update && sudo apt upgrade -y
 sudo apt-get install -y ca-certificates curl gnupg ufw fail2ban git python3

@@ -1,6 +1,8 @@
 # Linode setup (Linux)
 
-This is intentionally practical rather than exhaustive. It assumes Ubuntu 22.04 or 24.04 on a single Linode running the full SignatureGate stack from this repository.
+This guide now assumes RootedOps is the standalone infrastructure repository. Commands below use the RootedOps repository root, where `.env` lives at the top level and the compose file lives at `docker/docker-compose.yml`.
+
+This is intentionally practical rather than exhaustive. It assumes Ubuntu 22.04 or 24.04 on a single Linode running the full RootedOps stack from this repository.
 
 ## 0. Provision
 - Ubuntu 22.04/24.04 LTS
@@ -13,9 +15,9 @@ This is intentionally practical rather than exhaustive. It assumes Ubuntu 22.04 
 - Create a non-root user and add it to sudo:
 
 ```bash
-sudo useradd -m signaturegate
-sudo passwd signaturegate
-sudo usermod -aG sudo signaturegate
+sudo useradd -m rootedops
+sudo passwd rootedops
+sudo usermod -aG sudo rootedops
 ```
 
 - Configure UFW:
@@ -54,37 +56,37 @@ sudo apt-get install -y \
 ## 2. Install Docker
 Follow Docker's official Ubuntu instructions.
 
-## 3. Deploy the base SignatureGate stack
+## 3. Deploy the base RootedOps stack
 
 ```bash
-su - signaturegate
+su - rootedops
 ssh-keygen -t ed25519 -C "your@email.com"
 cat ~/.ssh/id_ed25519.pub
 # add the key for repository access if needed
 
-git clone git@github.com/RayzorDuff/SignatureGate.git signaturegate
-cd signaturegate
+git clone git@github.com/RayzorDuff/RootedOps.git rootedops
+cd rootedops
 cp .env.example .env
 nano .env
-sudo docker compose --env-file ./.env -f deploy/docker/docker-compose.yml up -d
+sudo docker compose --env-file ./.env -f docker/docker-compose.yml up -d
 sudo docker ps
 ```
 
 ## 4. Add TLS + reverse proxy (recommended)
 
 This repo includes example NGINX site configs under:
-- `deploy/nginx/n8n.conf`
-- `deploy/nginx/nocodb.conf`
-- `deploy/nginx/appsmith.conf`
-- `deploy/nginx/documenso.conf`
-- `deploy/nginx/grav.conf`
-- `deploy/nginx/erpnext.conf`
+- `nginx/n8n.conf`
+- `nginx/nocodb.conf`
+- `nginx/appsmith.conf`
+- `nginx/documenso.conf`
+- `nginx/grav.conf`
+- `nginx/erpnext.conf`
 
 Install them like this:
 
 ```bash
 sudo apt-get install -y nginx certbot python3-certbot-nginx
-sudo cp deploy/nginx/*.conf /etc/nginx/sites-available/
+sudo cp nginx/*.conf /etc/nginx/sites-available/
 sudo ln -sf /etc/nginx/sites-available/n8n.conf /etc/nginx/sites-enabled/n8n.conf
 sudo ln -sf /etc/nginx/sites-available/nocodb.conf /etc/nginx/sites-enabled/nocodb.conf
 sudo ln -sf /etc/nginx/sites-available/appsmith.conf /etc/nginx/sites-enabled/appsmith.conf
@@ -136,10 +138,10 @@ Before defining backups, it helps to identify what actually needs to be preserve
 These Redis volumes can still be backed up if you want a more literal snapshot, but they are not usually required for a clean restore.
 
 ### Bind-mounted paths to preserve
-- `deploy/documenso/certs/cert.p12`
-- `deploy/grav/`
+- `documenso/certs/cert.p12`
+- `grav/`
 - `.env`
-- `deploy/nginx/`
+- `nginx/`
 
 ## 6. Documenso (self-hosted signing)
 
@@ -162,7 +164,7 @@ be deleted to free up space.
 
 If this is a rebuild, then clean up and remove the old documenso
 ```bash
-sudo docker compose --env-file ./.env -f deploy/docker/docker-compose.yml stop documenso
+sudo docker compose --env-file ./.env -f docker/docker-compose.yml stop documenso
 sudo docker system df -v | grep -i gb # Identify the large image
 sudo docker images | grep documenso
 sudo docker rmi docker-documenso:latest # Or reference the id of the large image(s)
@@ -172,34 +174,34 @@ sudo docker builder prune -a
 Once the old documenso is removed or if this is a new installation, first build the image
 
 ```bash
-sudo docker compose --env-file ./.env -f deploy/docker/docker-compose.yml  build --no-cache documenso
-sudo docker compose --env-file ./.env -f deploy/docker/docker-compose.yml up documenso
+sudo docker compose --env-file ./.env -f docker/docker-compose.yml  build --no-cache documenso
+sudo docker compose --env-file ./.env -f docker/docker-compose.yml up documenso
 ```
 
 If the schema has been updated you may need to perform migrations
 
 ```bash
-sudo docker compose --env-file ./.env -f deploy/docker/docker-compose.yml run --rm documenso sh -lc "cd /app/packages/prisma && npx prisma migrate deploy"
+sudo docker compose --env-file ./.env -f docker/docker-compose.yml run --rm documenso sh -lc "cd /app/packages/prisma && npx prisma migrate deploy"
 ```
 
 Launch all images before pruning the system
 
 ```bash
 df -h
-sudo docker compose --env-file ./.env -f deploy/docker/docker-compose.yml up
+sudo docker compose --env-file ./.env -f docker/docker-compose.yml up
 sudo docker image prune -a
 sudo docker builder prune -a
 df -h
 ```
 
 ### 6.3 Create the signing certificate file
-Documenso expects a `.p12` file mounted at `deploy/documenso/certs/cert.p12`.
+Documenso expects a `.p12` file mounted at `documenso/certs/cert.p12`.
 
 ```bash
-mkdir -p deploy/documenso/certs
-sudo touch deploy/documenso/certs/cert.p12
-sudo chmod 644 deploy/documenso/certs/cert.p12
-sudo docker compose --env-file ./.env -f deploy/docker/docker-compose.yml up -d documenso-postgres documenso
+mkdir -p documenso/certs
+sudo touch documenso/certs/cert.p12
+sudo chmod 644 documenso/certs/cert.p12
+sudo docker compose --env-file ./.env -f docker/docker-compose.yml up -d documenso-postgres documenso
 ```
 
 Generate a self-signed `.p12` inside the container:
@@ -211,7 +213,7 @@ sudo docker exec -e CERT_PASS="$CERT_PASS" -it documenso \
   openssl req -x509 -nodes -days 365 -newkey rsa:2048 \
     -keyout /tmp/private.key \
     -out /tmp/certificate.crt \
-    -subj '/C=US/ST=Colorado/L=Denver/O=SignatureGate/CN=documenso'
+    -subj '/C=US/ST=Colorado/L=Denver/O=RootedOps/CN=documenso'
 
 sudo docker exec -e CERT_PASS="$CERT_PASS" -it documenso \
   openssl pkcs12 -export -legacy -out /opt/documenso/cert.p12 \
@@ -220,19 +222,19 @@ sudo docker exec -e CERT_PASS="$CERT_PASS" -it documenso \
     -passout env:CERT_PASS
 
 sudo docker exec -it documenso rm /tmp/private.key /tmp/certificate.crt
-sudo docker compose --env-file ./.env -f deploy/docker/docker-compose.yml restart documenso
+sudo docker compose --env-file ./.env -f docker/docker-compose.yml restart documenso
 ```
 
 ### 6.4 Verify
 - `curl http://localhost:3002/api/health`
 - Sign a test document end to end.
 
-If signed documents get stuck in `Processing document...`, see `deploy/DOCUMENSO_CERT_TROUBLESHOOTING.md`.
+If signed documents get stuck in `Processing document...`, inspect the Documenso container logs and verify the mounted `documenso/certs/cert.p12` file and passphrase.
 
 ## 7. Grav
 
 ```bash
-sudo docker compose --env-file ./.env -f deploy/docker/docker-compose.yml up -d grav
+sudo docker compose --env-file ./.env -f docker/docker-compose.yml up -d grav
 ```
 
 Admin UI:
@@ -255,8 +257,8 @@ Set these in `.env`:
 ### 8.2 Build and start ERPNext services
 
 ```bash
-sudo docker compose --env-file ./.env -f deploy/docker/docker-compose.yml build erpnext-backend
-sudo docker compose --env-file ./.env -f deploy/docker/docker-compose.yml up -d \
+sudo docker compose --env-file ./.env -f docker/docker-compose.yml build erpnext-backend
+sudo docker compose --env-file ./.env -f docker/docker-compose.yml up -d \
   erpnext-db \
   erpnext-redis-cache \
   erpnext-redis-queue \
@@ -273,7 +275,7 @@ sudo docker compose --env-file ./.env -f deploy/docker/docker-compose.yml up -d 
 ### 8.3 Initialize the site
 
 ```bash
-sudo docker compose --env-file ./.env -f deploy/docker/docker-compose.yml --profile erpnext-init up erpnext-bootstrap
+sudo docker compose --env-file ./.env -f docker/docker-compose.yml --profile erpnext-init up erpnext-bootstrap
 ```
 
 ## 9. Mount Google Drive on the Linode for off-host backups
@@ -292,12 +294,12 @@ rclone version
 Run the interactive setup under the deployment user:
 
 ```bash
-su - signaturegate
+su - rootedops
 rclone config
 ```
 
 Recommended choices:
-- New remote name: `signaturegate-gdrive`
+- New remote name: `rootedops-gdrive`
 - Storage type: `drive`
 - Scope: usually full drive access for a dedicated backup destination
 - Use auto config if you have a browser available; otherwise follow the headless flow
@@ -305,16 +307,16 @@ Recommended choices:
 Confirm the remote works:
 
 ```bash
-rclone lsd signaturegate-gdrive:
+rclone lsd rootedops-gdrive:
 ```
 
 ### 9.3 Create local mount directories
 
 ```bash
 sudo mkdir -p /mnt/google-drive
-sudo chown signaturegate:signaturegate /mnt/google-drive
-mkdir -p /home/signaturegate/.cache/rclone
-mkdir -p /home/signaturegate/.local/state
+sudo chown rootedops:rootedops /mnt/google-drive
+mkdir -p /home/rootedops/.cache/rclone
+mkdir -p /home/rootedops/.local/state
 ```
 
 ### 9.4 Ensure allow-other is enabled 
@@ -329,16 +331,16 @@ sudo vim /etc/fuse.conf
 
 ```bash
 sudo visudo
-signaturegate ALL=(ALL) NOPASSWD: ALL
+rootedops ALL=(ALL) NOPASSWD: ALL
 ```
 
 ### 9.6 Install the example systemd unit
-The repo includes `deploy/backup/rclone-gdrive.service.example`.
+The repo includes `backup/rclone-gdrive.service.example`.
 
 Install it as root:
 
 ```bash
-sudo cp deploy/backup/rclone-gdrive.service.example /etc/systemd/system/rclone-gdrive.service
+sudo cp backup/rclone-gdrive.service.example /etc/systemd/system/rclone-gdrive.service
 sudo systemctl daemon-reload
 sudo systemctl enable --now rclone-gdrive.service
 ```
@@ -351,7 +353,7 @@ ls -la /mnt/google-drive
 ```
 
 ### 9.7 Notes
-- The mount runs as the `signaturegate` user.
+- The mount runs as the `rootedops` user.
 - If you change the remote name, mount path, or username, update the service file.
 - If the service fails at boot, inspect:
 
@@ -363,8 +365,8 @@ journalctl -u rclone-gdrive.service -n 100 --no-pager
 ## 10. Automated backups to the mounted Google Drive
 
 This repo now includes two helper scripts:
-- `deploy/backup/backup-stack.sh`
-- `deploy/backup/restore-stack.sh`
+- `backup/backup-stack.sh`
+- `backup/restore-stack.sh`
 
 ### 10.1 What the backup script does
 `backup-stack.sh` now stages each backup on the local filesystem first, then uploads it to Google Drive with `rclone`, then deletes the local staged copy.
@@ -373,23 +375,23 @@ The staged backup contains:
 - Logical SQL dumps for all Postgres and MariaDB databases
 - Tar archives of the important non-database Docker volumes
 - Tar archives of bind-mounted directories and certificate files
-- Copies of `.env` and `deploy/docker/docker-compose.yml`
+- Copies of `.env` and `docker/docker-compose.yml`
 - A SHA-256 manifest for integrity checking
 - A `latest` symlink pointing to the newest timestamped backup directory
 
 Suggested defaults used by the script:
 
 ```text
-LOCAL_STAGING_PARENT=/var/tmp/signaturegate-backups
-RCLONE_REMOTE=signaturegate-gdrive
-REMOTE_BACKUP_ROOT=signaturegate-gdrive:SignatureGateBackups
-BACKUP_PREFIX=signaturegate
+LOCAL_STAGING_PARENT=/var/tmp/rootedops-backups
+RCLONE_REMOTE=rootedops-gdrive
+REMOTE_BACKUP_ROOT=rootedops-gdrive:RootedOpsBackups
+BACKUP_PREFIX=rootedops
 ```
 
 The local staging layout looks like this during the run:
 
 ```text
-/var/tmp/signaturegate-backups/<random>/
+/var/tmp/rootedops-backups/<random>/
 ├── 20260313-023000/
 └── latest -> 20260313-023000
 ```
@@ -412,14 +414,14 @@ Then it removes the local staged backup directory.
 ### 10.2 Run a manual test backup first
 
 ```bash
-cd ~/signaturegate
-bash deploy/backup/backup-stack.sh
+cd ~/rootedops
+bash backup/backup-stack.sh
 ```
 
 Inspect the remote backup set:
 
 ```bash
-rclone lsf signaturegate-gdrive:SignatureGateBackups/signaturegate/
+rclone lsf rootedops-gdrive:RootedOpsBackups/rootedops/
 ```
 
 If you also keep the Google Drive mounted, you can inspect it there too. The `latest` link will be represented remotely via rclone link translation, not as a native Google Drive symlink. citeturn328202view0
@@ -434,13 +436,13 @@ crontab -e
 Recommended nightly job at 2:30 AM local time:
 
 ```cron
-30 2 * * * cd /home/signaturegate/signaturegate && /usr/bin/bash deploy/backup/backup-stack.sh >> /home/signaturegate/.local/state/signaturegate-backup.log 2>&1
+30 2 * * * cd /home/rootedops/rootedops && /usr/bin/bash backup/backup-stack.sh >> /home/rootedops/.local/state/rootedops-backup.log 2>&1
 ```
 
 Optional environment overrides for the cron job:
 
 ```cron
-30 2 * * * cd /home/signaturegate/signaturegate && LOCAL_STAGING_PARENT=/var/tmp/signaturegate-backups RCLONE_REMOTE=signaturegate-gdrive REMOTE_BACKUP_ROOT=signaturegate-gdrive:SignatureGateBackups /usr/bin/bash deploy/backup/backup-stack.sh >> /home/signaturegate/.local/state/signaturegate-backup.log 2>&1
+30 2 * * * cd /home/rootedops/rootedops && LOCAL_STAGING_PARENT=/var/tmp/rootedops-backups RCLONE_REMOTE=rootedops-gdrive REMOTE_BACKUP_ROOT=rootedops-gdrive:RootedOpsBackups /usr/bin/bash backup/backup-stack.sh >> /home/rootedops/.local/state/rootedops-backup.log 2>&1
 ```
 
 ### 10.4 Recommended backup validation routine
@@ -460,8 +462,8 @@ The cleanest restore path is:
 ### 11.1 Fresh host preparation
 
 ```bash
-git clone git@github.com/RayzorDuff/SignatureGate.git signaturegate
-cd signaturegate
+git clone git@github.com/RayzorDuff/RootedOps.git rootedops
+cd rootedops
 ```
 
 Restore `.env` from the backup before running compose.
@@ -472,36 +474,36 @@ You can restore either from the mounted Google Drive path or by using `rclone` d
 Using `rclone` directly is often cleaner on a fresh host because it recreates the `latest` symlink correctly when `--links` is used:
 
 ```bash
-mkdir -p /tmp/signaturegate-restore
-rclone copy --links signaturegate-gdrive:SignatureGateBackups/signaturegate/20260313-023000 /tmp/signaturegate-restore/20260313-023000
+mkdir -p /tmp/rootedops-restore
+rclone copy --links rootedops-gdrive:RootedOpsBackups/rootedops/20260313-023000 /tmp/rootedops-restore/20260313-023000
 ```
 
 If you want to restore the remote `latest` pointer too, you can also copy the whole prefix instead:
 
 ```bash
-mkdir -p /tmp/signaturegate-restore-prefix
-rclone copy --links signaturegate-gdrive:SignatureGateBackups/signaturegate /tmp/signaturegate-restore-prefix
-ls -l /tmp/signaturegate-restore-prefix/latest
+mkdir -p /tmp/rootedops-restore-prefix
+rclone copy --links rootedops-gdrive:RootedOpsBackups/rootedops /tmp/rootedops-restore-prefix
+ls -l /tmp/rootedops-restore-prefix/latest
 ```
 
 ### 11.3 Run the restore helper
 
 ```bash
-cd ~/signaturegate
-bash deploy/backup/restore-stack.sh /tmp/signaturegate-restore/20260313-023000
+cd ~/rootedops
+bash backup/restore-stack.sh /tmp/rootedops-restore/20260313-023000
 ```
 
 What the restore helper does:
 - Verifies checksums if `SHA256SUMS` is present
 - Restores the non-database Docker volumes
-- Restores `deploy/documenso/certs`, `deploy/grav`, and `deploy/nginx`
+- Restores `documenso/certs`, `grav`, and `nginx`
 - Starts only the database containers
 - Imports the Postgres and MariaDB dumps
 
 ### 11.4 Start the full stack
 
 ```bash
-sudo docker compose --env-file ./.env -f deploy/docker/docker-compose.yml up -d
+sudo docker compose --env-file ./.env -f docker/docker-compose.yml up -d
 ```
 
 ### 11.5 Post-restore validation
@@ -538,12 +540,11 @@ Then validate in the UI:
 
 ### ERPNext Operational notes
 - Use ERPNext Companies for both Dank Mushrooms and Rooted Psyche inside one ERPNext site unless you later decide you need strict application-level separation.
-- Keep SignatureGate / MushroomProcess application databases separate from ERPNext. Integration should happen through APIs, exports, or controlled ETL, not shared tables.
+- Keep SignatureGate and MushroomProcess application databases separate from ERPNext. Integration should happen through APIs, exports, or controlled ETL, not shared tables.
 - ERPNext and Frappe HR are resource-hungry compared with Grav or n8n; monitor memory pressure closely after enabling payroll and background jobs.
 
-### Break SignatureGate from Application/Database infrastructure
+### Repository boundary
 
-The docker and linode configuration, along with backups for managing n8n, nocodb, appsmith, grav, postgres, erpnext, etc. is a separate functional requirement from the 
-original SignatureGate design.  SignatureGate is an appsmith application layer with postgres database schema that runs on top of the Linode infrastructure.
+RootedOps provides the Linode infrastructure. SignatureGate is an Appsmith application layer with a PostgreSQL schema that can run on top of that infrastructure, and MushroomProcess may do the same with its own databases and services.
 
-The Linode infrastructure should be removed to a separate project so that SignatureGate may be exposed as a standalone open source project.
+This repository is that separate infrastructure project required by SignatureGate and MushroomProcess. SignatureGate and MushroomProcess should reference RootedOps for deployment architecture rather than carrying host-level infrastructure in their own repositories.

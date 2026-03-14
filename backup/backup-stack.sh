@@ -2,8 +2,8 @@
 set -Eeuo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
-COMPOSE_FILE="$REPO_ROOT/deploy/docker/docker-compose.yml"
+REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+COMPOSE_FILE="$REPO_ROOT/docker/docker-compose.yml"
 ENV_FILE="$REPO_ROOT/.env"
 
 if [[ ! -f "$ENV_FILE" ]]; then
@@ -17,10 +17,10 @@ source "$ENV_FILE"
 set +a
 
 TIMESTAMP="$(date +%Y%m%d-%H%M%S)"
-BACKUP_PREFIX="${BACKUP_PREFIX:-signaturegate}"
-LOCAL_STAGING_PARENT="${LOCAL_STAGING_PARENT:-/var/tmp/signaturegate-backups}"
-RCLONE_REMOTE="${RCLONE_REMOTE:-signaturegate-gdrive}"
-REMOTE_BACKUP_ROOT="${REMOTE_BACKUP_ROOT:-${RCLONE_REMOTE}:SignatureGateBackups}"
+BACKUP_PREFIX="${BACKUP_PREFIX:-rootedops}"
+LOCAL_STAGING_PARENT="${LOCAL_STAGING_PARENT:-/var/tmp/rootedops-backups}"
+RCLONE_REMOTE="${RCLONE_REMOTE:-rootedops-gdrive}"
+REMOTE_BACKUP_ROOT="${REMOTE_BACKUP_ROOT:-${RCLONE_REMOTE}:RootedOpsBackups}"
 REMOTE_PREFIX_PATH="${REMOTE_BACKUP_ROOT%/}/${BACKUP_PREFIX}"
 DOCKER_BIN="${DOCKER_BIN:-sudo docker}"
 KEEP_DAILY_DAYS="${KEEP_DAILY_DAYS:-7}"
@@ -129,10 +129,10 @@ backup_volume erpnext_redis_cache_data erpnext_redis_cache_data.tgz
 backup_volume erpnext_redis_queue_data erpnext_redis_queue_data.tgz
 
 # Repo bind mounts and config required for a full restore.
-backup_bind_path "$REPO_ROOT/deploy/documenso/certs" documenso-certs.tgz
-backup_bind_path "$REPO_ROOT/deploy/grav" grav.tgz
-backup_bind_path "$REPO_ROOT/deploy/nginx" nginx.tgz
-backup_bind_path "$REPO_ROOT/deploy/LINODE_SETUP.md" linode-setup-md.tgz
+backup_bind_path "$REPO_ROOT/documenso/certs" documenso-certs.tgz
+backup_bind_path "$REPO_ROOT/grav" grav.tgz
+backup_bind_path "$REPO_ROOT/nginx" nginx.tgz
+backup_bind_path "$REPO_ROOT/LINODE_SETUP.md" linode-setup-md.tgz
 
 (
   cd "$BACKUP_DIR"

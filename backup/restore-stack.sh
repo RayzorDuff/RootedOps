@@ -2,8 +2,8 @@
 set -Eeuo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
-COMPOSE_FILE="$REPO_ROOT/deploy/docker/docker-compose.yml"
+REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+COMPOSE_FILE="$REPO_ROOT/docker/docker-compose.yml"
 ENV_FILE="$REPO_ROOT/.env"
 
 if [[ $# -ne 1 ]]; then
@@ -90,9 +90,9 @@ restore_volume erpnext_redis_cache_data erpnext_redis_cache_data.tgz
 restore_volume erpnext_redis_queue_data erpnext_redis_queue_data.tgz
 
 log "Restoring bind-mounted content"
-restore_bind_archive documenso-certs.tgz "$REPO_ROOT/deploy/documenso"
-restore_bind_archive grav.tgz "$REPO_ROOT/deploy"
-restore_bind_archive nginx.tgz "$REPO_ROOT/deploy"
+restore_bind_archive documenso-certs.tgz "$REPO_ROOT/documenso"
+restore_bind_archive grav.tgz "$REPO_ROOT"
+restore_bind_archive nginx.tgz "$REPO_ROOT"
 
 log "Starting database containers only"
 "${COMPOSE_SH[@]}" up -d signaturegate-postgres mushroomprocess-bridge-postgres nocodb-meta-postgres documenso-postgres erpnext-db
