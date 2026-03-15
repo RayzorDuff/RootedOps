@@ -7,6 +7,7 @@ x-erpnext-image: &erpnext_image
     args:
       ERPNEXT_IMAGE_TAG: ${ERPNEXT_IMAGE_TAG}
       ERPNEXT_HRMS_BRANCH: ${ERPNEXT_HRMS_BRANCH}
+      ERPNEXT_ESS_BRANCH: ${ERPNEXT_ESS_BRANCH}
 
 services:
   # --- SignatureGate Postgres ---
@@ -273,7 +274,7 @@ services:
       - -lc
     command: >
       mkdir -p sites &&
-      printf "frappe\nerpnext\nhrms\n" > sites/apps.txt &&
+      printf "frappe\nerpnext\nhrms\nemployee_self_service\n" > sites/apps.txt &&
       bench set-config -g db_host ${ERPNEXT_DB_HOST} &&
       bench set-config -g db_port ${ERPNEXT_DB_PORT} &&
       bench set-config -g redis_cache "redis://${ERPNEXT_REDIS_CACHE_HOST}:${ERPNEXT_REDIS_CACHE_PORT}" &&
@@ -419,6 +420,7 @@ services:
       ERPNEXT_SITE_NAME: ${ERPNEXT_SITE_NAME}
       ERPNEXT_PUBLIC_URL: ${ERPNEXT_PUBLIC_URL}
       ERPNEXT_HRMS_BRANCH: ${ERPNEXT_HRMS_BRANCH}
+      ERPNEXT_ESS_BRANCH: ${ERPNEXT_ESS_BRANCH}
       ERPNEXT_REDIS_CACHE_HOST: ${ERPNEXT_REDIS_CACHE_HOST}
       ERPNEXT_REDIS_CACHE_PORT: ${ERPNEXT_REDIS_CACHE_PORT}
       ERPNEXT_REDIS_QUEUE_HOST: ${ERPNEXT_REDIS_QUEUE_HOST}

@@ -68,6 +68,7 @@ cat > sites/apps.txt <<'EOF'
 frappe
 erpnext
 hrms
+employee_self_service
 EOF
 
 if [ ! -f "sites/${ERPNEXT_SITE_NAME}/site_config.json" ]; then
@@ -99,6 +100,13 @@ bench --site "${ERPNEXT_SITE_NAME}" install-app hrms || true
 echo "Verifying HRMS install..."
 bench --site "${ERPNEXT_SITE_NAME}" list-apps | grep -q "hrms" && echo "HRMS installed." \
   || { echo "HRMS install did not complete cleanly."; exit 1; }
+
+echo "Installing Employee Self Service on site ${ERPNEXT_SITE_NAME}..."
+bench --site "${ERPNEXT_SITE_NAME}" install-app employee_self_service && echo "ESS installed." \
+  || { echo "ESS install did not complete cleanly."; exit 1; }
+
+echo "Verifying installed apps..."
+bench --site "${ERPNEXT_SITE_NAME}" list-apps
 
 echo "Setting ERPNext host_name..."
 bench --site "${ERPNEXT_SITE_NAME}" set-config host_name "${ERPNEXT_PUBLIC_URL}"
