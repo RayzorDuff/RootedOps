@@ -1,0 +1,2 @@
+employee_name,company,first_name,last_name,date_of_joining,employment_type,status,department,designation,personal_email,company_email,cell_number,payroll_cost_center,hourly_rate_placeholder,notes
+CURRENT_EMPLOYEE_NAME,"Dank Mushrooms, LLC",,,2026-01-01,Full-time,Active,Cultivation,Cultivation Technician,,,,Dank Mushrooms Payroll,REPLACE_WITH_HOURLY_RATE,Use employee portal + payslip email.
