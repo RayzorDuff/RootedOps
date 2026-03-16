@@ -1,0 +1,5 @@
+ID,Account Name,Bank,Company Account,Account Type,Account Subtype,Disabled,Is Default Account,Is Company Account,Company,Party Type,Party,IBAN,Branch Code,Bank Account No,Integration ID,Last Integration Date,Mask
+,Dank Mushrooms Checking,,,Bank,,0,0,1,"Dank Mushrooms, LLC",,,,,,,,
+,Dank Mushrooms Savings,,,Bank,,0,0,1,"Dank Mushrooms, LLC",,,,,,,,
+,Dank Mushrooms Withholding,,,Bank,,0,0,1,"Dank Mushrooms, LLC",,,,,,,,
+,Rooted Psyche Bank,,,Bank,,0,0,1,Rooted Psyche,,,,,,,,
