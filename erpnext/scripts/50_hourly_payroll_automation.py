@@ -1,35 +1,41 @@
 """RootedOps ERPNext hourly payroll automation.
 
-Phase 3 scope currently implemented:
+Phase 3 currently implemented in this script:
 - Attendance-based hourly payroll
 - Gross pay from submitted Attendance working hours
 - Employee Social Security
 - Employee Medicare
-- Employer Social Security (reported in return value)
-- Employer Medicare (reported in return value)
+- Employer Social Security (reported in return payload)
+- Employer Medicare (reported in return payload)
 
 Not yet implemented:
 - Federal withholding from W-4 / IRS 15-T
-- Colorado withholding from state inputs
-- Payroll Entry / Journal Entry automation
+- Colorado withholding
+- Journal Entry / Payroll Entry automation
 - Employer tax posting automation
 
-IMPORTANT:
-This script intentionally builds a CUSTOM salary slip path and does NOT rely on
-ERPNext Salary Structure earnings math. That avoids payment-day proration from
-the test Salary Structure assignment, which was causing gross/net mismatch.
+This script intentionally supports a CUSTOM hourly salary slip path that does
+not rely on ERPNext Salary Structure earnings math.
 
 Run inside bench console with:
     exec(open("/home/frappe/frappe-bench/sites/50_hourly_payroll_automation.py").read(), globals())
 """
 
+from contextlib import contextmanager
+
 import frappe
-from frappe.utils import flt, getdate, date_diff
+from frappe.utils import cint, date_diff, flt, getdate
+from hrms.payroll.doctype.salary_slip.salary_slip import SalarySlip
+
 
 SS_WAGE_BASE_2026 = 184500.0
 SS_RATE = 0.062
 MEDICARE_RATE = 0.0145
 
+
+# ---------------------------------------------------------------------------
+# Attendance helpers
+# ---------------------------------------------------------------------------
 
 def get_present_attendance_rows(employee, start_date, end_date):
     return frappe.get_all(
@@ -61,13 +67,20 @@ def attendance_summary(employee, start_date, end_date):
     }
 
 
+# ---------------------------------------------------------------------------
+# Tax helpers
+# ---------------------------------------------------------------------------
+
 def ytd_gross_before_period(employee, start_date, exclude_slip_name=None):
-    filters = {
-        "employee": employee,
-        "docstatus": ["<", 2],
-        "end_date": ["<", start_date],
-    }
-    rows = frappe.get_all("Salary Slip", filters=filters, fields=["name", "gross_pay"])
+    rows = frappe.get_all(
+        "Salary Slip",
+        filters={
+            "employee": employee,
+            "docstatus": ["<", 2],
+            "end_date": ["<", start_date],
+        },
+        fields=["name", "gross_pay"],
+    )
 
     total = 0.0
     for row in rows:
@@ -98,14 +111,18 @@ def medicare_employer_amount(current_gross):
     return flt(flt(current_gross) * MEDICARE_RATE, 2)
 
 
+# ---------------------------------------------------------------------------
+# Employee / payroll context helpers
+# ---------------------------------------------------------------------------
+
 def get_employee_doc(employee):
     return frappe.get_doc("Employee", employee)
 
 
 def get_employee_payroll_context(employee, company=None):
     emp = get_employee_doc(employee)
-
     resolved_company = company or emp.company
+
     payroll_payable_account = None
     cost_center = None
 
@@ -122,9 +139,8 @@ def get_employee_payroll_context(employee, company=None):
         if department and department.payroll_cost_center:
             cost_center = department.payroll_cost_center
 
-    if not payroll_payable_account:
-        company_doc = frappe.get_doc("Company", resolved_company)
-        payroll_payable_account = getattr(company_doc, "default_payroll_payable_account", None)
+    company_doc = frappe.get_doc("Company", resolved_company)
+    payroll_payable_account = getattr(company_doc, "default_payroll_payable_account", None)
 
     return {
         "employee_doc": emp,
@@ -134,6 +150,10 @@ def get_employee_payroll_context(employee, company=None):
         "cost_center": cost_center,
     }
 
+
+# ---------------------------------------------------------------------------
+# Slip lookup helpers
+# ---------------------------------------------------------------------------
 
 def get_existing_draft_slip(employee, start_date, end_date):
     slips = frappe.get_all(
@@ -165,6 +185,59 @@ def get_existing_submitted_slip(employee, start_date, end_date):
     return slips[0] if slips else None
 
 
+# ---------------------------------------------------------------------------
+# Custom-save bypass for HRMS Salary Slip validation/calculation
+# ---------------------------------------------------------------------------
+
+@contextmanager
+def custom_salary_slip_save_mode():
+    """Temporarily bypass HRMS structure-driven salary-slip methods.
+
+    HRMS SalarySlip.validate() normally calls methods that require a Salary
+    Structure Assignment and recompute earnings/deductions from the structure.
+    For this custom hourly path, we bypass only those pieces while still using
+    the doctype normally.
+    """
+    originals = {
+        "set_salary_structure_assignment": SalarySlip.set_salary_structure_assignment,
+        "calculate_net_pay": SalarySlip.calculate_net_pay,
+        "get_working_days_details": SalarySlip.get_working_days_details,
+        "compute_year_to_date": SalarySlip.compute_year_to_date,
+        "calculate_component_amounts": getattr(SalarySlip, "calculate_component_amounts", None),
+        "pull_sal_struct": getattr(SalarySlip, "pull_sal_struct", None),
+    }
+
+    def _noop(self, *args, **kwargs):
+        return None
+
+    try:
+        SalarySlip.set_salary_structure_assignment = _noop
+        SalarySlip.calculate_net_pay = _noop
+        SalarySlip.get_working_days_details = _noop
+        SalarySlip.compute_year_to_date = _noop
+
+        if originals["calculate_component_amounts"]:
+            SalarySlip.calculate_component_amounts = _noop
+        if originals["pull_sal_struct"]:
+            SalarySlip.pull_sal_struct = _noop
+
+        yield
+    finally:
+        SalarySlip.set_salary_structure_assignment = originals["set_salary_structure_assignment"]
+        SalarySlip.calculate_net_pay = originals["calculate_net_pay"]
+        SalarySlip.get_working_days_details = originals["get_working_days_details"]
+        SalarySlip.compute_year_to_date = originals["compute_year_to_date"]
+
+        if originals["calculate_component_amounts"]:
+            SalarySlip.calculate_component_amounts = originals["calculate_component_amounts"]
+        if originals["pull_sal_struct"]:
+            SalarySlip.pull_sal_struct = originals["pull_sal_struct"]
+
+
+# ---------------------------------------------------------------------------
+# Slip creation and mutation helpers
+# ---------------------------------------------------------------------------
+
 def ensure_draft_salary_slip(employee, start_date, end_date, payroll_frequency="Weekly", company=None):
     submitted = get_existing_submitted_slip(employee, start_date, end_date)
     if submitted:
@@ -189,14 +262,18 @@ def ensure_draft_salary_slip(employee, start_date, end_date, payroll_frequency="
             "currency": payroll_context["currency"],
         }
     )
-    slip.insert(ignore_permissions=True)
+
+    with custom_salary_slip_save_mode():
+        slip.insert(ignore_permissions=True)
+
     return slip
 
 
 def clear_structure_fields(slip):
-    # Prevent ERPNext from pulling salary-structure math back onto this custom slip.
     if hasattr(slip, "salary_structure"):
         slip.salary_structure = None
+    if hasattr(slip, "salary_structure_assignment"):
+        slip.salary_structure_assignment = None
     if hasattr(slip, "salary_slip_based_on_timesheet"):
         slip.salary_slip_based_on_timesheet = 0
     if hasattr(slip, "timesheets"):
@@ -317,6 +394,16 @@ def set_manual_totals(slip):
     }
 
 
+def save_custom_salary_slip(slip):
+    clear_structure_fields(slip)
+
+    with custom_salary_slip_save_mode():
+        slip.save(ignore_permissions=True)
+
+    slip.reload()
+    return slip
+
+
 def validate_custom_math(slip, expected_gross, expected_net):
     actual_gross = flt(getattr(slip, "gross_pay", 0.0), 2)
     actual_net = flt(getattr(slip, "net_pay", 0.0), 2)
@@ -330,6 +417,10 @@ def validate_custom_math(slip, expected_gross, expected_net):
     return issues
 
 
+# ---------------------------------------------------------------------------
+# Diagnostics
+# ---------------------------------------------------------------------------
+
 def diagnose_salary_slip_math(slip_name):
     slip = frappe.get_doc("Salary Slip", slip_name)
 
@@ -338,7 +429,7 @@ def diagnose_salary_slip_math(slip_name):
             "salary_component": row.salary_component,
             "amount": flt(row.amount, 2),
             "default_amount": flt(getattr(row, "default_amount", 0.0), 2),
-            "depends_on_payment_days": int(flt(getattr(row, "depends_on_payment_days", 0))),
+            "depends_on_payment_days": cint(getattr(row, "depends_on_payment_days", 0)),
         }
         for row in slip.earnings
     ]
@@ -348,7 +439,7 @@ def diagnose_salary_slip_math(slip_name):
             "salary_component": row.salary_component,
             "amount": flt(row.amount, 2),
             "default_amount": flt(getattr(row, "default_amount", 0.0), 2),
-            "depends_on_payment_days": int(flt(getattr(row, "depends_on_payment_days", 0))),
+            "depends_on_payment_days": cint(getattr(row, "depends_on_payment_days", 0)),
         }
         for row in slip.deductions
     ]
@@ -356,6 +447,7 @@ def diagnose_salary_slip_math(slip_name):
     return {
         "slip_name": slip.name,
         "salary_structure": getattr(slip, "salary_structure", None),
+        "salary_structure_assignment": getattr(slip, "salary_structure_assignment", None),
         "payment_days": flt(getattr(slip, "payment_days", 0.0), 2),
         "total_working_days": flt(getattr(slip, "total_working_days", 0.0), 2),
         "gross_pay_field": flt(getattr(slip, "gross_pay", 0.0), 2),
@@ -367,6 +459,10 @@ def diagnose_salary_slip_math(slip_name):
         "deductions": deductions,
     }
 
+
+# ---------------------------------------------------------------------------
+# Main entry point
+# ---------------------------------------------------------------------------
 
 def rebuild_hourly_salary_slip(
     employee,
@@ -391,7 +487,7 @@ def rebuild_hourly_salary_slip(
         company=company,
     )
 
-    payroll_context, summary = set_context_fields_on_slip(
+    _, summary = set_context_fields_on_slip(
         slip=slip,
         employee=employee,
         start_date=start_date,
@@ -422,10 +518,7 @@ def rebuild_hourly_salary_slip(
     replace_child_table(slip, "deductions", deduction_rows)
 
     manual_totals = set_manual_totals(slip)
-
-    slip.flags.ignore_validate_update_after_submit = True
-    slip.save(ignore_permissions=True)
-    slip.reload()
+    slip = save_custom_salary_slip(slip)
 
     issues = validate_custom_math(
         slip=slip,
@@ -454,6 +547,7 @@ def rebuild_hourly_salary_slip(
         "total_deduction_field": flt(getattr(slip, "total_deduction", 0.0), 2),
         "net_pay": flt(getattr(slip, "net_pay", 0.0), 2),
         "salary_structure_on_slip": getattr(slip, "salary_structure", None),
+        "salary_structure_assignment_on_slip": getattr(slip, "salary_structure_assignment", None),
         "issues": issues,
         "diagnostic": diagnose_salary_slip_math(slip.name),
     }
