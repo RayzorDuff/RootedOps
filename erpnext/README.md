@@ -67,6 +67,13 @@ What was accomplished:
 Result:
 - The system now has a working scripted baseline for hourly payroll.
 
+Confirmed diagnosis:
+- The 204.09 net-pay result is explained by ERPNext still applying the submitted salary structure during salary-slip calculation.
+- The test salary structure uses `Hourly Wage = 800.00` with `depends_on_payment_days = 1`.
+- With 2 payment days out of a 7-day weekly period, ERPNext prorates that structure earning to 228.57.
+- 228.57 - 19.84 Social Security - 4.64 Medicare = 204.09.
+- In other words, the scripted attendance gross of 320.00 was not the value ultimately driving `net_pay`; the salary structure’s prorated earning was.
+
 ## Phase 3 — Federal and Colorado withholding automation
 Not yet completed.
 
