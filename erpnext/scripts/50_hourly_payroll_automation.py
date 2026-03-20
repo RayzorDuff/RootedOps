@@ -1107,7 +1107,13 @@ def get_payroll_account_map(company, payroll_payable_account=None, overrides=Non
 
     payroll_expense_account = (
         overrides.get("payroll_expense_account")
-        or match_account_by_keywords(expense_accounts, [["payroll"], ["salary"], ["wage"]])
+        or match_account_by_keywords(expense_accounts, [["payroll", "expense"], ["salary"], ["wage"]])
+    )
+
+    payroll_tax_expense_account = (
+        overrides.get("payroll_tax_expense_account")
+        or match_account_by_keywords(expense_accounts, [["payroll", "tax", "expense"], ["payroll", "tax"]])
+        or payroll_expense_account
     )
 
     payroll_payable = (
@@ -1117,30 +1123,45 @@ def get_payroll_account_map(company, payroll_payable_account=None, overrides=Non
         or match_account_by_keywords(liability_accounts, [["payroll", "payable"], ["salary", "payable"], ["wages", "payable"]])
     )
 
+    tax_payable = (
+        overrides.get("payroll_tax_payable_account")
+        or match_account_by_keywords(liability_accounts, [["payroll", "tax", "payable"], ["payroll", "tax"]])
+    )
+
+    withholding_payable = (
+        overrides.get("payroll_withholding_payable_account")
+        or match_account_by_keywords(liability_accounts, [["payroll", "withholding", "payable"], ["withholding", "payable"]])
+        or tax_payable
+    )
+
     federal_payable = (
         overrides.get("federal_withholding_payable_account")
-        or match_account_by_keywords(liability_accounts, [["federal", "withholding"], ["federal", "tax"]])
-        or payroll_payable
+        or withholding_payable
+        or tax_payable
     )
+
     colorado_payable = (
         overrides.get("colorado_withholding_payable_account")
-        or match_account_by_keywords(liability_accounts, [["colorado", "withholding"], ["state", "withholding"]])
-        or payroll_payable
+        or withholding_payable
+        or tax_payable
     )
+
     ss_payable = (
         overrides.get("social_security_payable_account")
-        or match_account_by_keywords(liability_accounts, [["social", "security"], ["fica", "ss"]])
-        or payroll_payable
+        or tax_payable
     )
+
     medicare_payable = (
         overrides.get("medicare_payable_account")
-        or match_account_by_keywords(liability_accounts, [["medicare"], ["fica", "medicare"]])
-        or payroll_payable
+        or tax_payable
     )
 
     return {
         "payroll_expense_account": payroll_expense_account,
+        "payroll_tax_expense_account": payroll_tax_expense_account,
         "payroll_payable_account": payroll_payable,
+        "payroll_tax_payable_account": tax_payable,
+        "payroll_withholding_payable_account": withholding_payable,
         "federal_withholding_payable_account": federal_payable,
         "colorado_withholding_payable_account": colorado_payable,
         "social_security_payable_account": ss_payable,
@@ -1149,7 +1170,16 @@ def get_payroll_account_map(company, payroll_payable_account=None, overrides=Non
 
 
 def unresolved_payroll_accounts(account_map):
-    return [k for k, v in account_map.items() if not v and k in ("payroll_expense_account", "payroll_payable_account")]
+    required = [
+        "payroll_expense_account",
+        "payroll_tax_expense_account",
+        "payroll_payable_account",
+        "social_security_payable_account",
+        "medicare_payable_account",
+        "federal_withholding_payable_account",
+        "colorado_withholding_payable_account",
+    ]
+    return [k for k in required if not account_map.get(k)]
 
 
 def build_payroll_journal_entry_preview(payroll_result, account_overrides=None):
@@ -1190,67 +1220,60 @@ def build_payroll_journal_entry_preview(payroll_result, account_overrides=None):
             line["user_remark"] = remark
         lines.append(line)
 
-    if account_map["payroll_expense_account"]:
+    add_line(
+        account_map["payroll_expense_account"],
+        debit=liability["gross_wages"],
+        remark="Gross wages expense",
+    )
+
+    if liability["employer_tax_total"]:
         add_line(
-            account_map["payroll_expense_account"],
-            debit=liability["gross_wages"],
-            remark="Gross wages expense",
+            account_map["payroll_tax_expense_account"],
+            debit=liability["employer_tax_total"],
+            remark="Employer payroll tax expense",
         )
 
-        employer_tax_total = liability["employer_tax_total"]
-        if employer_tax_total:
-            add_line(
-                account_map["payroll_expense_account"],
-                debit=employer_tax_total,
-                remark="Employer payroll tax expense",
-            )
-
-    if account_map["payroll_payable_account"]:
-        add_line(
-            account_map["payroll_payable_account"],
-            credit=liability["net_pay"],
-            remark="Net payroll payable to employee",
-        )
+    add_line(
+        account_map["payroll_payable_account"],
+        credit=liability["net_pay"],
+        remark="Net payroll payable to employee",
+    )
 
     ss_total = flt(
         liability["employee_taxes"]["social_security_employee"] +
         liability["employer_taxes"]["social_security_employer"],
         2,
     )
-    if ss_total and account_map["social_security_payable_account"]:
-        add_line(
-            account_map["social_security_payable_account"],
-            credit=ss_total,
-            remark="Social Security payable",
-        )
+    add_line(
+        account_map["social_security_payable_account"],
+        credit=ss_total,
+        remark="Social Security payable",
+    )
 
     medicare_total = flt(
         liability["employee_taxes"]["medicare_employee"] +
         liability["employer_taxes"]["medicare_employer"],
         2,
     )
-    if medicare_total and account_map["medicare_payable_account"]:
-        add_line(
-            account_map["medicare_payable_account"],
-            credit=medicare_total,
-            remark="Medicare payable",
-        )
+    add_line(
+        account_map["medicare_payable_account"],
+        credit=medicare_total,
+        remark="Medicare payable",
+    )
 
     fed = liability["employee_taxes"]["federal_withholding"]
-    if fed and account_map["federal_withholding_payable_account"]:
-        add_line(
-            account_map["federal_withholding_payable_account"],
-            credit=fed,
-            remark="Federal withholding payable",
-        )
+    add_line(
+        account_map["federal_withholding_payable_account"],
+        credit=fed,
+        remark="Federal withholding payable",
+    )
 
     co = liability["employee_taxes"]["colorado_withholding"]
-    if co and account_map["colorado_withholding_payable_account"]:
-        add_line(
-            account_map["colorado_withholding_payable_account"],
-            credit=co,
-            remark="Colorado withholding payable",
-        )
+    add_line(
+        account_map["colorado_withholding_payable_account"],
+        credit=co,
+        remark="Colorado withholding payable",
+    )
 
     total_debit = flt(sum(flt(d.get("debit_in_account_currency", 0.0)) for d in lines), 2)
     total_credit = flt(sum(flt(d.get("credit_in_account_currency", 0.0)) for d in lines), 2)
