@@ -195,10 +195,18 @@ EMPLOYEE_TAX_CUSTOM_FIELDS = {
             "insert_after": "rootedops_colorado_column_break",
         },
         {
+            "fieldname": "rootedops_colorado_dr0004_line2_override",
+            "label": "Colorado DR 0004 Line 2 Override",
+            "fieldtype": "Check",
+            "insert_after": "rootedops_colorado_filing_status",
+            "default": "0",
+        },
+        {
             "fieldname": "rootedops_colorado_dr0004_line2",
             "label": "Colorado DR 0004 Line 2",
             "fieldtype": "Currency",
-            "insert_after": "rootedops_colorado_filing_status",
+            "insert_after": "rootedops_colorado_dr0004_line2_override",
+            "default": "0",
         },
         {
             "fieldname": "rootedops_colorado_dr0004_line3",
@@ -240,6 +248,7 @@ def employee_tax_custom_fieldnames():
         "rootedops_federal_step4c_extra_withholding",
         "rootedops_federal_exempt",
         "rootedops_colorado_filing_status",
+        "rootedops_colorado_dr0004_line2_override",
         "rootedops_colorado_dr0004_line2",
         "rootedops_colorado_dr0004_line3",
         "rootedops_colorado_exempt",
@@ -257,6 +266,9 @@ def get_employee_tax_profile(employee):
         as_dict=True,
     ) or {}
 
+    colorado_line2_override = cint(values.get("rootedops_colorado_dr0004_line2_override") or 0)
+    colorado_line2_value = flt(values.get("rootedops_colorado_dr0004_line2") or 0.0, 2)
+
     federal_profile = {
         "filing_status": values.get("rootedops_federal_filing_status") or None,
         "step2_checked": cint(values.get("rootedops_federal_step2_checked") or 0),
@@ -269,7 +281,8 @@ def get_employee_tax_profile(employee):
 
     colorado_profile = {
         "filing_status": values.get("rootedops_colorado_filing_status") or None,
-        "dr0004_line2": values.get("rootedops_colorado_dr0004_line2"),
+        "dr0004_line2": colorado_line2_value if colorado_line2_override else None,
+        "dr0004_line2_override": colorado_line2_override,
         "dr0004_line3": flt(values.get("rootedops_colorado_dr0004_line3") or 0.0, 2),
         "exempt": cint(values.get("rootedops_colorado_exempt") or 0),
     }
@@ -319,11 +332,24 @@ def update_employee_tax_profile(
 
     if "filing_status" in colorado_profile:
         updates["rootedops_colorado_filing_status"] = colorado_profile.get("filing_status")
+
     if "dr0004_line2" in colorado_profile:
         value = colorado_profile.get("dr0004_line2")
-        updates["rootedops_colorado_dr0004_line2"] = None if value in (None, "") else flt(value, 2)
+        if value in (None, ""):
+            updates["rootedops_colorado_dr0004_line2_override"] = 0
+            updates["rootedops_colorado_dr0004_line2"] = 0.0
+        else:
+            updates["rootedops_colorado_dr0004_line2_override"] = 1
+            updates["rootedops_colorado_dr0004_line2"] = flt(value, 2)
+
+    if "dr0004_line2_override" in colorado_profile:
+        updates["rootedops_colorado_dr0004_line2_override"] = cint(
+            colorado_profile.get("dr0004_line2_override") or 0
+        )
+
     if "dr0004_line3" in colorado_profile:
         updates["rootedops_colorado_dr0004_line3"] = flt(colorado_profile.get("dr0004_line3") or 0.0, 2)
+
     if "exempt" in colorado_profile:
         updates["rootedops_colorado_exempt"] = cint(colorado_profile.get("exempt") or 0)
 
@@ -625,11 +651,13 @@ def calculate_colorado_withholding_2026(gross, payroll_frequency, colorado_profi
     line_1b = pay_periods
     line_1c = flt(line_1a * line_1b, 2)
 
+    dr0004_line2_override = cint(profile.get("dr0004_line2_override", 0))
     dr0004_line2 = profile.get("dr0004_line2", None)
-    if dr0004_line2 is None or str(dr0004_line2).strip() == "":
-        line_2a = 11000.0 if filing_status == "married_filing_jointly" else 5500.0
-    else:
+
+    if dr0004_line2_override and dr0004_line2 not in (None, ""):
         line_2a = flt(dr0004_line2, 2)
+    else:
+        line_2a = 11000.0 if filing_status == "married_filing_jointly" else 5500.0
 
     line_2b = max(0.0, flt(line_1c - line_2a, 2))
     line_2c = flt(line_2b * COLORADO_RATE_2026, 2)
@@ -646,6 +674,7 @@ def calculate_colorado_withholding_2026(gross, payroll_frequency, colorado_profi
             "line_1b_pay_periods": line_1b,
             "line_1c_annualized_wages": line_1c,
             "line_2a_subtraction_amount": line_2a,
+            "line_2a_override_used": dr0004_line2_override,
             "line_2b": line_2b,
             "line_2c_tax_at_4_4_percent": line_2c,
             "line_2d_per_period_tax": line_2d,
