@@ -1,3 +1,20 @@
+"""RootedOps ERPNext hourly payroll automation.
+
+Current scope:
+- Attendance-based hours
+- Gross pay from hourly rate
+- Employee Social Security
+- Employee Medicare
+- Employer Social Security (reported in return value)
+- Employer Medicare (reported in return value)
+
+Not yet implemented:
+- Federal withholding from W-4 / IRS 15-T
+- Colorado withholding from state inputs
+
+Run inside bench console with:
+    exec(open("/home/frappe/frappe-bench/sites/50_hourly_payroll_automation.py").read(), globals())
+"""
 
 import frappe
 from frappe.utils import flt
@@ -82,8 +99,6 @@ def rebuild_hourly_salary_slip(
         })
         slip.insert(ignore_permissions=True)
 
-    slip.get_emp_and_working_day_details()
-
     hours = attendance_hours(employee, start_date, end_date)
     gross = flt(hours * hourly_rate, 2)
     ytd_before = ytd_gross_before_period(employee, end_date)
@@ -98,6 +113,7 @@ def rebuild_hourly_salary_slip(
     if colorado_withholding is None:
         colorado_withholding = 0.0
 
+    slip.get_emp_and_working_day_details()
     slip.set("earnings", [])
     slip.set("deductions", [])
 
@@ -145,7 +161,6 @@ def rebuild_hourly_salary_slip(
 
     slip.salary_structure = salary_structure
     slip.total_working_hours = flt(hours, 2)
-
     slip.calculate_net_pay()
     slip.save(ignore_permissions=True)
     frappe.db.commit()

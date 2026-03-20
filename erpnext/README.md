@@ -1,812 +1,398 @@
-
 # RootedOps ERPNext Configuration Guide
 
-This directory contains the initial configuration data and instructions for setting up ERPNext for:
+This directory contains the ERPNext-specific configuration assets for RootedOps.
 
-- Dank Mushrooms, LLC
-- Rooted Psyche
+The focus of this folder is:
 
-The goal of this configuration is to provide:
+- Dank Mushrooms, LLC payroll and accounting
+- Rooted Psyche accounting and future payroll
+- employee attendance and hourly payroll automation
+- supporting scripts that replace part of the earlier CSV/import workflow
 
-- basic accounting
-- payroll tracking
-- employee attendance
-- vendor tracking
-- project tracking
-- asset tracking
-- a simplified employee interface
+This README is intentionally long-form. It is meant to preserve the state of the project after the CSV pack was first created and after the later bench-console work completed in ChatGPT.
+
+---
+
+# Current Status Summary
+
+As of the latest update in this folder, the project has progressed through these phases:
+
+## Phase 0 — Initial ERPNext configuration pack
+Completed earlier.
+
+Included:
+- Companies
+- Chart of Accounts CSVs
+- Cost Centers
+- Departments
+- Designations
+- Suppliers
+- Projects
+- Bank accounts template
+- Asset categories
+- Expense claim types
+- Employee template
+
+These files are still present and still useful.
+
+## Phase 1 — Attendance foundation
+Completed.
+
+What was accomplished:
+- Created and validated a `Day Shift`
+- Enabled auto attendance
+- Changed check-in/out interpretation to use explicit log type
+- Created and submitted a `Shift Assignment`
+- Confirmed clean `Employee Checkin` rows are converted into `Attendance`
+- Confirmed `working_hours` is populated from check-in/check-out data
+
+Result:
+- Attendance is now a reliable source of hours worked.
+
+## Phase 2 — Hourly payroll foundation
+Completed.
+
+What was accomplished:
+- Switched Payroll Settings from leave-based payroll to attendance-based payroll
+- Verified the stock ERPNext “payment days” model is not a good fit for an ad-hoc hourly employee
+- Created a custom Python payroll automation approach
+- Confirmed attendance-derived hours can be turned into:
+  - gross pay
+  - employee Social Security
+  - employee Medicare
+  - employer Social Security
+  - employer Medicare
+- Confirmed custom draft salary slip generation works from a script loaded into bench console
+
+Result:
+- The system now has a working scripted baseline for hourly payroll.
+
+## Phase 3 — Federal and Colorado withholding automation
+Not yet completed.
+
+Next work:
+- store employee W-4 / Colorado withholding inputs
+- automate federal withholding from IRS Publication 15-T inputs
+- automate Colorado withholding from DR 1098 / DR 0004 inputs
+- wire those calculations into the custom payroll script
 
 ---
 
 # Directory Contents
 
+## CSV / import files
+
+These files remain part of the project and are still useful for initial ERPNext setup:
+
 | File | Purpose |
-|-----|------|
-| companies.csv | Creates Dank Mushrooms, LLC and Rooted Psyche companies |
-| chart_of_accounts_dank_mushrooms_llc.csv | Dank Mushrooms Chart of Accounts |
-| chart_of_accounts_rooted_psyche.csv | Rooted Psyche Chart of Accounts |
-| cost_centers.csv | Cost centers used for payroll and accounting |
-| departments.csv | Company departments |
-| designations.csv | Employee job titles |
-| employees_template.csv | Template for employee records |
-| bank_accounts_template.csv | Business bank accounts |
-| suppliers.csv | Vendors (Amazon, suppliers, etc.) |
-| projects.csv | Projects such as farmers markets |
-| expense_claim_types.csv | Expense categories |
-| asset_categories.csv | Asset depreciation categories |
-| RootedOps_ERPNext_Config_Pack.xlsx | Reference spreadsheet |
+|---|---|
+| `companies.csv` | Initial company import |
+| `chart_of_accounts_dank_mushrooms_llc.csv` | Dank Mushrooms chart of accounts |
+| `chart_of_accounts_rooted_psyche.csv` | Rooted Psyche chart of accounts |
+| `cost_centers.csv` | Cost center import |
+| `departments.csv` | Department import |
+| `designations.csv` | Designation import |
+| `employees_template.csv` | Employee import template |
+| `bank_accounts_template.csv` | Bank account template |
+| `suppliers.csv` | Supplier import |
+| `projects.csv` | Project import |
+| `expense_claim_types.csv` | Expense claim type import |
+| `asset_categories.csv` | Asset category import |
+
+## Scripts
+
+These scripts were added after the initial CSV pack and represent the newer, bench-console-driven configuration work:
+
+| Script | Purpose |
+|---|---|
+| `scripts/10_setup_master_data.py` | Idempotent creation of cost centers, departments, designations, and a payroll payable account structure outline |
+| `scripts/20_setup_shift_and_test_employee.py` | Creates/updates Day Shift, Payroll Settings, test employee, and submitted Shift Assignment |
+| `scripts/30_create_employee_home_page.py` | Creates the file-backed custom Desk page for the employee landing page |
+| `scripts/40_setup_payroll_test_foundation.py` | Creates the clean test salary structure and assignment used during payroll testing |
+| `scripts/50_hourly_payroll_automation.py` | Attendance-driven hourly payroll script with FICA calculations |
+| `scripts/README_SCRIPTS.md` | Script usage notes and execution pattern |
+
+## Handoff files
+
+| File | Purpose |
+|---|---|
+| `CHATGPT_HANDOFF.md` | Full narrative handoff for a new ChatGPT session |
+| `CHATGPT_HANDOFF.json` | Structured summary for quick reference |
+
+---
+
+# What still uses CSV imports vs. what is now better done by script
+
+## Still best handled by CSV / importer
+These are stable master-data imports and should remain as CSVs unless there is a strong reason to fully script them:
+
+- companies
+- chart of accounts
+- suppliers
+- projects
+- asset categories
+- expense claim types
+
+## Now better handled by script
+These were actively manipulated in the bench console during later troubleshooting and are now better represented by scripts:
+
+- payroll settings
+- shift setup
+- shift assignment
+- test employee creation / update
+- salary structure cleanup and recreation
+- attendance-driven payroll automation
+- employee Desk page creation
 
 ---
 
 # Reset ERPNext to a Clean State (Optional)
 
-If ERPNext already has data, wipe the site.
+If ERPNext already has incorrect data and you want a real clean slate:
 
-Stop ERPNext:
-
+```bash
 docker compose down
-
-Remove ERPNext volumes:
-
 docker volume rm docker_erpnext_db_data
 docker volume rm docker_erpnext_sites
 docker volume rm docker_erpnext_apps
 docker volume rm docker_erpnext_logs
-
-Restart ERPNext:
-
 docker compose up -d
+```
 
-Run bootstrap again if necessary.
+Then re-bootstrap ERPNext and reapply the configuration.
 
 ---
 
-# Import Order (Important)
+# Initial Import Order (CSV-based bootstrap)
 
-ERPNext imports must be done in the correct order.
+If starting from scratch in ERPNext and using the import files first, the baseline order remains:
 
-Import using **Data Import Tool**.
-
-Order:
-
-1. companies.csv
+1. `companies.csv`
 2. Chart of Accounts (per company)
-3. cost_centers.csv
-4. departments.csv
-5. designations.csv
-6. bank_accounts_template.csv
-7. suppliers.csv
-8. projects.csv
-9. expense_claim_types.csv
-10. asset_categories.csv
-11. employees_template.csv
+3. `cost_centers.csv`
+4. `departments.csv`
+5. `designations.csv`
+6. `bank_accounts_template.csv`
+7. `suppliers.csv`
+8. `projects.csv`
+9. `expense_claim_types.csv`
+10. `asset_categories.csv`
+11. `employees_template.csv`
+
+After that baseline, the newer scripts in `scripts/` should be used to bring the environment to the current working state.
 
 ---
 
-# Create Employee
+# Bench-console execution pattern for scripts
 
-Navigate:
+The scripts in `erpnext/scripts/` are intended to be loaded into bench console.
 
-HR → Employee → New
+## Recommended pattern
 
-Fields:
+From the project root on the host:
 
-| Field | Value |
-|-----|-----|
-| Company | Dank Mushrooms, LLC |
-| Status | Active |
-| Department | Operations |
-| Designation | Cultivation Technician |
-| Default Shift | Day Shift |
+```bash
+sudo docker cp erpnext/scripts/50_hourly_payroll_automation.py   erpnext-backend:/home/frappe/frappe-bench/sites/50_hourly_payroll_automation.py
+```
 
-Save.
+Then open bench console:
 
----
+```bash
+sudo docker compose --env-file ./.env -f docker/docker-compose.yml exec erpnext-backend   bash -lc "bench --site erp.danks.store console"
+```
 
-# Enable Employee Portal Access
+Then load the script:
 
-Open the employee **User account**.
+```python
+exec(open("/home/frappe/frappe-bench/sites/50_hourly_payroll_automation.py").read(), globals())
+```
 
-Roles:
-
-Employee
-
-Remove:
-
-System Manager
-Accounts User
-HR Manager
-
-Employee can log in at:
-
-https://erp.danks.store
+This pattern was necessary because pasting large Python blocks directly into the terminal/console proved unreliable.
 
 ---
 
-# Enable Attendance Tracking
+# Phase 1 Details — Attendance Foundation
 
-Create shift:
+The following was verified and/or corrected:
 
-HR → Shift Type → New
+- `Employee`: `HR-EMP-00001`
+- employee company: `Dank Mushrooms, LLC`
+- employee default shift: `Day Shift`
 
-Example:
+## Shift Type
+A `Day Shift` Shift Type was created and corrected to use:
 
-| Field | Value |
-|------|------|
-| Shift Name | Day Shift |
-| Start Time | 09:00 |
-| End Time | 17:00 |
-| Enable Auto Attendance | Yes |
+- `enable_auto_attendance = 1`
+- `determine_check_in_and_check_out = Strictly based on Log Type in Employee Checkin`
+- `working_hours_calculation_based_on = First Check-in and Last Check-out`
 
-Assign the shift to the employee.
+## Shift Assignment
+A submitted Shift Assignment was required. Default shift on Employee alone was not enough.
 
-Employee will use:
+## Auto attendance behavior discovered
+A key troubleshooting lesson:
 
-Check In
-Check Out
+`last_sync_of_checkin` must be set well past the end of the shift window for historical test data, otherwise `process_auto_attendance()` may not convert clean checkins into attendance rows.
 
----
+The working test state used:
 
-# Payroll Setup
+- `process_attendance_after = 2026-03-14`
+- `last_sync_of_checkin = 2026-03-17 23:59:59`
 
-Create salary components.
+## Working result
+Attendance now shows:
 
-Navigate:
+- 2026-03-16 = Present, 8.0 hours
+- 2026-03-17 = Present, 8.0 hours
 
-Payroll → Salary Component
+This established the reliable foundation:
 
-Create:
-
-Earnings
-
-Hourly Wage
-
-Deductions
-
-Federal Withholding
-Colorado Withholding
-Social Security
-Medicare
+```text
+Employee Checkin -> Attendance -> working_hours
+```
 
 ---
 
-## Create Salary Structure
+# Phase 2 Details — Payroll Foundation
 
-Navigate:
+## Payroll Settings correction
+The original Payroll Settings were wrong for this use case:
 
-Payroll → Salary Structure
+- `payroll_based_on = Leave`
+- `consider_unmarked_attendance_as = Present`
 
-Example:
+This produced incorrect salary slips.
 
-Dank Mushrooms Hourly
+The working settings are now:
 
-Add components:
+- `payroll_based_on = Attendance`
+- `consider_unmarked_attendance_as = Absent`
 
-Earnings
+## Stock ERPNext salary behavior that was tested and rejected
+A weekly salary structure was created and successfully generated a salary slip, but it used the stock “payment days” model.
 
-Hourly Wage
+That resulted in proration like:
 
-Deductions
+```text
+800 * 2 / 7 = 228.57
+```
 
-Federal Withholding
-Colorado Withholding
-Social Security
-Medicare
+That model is wrong for this employee because:
 
-Save.
+- the employee is hourly
+- the schedule is ad-hoc
+- weekends may be worked
+- the goal is true hours-worked pay, not fixed weekly salary prorated by attendance days
 
----
+## New payroll design
+The chosen design is:
 
-## Assign Salary Structure
+```text
+Attendance -> hours -> gross pay from hourly rate
+          -> employee FICA deductions
+          -> employer FICA tracking
+          -> future federal withholding
+          -> future Colorado withholding
+          -> net pay
+```
 
-Navigate:
+## What is now automated
+The custom hourly payroll script currently handles:
 
-Payroll → Salary Structure Assignment
+- attendance hour summation
+- gross pay from `hours * hourly_rate`
+- employee Social Security
+- employee Medicare
+- employer Social Security
+- employer Medicare
+- draft salary slip rebuilding
 
-Assign structure to the employee.
+## Current compliance boundary
+As of this phase, the script automates FICA only.
 
----
-
-## Weekly Payroll Workflow
-
-Each week:
-
-Payroll Entry
-Get Employees
-Create Salary Slips
-Submit
-
-Employee receives email payslip.
-
----
-
-# Workspace Creation (ERPNext v16 Quirk) - Use Custom Page (below) instead
-
-ERPNext currently **does not show the "New Workspace" button in the UI**.
-
-Workspace must be created by manually entering the URL.
-
-Open:
-
-https://erp.danks.store/app/workspace/new-workspace-1
-
-Create workspace:
-
-| Field | Value |
-|------|------|
-| Title | Employee Dashboard |
-| Module | HR |
-| App | hrms |
-| Type | Workspace |
-| Icon | calendar |
-
-Save.
-
-If the workspace route fails initially, fix from backend.
+Still to be implemented:
+- federal withholding from W-4 inputs and IRS 15-T logic
+- Colorado withholding from W-4 / DR 0004 inputs and Colorado rules
 
 ---
 
-## Fix Workspace From Backend
+# Custom Employee Desk Page
 
-Open bench console:
+Because the ERPNext v16 Workspace UI was inconsistent, a file-backed custom Desk page was created as a working employee landing page.
 
-docker compose exec erpnext-backend bench --site erp.danks.store console
+Working URLs:
 
-Run:
+- `https://erp.danks.store/desk/employee-home`
+- `https://erp.danks.store/app/employee-home`
 
-doc = frappe.get_doc("Workspace", "employee-dashboard")
-doc.route = "employee-dashboard"
-doc.icon = "calendar"
-doc.save(ignore_permissions=True)
-frappe.db.commit()
-frappe.clear_cache()
+The page assets live inside the container/app path:
 
-Then run:
-
-bench --site erp.danks.store migrate
-bench --site erp.danks.store clear-cache
-
----
-
-## Workspace URL
-
-Workspace will appear at:
-
-https://erp.danks.store/app/employee-dashboard
-
----
-
-## Configure Workspace
-
-Open workspace.
-
-Click **Edit**.
-
-Add shortcuts:
-
-| Label | Link |
-|------|------|
-| Check In / Check Out | Employee Checkin |
-| My Attendance | Attendance |
-| My Payslips | Salary Slip |
-| Submit Expense | Expense Claim |
-
-Save.
-
----
-
-## Restrict Workspace to Employees
-
-In workspace settings add role:
-
-Employee
-
----
-
-## Set Default Workspace for Employee
-
-Open employee **User record**.
-
-Under **Desk Settings**:
-
-Default Workspace = Employee Dashboard
-
-Now when the employee logs in they see only:
-
-Check In / Check Out
-My Attendance
-My Payslips
-Submit Expense
-
----
-
-
-# RootedOps ERPNext Configuration Guide
-
-This directory contains the initial configuration data and instructions for setting up ERPNext for:
-
-- Dank Mushrooms, LLC
-- Rooted Psyche
-
-The goal of this configuration is to provide:
-
-- basic accounting
-- payroll tracking
-- employee attendance
-- vendor tracking
-- project tracking
-- asset tracking
-- a simplified employee interface
-
----
-
-# Directory Contents
-
-| File | Purpose |
-|-----|------|
-| companies.csv | Creates Dank Mushrooms, LLC and Rooted Psyche companies |
-| chart_of_accounts_dank_mushrooms_llc.csv | Dank Mushrooms Chart of Accounts |
-| chart_of_accounts_rooted_psyche.csv | Rooted Psyche Chart of Accounts |
-| cost_centers.csv | Cost centers used for payroll and accounting |
-| departments.csv | Company departments |
-| designations.csv | Employee job titles |
-| employees_template.csv | Template for employee records |
-| bank_accounts_template.csv | Business bank accounts |
-| suppliers.csv | Vendors (Amazon, suppliers, etc.) |
-| projects.csv | Projects such as farmers markets |
-| expense_claim_types.csv | Expense categories |
-| asset_categories.csv | Asset depreciation categories |
-| RootedOps_ERPNext_Config_Pack.xlsx | Reference spreadsheet |
-
----
-
-# Reset ERPNext to a Clean State (Optional)
-
-If ERPNext already has data, wipe the site.
-
-Stop ERPNext:
-
-docker compose down
-
-Remove ERPNext volumes:
-
-docker volume rm docker_erpnext_db_data
-docker volume rm docker_erpnext_sites
-docker volume rm docker_erpnext_apps
-docker volume rm docker_erpnext_logs
-
-Restart ERPNext:
-
-docker compose up -d
-
-Run bootstrap again if necessary.
-
----
-
-# Import Order (Important)
-
-ERPNext imports must be done in the correct order.
-
-Import using **Data Import Tool**.
-
-Order:
-
-1. companies.csv
-2. Chart of Accounts (per company)
-3. cost_centers.csv
-4. departments.csv
-5. designations.csv
-6. bank_accounts_template.csv
-7. suppliers.csv
-8. projects.csv
-9. expense_claim_types.csv
-10. asset_categories.csv
-11. employees_template.csv
-
----
-
-# Create Employee
-
-Navigate:
-
-HR → Employee → New
-
-Fields:
-
-| Field | Value |
-|-----|-----|
-| Company | Dank Mushrooms, LLC |
-| Status | Active |
-| Department | Operations |
-| Designation | Cultivation Technician |
-| Default Shift | Day Shift |
-
-Save.
-
----
-
-# Enable Attendance Tracking
-
-Create shift:
-
-HR → Shift Type → New
-
-Example:
-
-| Field | Value |
-|------|------|
-| Shift Name | Day Shift |
-| Start Time | 09:00 |
-| End Time | 17:00 |
-| Enable Auto Attendance | Yes |
-
-Assign the shift to the employee.
-
-Employee will use:
-
-Check In
-Check Out
-
----
-
-# Payroll Setup
-
-Create salary components.
-
-Navigate:
-
-Payroll → Salary Component
-
-Create:
-
-Earnings
-
-Hourly Wage
-
-Deductions
-
-Federal Withholding
-Colorado Withholding
-Social Security
-Medicare
-
----
-
-## Weekly Payroll Workflow
-
-Each week:
-
-Payroll Entry
-Get Employees
-Create Salary Slips
-Submit
-
-Employee receives email payslip.
-
----
-
-# Custom Employee Desk Page (Working Alternative to Workspace)
-
-Due to instability in the ERPNext v16 Workspace UI and migration behavior that removes custom workspaces,
-a custom Desk Page was created instead.
-
-The page currently functions at:
-
-https://erp.danks.store/desk/employee-home
-
-or
-
-https://erp.danks.store/app/employee-home
-
-This provides a stable employee entry point while remaining inside ERPNext.
-
----
-
-## Why This Was Needed
-
-Workspace issues encountered:
-
-- "New Workspace" button missing from UI
-- Workspace creation required manual URL entry
-- Workspace assets removed during migrate
-- Workspace editor missing in this build
-- Workspaces occasionally appeared blank
-
-Desk Pages load directly from filesystem assets and are more reliable.
-
----
-
-## Page Creation Process
-
-From the backend console:
-
-docker compose exec erpnext-backend bench --site erp.danks.store console
-
-Python:
-
-import frappe
-
-if not frappe.db.exists("Page", "employee-home"):
-    doc = frappe.get_doc({
-        "doctype": "Page",
-        "title": "Employee Home",
-        "page_name": "employee-home",
-        "module": "HR",
-        "standard": "No"
-    })
-    doc.insert(ignore_permissions=True)
-    frappe.db.commit()
-
----
-
-## Filesystem Assets
-
-Path created inside container:
-
+```text
 apps/hrms/hrms/hr/page/employee_home
+```
 
-Commands:
-
-cd /home/frappe/frappe-bench/apps/hrms/hrms/hr/page
-mkdir -p employee_home
-touch employee_home/__init__.py
+This is not managed by the CSV files. It is created by script.
 
 ---
 
-## employee_home.js
+# Payroll Compliance Notes
 
-frappe.pages['employee-home'].on_page_load = function(wrapper) {
-    const page = frappe.ui.make_app_page({
-        parent: wrapper,
-        title: 'Employee Home',
-        single_column: true
-    });
+## FICA
+The script currently uses 2026 FICA rates:
 
-    const html = `
-        <div style="padding:16px;">
-            <h3>Employee Home</h3>
-            <div style="display:grid;gap:12px;max-width:420px;">
-                <a class="btn btn-primary" href="/app/employee-checkin/new">Check In / Check Out</a>
-                <a class="btn btn-default" href="/app/attendance">My Attendance</a>
-                <a class="btn btn-default" href="/app/salary-slip">My Payslips</a>
-                <a class="btn btn-default" href="/app/expense-claim">Submit Expense</a>
-            </div>
-        </div>
-    `;
+- Social Security employee = 6.2%
+- Social Security employer = 6.2%
+- Medicare employee = 1.45%
+- Medicare employer = 1.45%
+- Social Security wage base = 184,500 for 2026
 
-    $(page.body).append(html);
-};
+## Federal withholding
+Planned approach:
+- store the employee’s W-4 inputs
+- compute withholding from those stored values
+- only revisit when:
+  - employee submits a new W-4
+  - or the tax year changes
 
----
+## Colorado withholding
+Planned approach:
+- store Colorado withholding inputs
+- compute withholding from those stored values
+- only revisit when:
+  - employee changes Colorado withholding setup
+  - or the tax year changes
 
-## Reload ERPNext
-
-bench --site erp.danks.store clear-cache
-bench --site erp.danks.store migrate
+This matches the intended real-world workflow better than manual per-pay-cycle calculation.
 
 ---
 
-## Page Permissions
+# Recommended next steps
 
-Navigate:
+## Immediate next phase
+Implement withholding automation:
 
-Settings → Role Permission for Page and Report
+1. create employee tax profile data structure
+2. implement federal withholding calculation
+3. implement Colorado withholding calculation
+4. integrate those into the payroll script
+5. create liability accounts and posting structure
 
-Add:
-
-Role: Employee
-Page: employee-home
-
----
-
-## Optional Friendly URL
-
-Example nginx rule:
-
-location = /employee {
-    return 302 https://erp.danks.store/app/employee-home;
-}
-
-Employees can then access:
-
-https://erp.danks.store/employee
+## After that
+1. clean up salary component/account mappings
+2. finalize the payroll payable and withholding accounts
+3. create a “first real employee” setup script
+4. update documentation again
 
 ---
 
-# Bank Accounts
+# Important project note
 
-Import:
+The `Shift Type` list issue turned out to be caused by a UI filter. The shift itself was valid the whole time.
 
-bank_accounts_template.csv
-
-Expected accounts:
-
-Dank Mushrooms Checking
-Dank Mushrooms Savings
-Payroll Withholding
-Rooted Psyche Bank Account
+That is an example of why the newer scripts are valuable: they document the *actual* working backend state independent of the UI.
 
 ---
 
-# Vendors
+# See also
 
-Import:
-
-suppliers.csv
-
-Examples:
-
-Amazon
-Myco Supply
-Farmers Market Vendors
-Advertising Vendors
-
----
-
-# Projects
-
-Projects allow tracking revenue sources.
-
-Examples:
-
-Farmers Market – Fort Collins
-Farmers Market – Boulder
-Online Sales
-
----
-
-# Assets
-
-Import:
-
-asset_categories.csv
-
-Example categories:
-
-Cultivation Equipment
-Market Equipment
-Refrigeration
-Processing Equipment
-
-ERPNext will automatically track depreciation.
-
----
-
-# Inter-Company Billing
-
-Rooted Psyche will pay Dank Mushrooms for:
-
-Cultivation services
-Space rental
-Property lease
-
-Workflow:
-
-Dank Mushrooms creates:
-
-Sales Invoice
-
-Rooted Psyche records:
-
-Purchase Invoice
-
-ERPNext links them automatically.
-
----
-
-# Donations
-
-Rooted Psyche income:
-
-Donation Income
-
-Expenses can be tracked normally.
-
----
-
-# Weekly Operational Workflow
-
-Employee:
-
-Login
-Check In
-Work
-Check Out
-
-Owner:
-
-Review attendance
-Run payroll
-Approve expenses
-Review accounting
-
----
-
-# Importing Clover and Ecwid Sales into ERPNext
-
-Dank Mushrooms receives sales through:
-
-- Clover (farmers market POS)
-- Ecwid (online store)
-
-These sales should be periodically recorded in ERPNext so accounting reports remain accurate.
-
-Recommended workflow:
-
-1. Export sales reports from Clover and Ecwid.
-2. Summarize totals for the period (daily or weekly).
-3. Record sales in ERPNext using Sales Invoice or Journal Entry.
-
-Example accounts:
-
-Sales → Website Sales
-Sales → Farmers Market Sales
-
-Cash payments:
-
-Bank → Dank Mushrooms Checking
-
-Workflow example:
-
-Sales Invoice
-Customer: Farmers Market Sales
-Items: Market Products
-Income Account: Farmers Market Sales
-Payment Mode: Cash / Clover
-
-For Ecwid:
-
-Sales Invoice
-Customer: Online Store
-Income Account: Website Sales
-Payment Mode: Stripe / Online Payment
-
-Future improvement:
-
-These platforms can eventually be integrated using:
-
-- ERPNext API
-- n8n automation
-- scheduled CSV imports
-
-Example architecture:
-
-Ecwid / Clover → n8n → ERPNext API
-
-This allows fully automated bookkeeping.
-
----
-
-# Current Status
-
-Working:
-
-- custom ERPNext Desk Page
-- employee check-in link
-- attendance view
-- payslip view
-- expense claim link
-
-Possible future improvements:
-
-- check-in / check-out buttons
-- today's attendance status
-- weekly hours summary
-- latest payslip display
-- mobile-friendly layout
-
-## Notes
-
-ERPNext workspace creation is currently inconsistent in v16.
-
-If workspace disappears after migration:
-
-bench clear-cache
-bench migrate
-
-may remove orphan workspaces.
-
-If that happens, recreate workspace using the manual URL again.
-
-
-
+- `scripts/README_SCRIPTS.md`
