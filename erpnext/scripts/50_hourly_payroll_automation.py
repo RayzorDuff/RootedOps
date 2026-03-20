@@ -11,12 +11,15 @@ Phase 3 currently implemented:
   Percentage Method tables for 2020-or-later Form W-4 inputs
 - Colorado withholding for 2026 using DR 1098
 - Persistent employee federal / Colorado tax profile storage on Employee custom fields
+- Payroll liability summary generation
+- Journal Entry preview payload generation
+- Optional draft Journal Entry creation
 
 Still not implemented here:
 - Additional Medicare tax > $200,000 annual wages
 - 2019-or-earlier federal W-4 handling
-- Journal Entry / Payroll Entry automation
-- Employer tax posting automation
+- Employer tax posting automation beyond draft JE creation
+- Multi-slip payroll entry batching
 
 Run inside bench console with:
     exec(open("/home/frappe/frappe-bench/sites/50_hourly_payroll_automation.py").read(), globals())
@@ -49,8 +52,6 @@ PAY_PERIODS_PER_YEAR = {
     "Daily": 260,
 }
 
-# 2026 IRS Pub. 15-T weekly percentage-method tables for 2020-or-later W-4.
-# Each row: (lower_bound_inclusive, upper_bound_exclusive_or_None, base_tax, rate, excess_over)
 FEDERAL_WEEKLY_TABLES_2026 = {
     "standard": {
         "married_filing_jointly": [
@@ -118,10 +119,6 @@ FEDERAL_WEEKLY_TABLES_2026 = {
     },
 }
 
-
-# ---------------------------------------------------------------------------
-# Employee custom fields for tax profile storage
-# ---------------------------------------------------------------------------
 
 EMPLOYEE_TAX_CUSTOM_FIELDS = {
     "Employee": [
@@ -343,9 +340,7 @@ def update_employee_tax_profile(
             updates["rootedops_colorado_dr0004_line2"] = flt(value, 2)
 
     if "dr0004_line2_override" in colorado_profile:
-        updates["rootedops_colorado_dr0004_line2_override"] = cint(
-            colorado_profile.get("dr0004_line2_override") or 0
-        )
+        updates["rootedops_colorado_dr0004_line2_override"] = cint(colorado_profile.get("dr0004_line2_override") or 0)
 
     if "dr0004_line3" in colorado_profile:
         updates["rootedops_colorado_dr0004_line3"] = flt(colorado_profile.get("dr0004_line3") or 0.0, 2)
@@ -385,10 +380,6 @@ def seed_test_employee_tax_profile():
     )
 
 
-# ---------------------------------------------------------------------------
-# Attendance helpers
-# ---------------------------------------------------------------------------
-
 def get_present_attendance_rows(employee, start_date, end_date):
     return frappe.get_all(
         "Attendance",
@@ -418,10 +409,6 @@ def attendance_summary(employee, start_date, end_date):
         "absent_days": flt(absent_days, 2),
     }
 
-
-# ---------------------------------------------------------------------------
-# General helpers
-# ---------------------------------------------------------------------------
 
 def get_pay_periods_per_year(payroll_frequency):
     if payroll_frequency not in PAY_PERIODS_PER_YEAR:
@@ -476,10 +463,6 @@ def normalized_colorado_filing_status(value):
     )
 
 
-# ---------------------------------------------------------------------------
-# Tax helpers - FICA
-# ---------------------------------------------------------------------------
-
 def ytd_gross_before_period(employee, start_date, exclude_slip_name=None):
     rows = frappe.get_all(
         "Salary Slip",
@@ -519,10 +502,6 @@ def ss_employer_amount(current_gross, ytd_before):
 def medicare_employer_amount(current_gross):
     return flt(flt(current_gross) * MEDICARE_RATE, 2)
 
-
-# ---------------------------------------------------------------------------
-# Tax helpers - Federal withholding (2026, weekly, 2020+ W-4)
-# ---------------------------------------------------------------------------
 
 def lookup_federal_weekly_row_2026(adjusted_wage_amount, filing_status, step2_checked):
     schedule_key = "step2" if cint(step2_checked) else "standard"
@@ -567,9 +546,7 @@ def calculate_federal_withholding_2026_weekly(gross, federal_profile=None):
             },
         }
 
-    filing_status = normalized_federal_filing_status(
-        profile.get("filing_status", "single")
-    )
+    filing_status = normalized_federal_filing_status(profile.get("filing_status", "single"))
     step2_checked = cint(profile.get("step2_checked", 0))
     step3_annual_credits = flt(profile.get("step3_annual_credits", 0.0), 2)
     step4a_other_income = flt(profile.get("step4a_other_income", 0.0), 2)
@@ -626,10 +603,6 @@ def calculate_federal_withholding_2026_weekly(gross, federal_profile=None):
     }
 
 
-# ---------------------------------------------------------------------------
-# Tax helpers - Colorado withholding (2026 DR 1098)
-# ---------------------------------------------------------------------------
-
 def calculate_colorado_withholding_2026(gross, payroll_frequency, colorado_profile=None):
     profile = colorado_profile or {}
 
@@ -643,9 +616,7 @@ def calculate_colorado_withholding_2026(gross, payroll_frequency, colorado_profi
         }
 
     pay_periods = get_pay_periods_per_year(payroll_frequency)
-    filing_status = normalized_colorado_filing_status(
-        profile.get("filing_status", "single")
-    )
+    filing_status = normalized_colorado_filing_status(profile.get("filing_status", "single"))
 
     line_1a = flt(gross, 2)
     line_1b = pay_periods
@@ -683,10 +654,6 @@ def calculate_colorado_withholding_2026(gross, payroll_frequency, colorado_profi
         },
     }
 
-
-# ---------------------------------------------------------------------------
-# Employee / payroll context helpers
-# ---------------------------------------------------------------------------
 
 def get_employee_doc(employee):
     return frappe.get_doc("Employee", employee)
@@ -745,10 +712,6 @@ def get_active_salary_structure_assignment(employee, start_date):
     return assignment
 
 
-# ---------------------------------------------------------------------------
-# Slip lookup helpers
-# ---------------------------------------------------------------------------
-
 def get_existing_draft_slip(employee, start_date, end_date):
     slips = frappe.get_all(
         "Salary Slip",
@@ -778,10 +741,6 @@ def get_existing_submitted_slip(employee, start_date, end_date):
     )
     return slips[0] if slips else None
 
-
-# ---------------------------------------------------------------------------
-# Custom-save bypass for HRMS Salary Slip validation/calculation
-# ---------------------------------------------------------------------------
 
 @contextmanager
 def custom_salary_slip_save_mode():
@@ -820,10 +779,6 @@ def custom_salary_slip_save_mode():
         if originals["pull_sal_struct"]:
             SalarySlip.pull_sal_struct = originals["pull_sal_struct"]
 
-
-# ---------------------------------------------------------------------------
-# Slip creation and mutation helpers
-# ---------------------------------------------------------------------------
 
 def ensure_draft_salary_slip(employee, start_date, end_date, payroll_frequency="Weekly", company=None):
     submitted = get_existing_submitted_slip(employee, start_date, end_date)
@@ -1045,10 +1000,6 @@ def validate_custom_math(slip, expected_gross, expected_net):
     return issues
 
 
-# ---------------------------------------------------------------------------
-# Diagnostics
-# ---------------------------------------------------------------------------
-
 def diagnose_salary_slip_math(slip_name):
     slip = frappe.get_doc("Salary Slip", slip_name)
 
@@ -1089,8 +1040,283 @@ def diagnose_salary_slip_math(slip_name):
 
 
 # ---------------------------------------------------------------------------
-# Main entry point
+# Liability and Journal Entry helpers
 # ---------------------------------------------------------------------------
+
+def summarize_payroll_liabilities(payroll_result):
+    employee_taxes = {
+        "social_security_employee": flt(payroll_result.get("ss_employee", 0.0), 2),
+        "medicare_employee": flt(payroll_result.get("medicare_employee", 0.0), 2),
+        "federal_withholding": flt(payroll_result.get("federal_withholding", 0.0), 2),
+        "colorado_withholding": flt(payroll_result.get("colorado_withholding", 0.0), 2),
+    }
+
+    employer_taxes = {
+        "social_security_employer": flt(payroll_result.get("ss_employer", 0.0), 2),
+        "medicare_employer": flt(payroll_result.get("medicare_employer", 0.0), 2),
+    }
+
+    employee_tax_total = flt(sum(employee_taxes.values()), 2)
+    employer_tax_total = flt(sum(employer_taxes.values()), 2)
+    gross = flt(payroll_result.get("gross", 0.0), 2)
+    net_pay = flt(payroll_result.get("net_pay", 0.0), 2)
+
+    return {
+        "gross_wages": gross,
+        "net_pay": net_pay,
+        "employee_taxes": employee_taxes,
+        "employee_tax_total": employee_tax_total,
+        "employer_taxes": employer_taxes,
+        "employer_tax_total": employer_tax_total,
+        "total_payroll_expense": flt(gross + employer_tax_total, 2),
+        "total_liability_before_cash": flt(employee_tax_total + employer_tax_total, 2),
+    }
+
+
+def get_default_account_by_keywords(company, keywords, account_type=None, root_type=None):
+    filters = {"company": company, "is_group": 0, "disabled": 0}
+
+    if account_type:
+        filters["account_type"] = account_type
+    if root_type:
+        filters["root_type"] = root_type
+
+    accounts = frappe.get_all(
+        "Account",
+        filters=filters,
+        fields=["name", "account_name", "account_number", "account_type", "root_type"],
+        order_by="name asc",
+    )
+
+    lowered_keywords = [k.lower() for k in keywords]
+    for acct in accounts:
+        haystack = " ".join(
+            [
+                acct.name or "",
+                acct.account_name or "",
+                acct.account_number or "",
+                acct.account_type or "",
+                acct.root_type or "",
+            ]
+        ).lower()
+        if all(k in haystack for k in lowered_keywords):
+            return acct.name
+
+    return None
+
+
+def get_payroll_account_map(company, payroll_payable_account=None):
+    company_doc = frappe.get_doc("Company", company)
+
+    expense_account = get_default_account_by_keywords(
+        company,
+        keywords=["payroll"],
+        root_type="Expense",
+    ) or get_default_account_by_keywords(
+        company,
+        keywords=["salary"],
+        root_type="Expense",
+    )
+
+    if not expense_account:
+        expense_account = getattr(company_doc, "default_payroll_payable_account", None)
+
+    payroll_payable = payroll_payable_account or getattr(company_doc, "default_payroll_payable_account", None)
+
+    federal_payable = (
+        get_default_account_by_keywords(company, ["federal", "withholding"], root_type="Liability")
+        or get_default_account_by_keywords(company, ["federal", "tax"], root_type="Liability")
+    )
+    colorado_payable = (
+        get_default_account_by_keywords(company, ["colorado", "withholding"], root_type="Liability")
+        or get_default_account_by_keywords(company, ["state", "withholding"], root_type="Liability")
+    )
+    ss_payable = (
+        get_default_account_by_keywords(company, ["social", "security"], root_type="Liability")
+        or get_default_account_by_keywords(company, ["fica", "ss"], root_type="Liability")
+    )
+    medicare_payable = (
+        get_default_account_by_keywords(company, ["medicare"], root_type="Liability")
+        or get_default_account_by_keywords(company, ["fica", "medicare"], root_type="Liability")
+    )
+
+    return {
+        "payroll_expense_account": expense_account,
+        "payroll_payable_account": payroll_payable,
+        "federal_withholding_payable_account": federal_payable,
+        "colorado_withholding_payable_account": colorado_payable,
+        "social_security_payable_account": ss_payable,
+        "medicare_payable_account": medicare_payable,
+    }
+
+
+def build_payroll_journal_entry_preview(payroll_result):
+    slip = frappe.get_doc("Salary Slip", payroll_result["slip_name"])
+    company = slip.company
+    cost_center = getattr(slip, "cost_center", None)
+    posting_date = slip.end_date
+    payroll_payable_account = getattr(slip, "payroll_payable_account", None)
+
+    liability = summarize_payroll_liabilities(payroll_result)
+    account_map = get_payroll_account_map(company, payroll_payable_account=payroll_payable_account)
+
+    if not account_map["payroll_expense_account"]:
+        frappe.throw("Could not resolve a payroll expense account for Journal Entry preview.")
+    if not account_map["payroll_payable_account"]:
+        frappe.throw("Could not resolve a payroll payable account for Journal Entry preview.")
+
+    lines = []
+
+    def add_line(account, debit=0.0, credit=0.0, remark=None):
+        if not account:
+            return
+        debit = flt(debit, 2)
+        credit = flt(credit, 2)
+        if not debit and not credit:
+            return
+
+        line = {
+            "account": account,
+            "debit_in_account_currency": debit,
+            "credit_in_account_currency": credit,
+            "reference_type": "Salary Slip",
+            "reference_name": slip.name,
+        }
+        if cost_center:
+            line["cost_center"] = cost_center
+        if remark:
+            line["user_remark"] = remark
+        lines.append(line)
+
+    # Debits
+    add_line(
+        account_map["payroll_expense_account"],
+        debit=liability["gross_wages"],
+        remark="Gross wages expense",
+    )
+
+    employer_tax_total = liability["employer_tax_total"]
+    if employer_tax_total:
+        add_line(
+            account_map["payroll_expense_account"],
+            debit=employer_tax_total,
+            remark="Employer payroll tax expense",
+        )
+
+    # Credits
+    add_line(
+        account_map["payroll_payable_account"],
+        credit=liability["net_pay"],
+        remark="Net payroll payable to employee",
+    )
+
+    ss_total = flt(
+        liability["employee_taxes"]["social_security_employee"] +
+        liability["employer_taxes"]["social_security_employer"],
+        2,
+    )
+    if ss_total:
+        add_line(
+            account_map["social_security_payable_account"] or account_map["payroll_payable_account"],
+            credit=ss_total,
+            remark="Social Security payable",
+        )
+
+    medicare_total = flt(
+        liability["employee_taxes"]["medicare_employee"] +
+        liability["employer_taxes"]["medicare_employer"],
+        2,
+    )
+    if medicare_total:
+        add_line(
+            account_map["medicare_payable_account"] or account_map["payroll_payable_account"],
+            credit=medicare_total,
+            remark="Medicare payable",
+        )
+
+    fed = liability["employee_taxes"]["federal_withholding"]
+    if fed:
+        add_line(
+            account_map["federal_withholding_payable_account"] or account_map["payroll_payable_account"],
+            credit=fed,
+            remark="Federal withholding payable",
+        )
+
+    co = liability["employee_taxes"]["colorado_withholding"]
+    if co:
+        add_line(
+            account_map["colorado_withholding_payable_account"] or account_map["payroll_payable_account"],
+            credit=co,
+            remark="Colorado withholding payable",
+        )
+
+    total_debit = flt(sum(flt(d.get("debit_in_account_currency", 0.0)) for d in lines), 2)
+    total_credit = flt(sum(flt(d.get("credit_in_account_currency", 0.0)) for d in lines), 2)
+
+    return {
+        "voucher_type": "Journal Entry",
+        "company": company,
+        "posting_date": posting_date,
+        "user_remark": f"Payroll accrual for {slip.employee} {slip.start_date} to {slip.end_date}",
+        "accounts": lines,
+        "total_debit": total_debit,
+        "total_credit": total_credit,
+        "is_balanced": total_debit == total_credit,
+        "account_map": account_map,
+        "liability_summary": liability,
+    }
+
+
+def create_payroll_journal_entry_draft(payroll_result):
+    preview = build_payroll_journal_entry_preview(payroll_result)
+
+    if not preview["is_balanced"]:
+        frappe.throw(
+            f"Journal Entry preview is not balanced: debit={preview['total_debit']} credit={preview['total_credit']}"
+        )
+
+    je = frappe.get_doc(
+        {
+            "doctype": "Journal Entry",
+            "voucher_type": preview["voucher_type"],
+            "company": preview["company"],
+            "posting_date": preview["posting_date"],
+            "user_remark": preview["user_remark"],
+            "accounts": preview["accounts"],
+        }
+    )
+    je.insert(ignore_permissions=True)
+    frappe.db.commit()
+
+    return {
+        "journal_entry_name": je.name,
+        "posting_date": je.posting_date,
+        "company": je.company,
+        "total_debit": preview["total_debit"],
+        "total_credit": preview["total_credit"],
+        "is_balanced": preview["is_balanced"],
+        "account_map": preview["account_map"],
+        "liability_summary": preview["liability_summary"],
+    }
+
+
+def payroll_register_row(payroll_result):
+    liability = summarize_payroll_liabilities(payroll_result)
+    return {
+        "slip_name": payroll_result["slip_name"],
+        "gross_wages": liability["gross_wages"],
+        "net_pay": liability["net_pay"],
+        "ss_employee": liability["employee_taxes"]["social_security_employee"],
+        "medicare_employee": liability["employee_taxes"]["medicare_employee"],
+        "federal_withholding": liability["employee_taxes"]["federal_withholding"],
+        "colorado_withholding": liability["employee_taxes"]["colorado_withholding"],
+        "ss_employer": liability["employer_taxes"]["social_security_employer"],
+        "medicare_employer": liability["employer_taxes"]["medicare_employer"],
+        "employee_tax_total": liability["employee_tax_total"],
+        "employer_tax_total": liability["employer_tax_total"],
+        "total_payroll_expense": liability["total_payroll_expense"],
+    }
+
 
 def rebuild_hourly_salary_slip(
     employee,
@@ -1202,9 +1428,7 @@ def rebuild_hourly_salary_slip(
         expected_net=manual_totals["net_pay"],
     )
 
-    frappe.db.commit()
-
-    return {
+    result = {
         "slip_name": slip.name,
         "hours": summary["hours"],
         "payment_days": summary["payment_days"],
@@ -1230,3 +1454,10 @@ def rebuild_hourly_salary_slip(
         "issues": issues,
         "diagnostic": diagnose_salary_slip_math(slip.name),
     }
+
+    result["liability_summary"] = summarize_payroll_liabilities(result)
+    result["payroll_register_row"] = payroll_register_row(result)
+    result["journal_entry_preview"] = build_payroll_journal_entry_preview(result)
+
+    frappe.db.commit()
+    return result
