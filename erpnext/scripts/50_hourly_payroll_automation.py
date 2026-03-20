@@ -119,7 +119,6 @@ FEDERAL_WEEKLY_TABLES_2026 = {
     },
 }
 
-
 EMPLOYEE_TAX_CUSTOM_FIELDS = {
     "Employee": [
         {
@@ -1039,10 +1038,6 @@ def diagnose_salary_slip_math(slip_name):
     }
 
 
-# ---------------------------------------------------------------------------
-# Liability and Journal Entry helpers
-# ---------------------------------------------------------------------------
-
 def summarize_payroll_liabilities(payroll_result):
     employee_taxes = {
         "social_security_employee": flt(payroll_result.get("ss_employee", 0.0), 2),
@@ -1073,75 +1068,78 @@ def summarize_payroll_liabilities(payroll_result):
     }
 
 
-def get_default_account_by_keywords(company, keywords, account_type=None, root_type=None):
+def find_accounts(company, root_type=None):
     filters = {"company": company, "is_group": 0, "disabled": 0}
-
-    if account_type:
-        filters["account_type"] = account_type
     if root_type:
         filters["root_type"] = root_type
-
-    accounts = frappe.get_all(
+    return frappe.get_all(
         "Account",
         filters=filters,
         fields=["name", "account_name", "account_number", "account_type", "root_type"],
         order_by="name asc",
     )
 
-    lowered_keywords = [k.lower() for k in keywords]
-    for acct in accounts:
-        haystack = " ".join(
-            [
-                acct.name or "",
-                acct.account_name or "",
-                acct.account_number or "",
-                acct.account_type or "",
-                acct.root_type or "",
-            ]
-        ).lower()
-        if all(k in haystack for k in lowered_keywords):
-            return acct.name
 
+def match_account_by_keywords(accounts, keyword_groups):
+    for keywords in keyword_groups:
+        lowered = [k.lower() for k in keywords]
+        for acct in accounts:
+            haystack = " ".join(
+                [
+                    acct.name or "",
+                    acct.account_name or "",
+                    acct.account_number or "",
+                    acct.account_type or "",
+                    acct.root_type or "",
+                ]
+            ).lower()
+            if all(k in haystack for k in lowered):
+                return acct.name
     return None
 
 
-def get_payroll_account_map(company, payroll_payable_account=None):
+def get_payroll_account_map(company, payroll_payable_account=None, overrides=None):
+    overrides = overrides or {}
     company_doc = frappe.get_doc("Company", company)
 
-    expense_account = get_default_account_by_keywords(
-        company,
-        keywords=["payroll"],
-        root_type="Expense",
-    ) or get_default_account_by_keywords(
-        company,
-        keywords=["salary"],
-        root_type="Expense",
+    expense_accounts = find_accounts(company, root_type="Expense")
+    liability_accounts = find_accounts(company, root_type="Liability")
+
+    payroll_expense_account = (
+        overrides.get("payroll_expense_account")
+        or match_account_by_keywords(expense_accounts, [["payroll"], ["salary"], ["wage"]])
     )
 
-    if not expense_account:
-        expense_account = getattr(company_doc, "default_payroll_payable_account", None)
-
-    payroll_payable = payroll_payable_account or getattr(company_doc, "default_payroll_payable_account", None)
+    payroll_payable = (
+        overrides.get("payroll_payable_account")
+        or payroll_payable_account
+        or getattr(company_doc, "default_payroll_payable_account", None)
+        or match_account_by_keywords(liability_accounts, [["payroll", "payable"], ["salary", "payable"], ["wages", "payable"]])
+    )
 
     federal_payable = (
-        get_default_account_by_keywords(company, ["federal", "withholding"], root_type="Liability")
-        or get_default_account_by_keywords(company, ["federal", "tax"], root_type="Liability")
+        overrides.get("federal_withholding_payable_account")
+        or match_account_by_keywords(liability_accounts, [["federal", "withholding"], ["federal", "tax"]])
+        or payroll_payable
     )
     colorado_payable = (
-        get_default_account_by_keywords(company, ["colorado", "withholding"], root_type="Liability")
-        or get_default_account_by_keywords(company, ["state", "withholding"], root_type="Liability")
+        overrides.get("colorado_withholding_payable_account")
+        or match_account_by_keywords(liability_accounts, [["colorado", "withholding"], ["state", "withholding"]])
+        or payroll_payable
     )
     ss_payable = (
-        get_default_account_by_keywords(company, ["social", "security"], root_type="Liability")
-        or get_default_account_by_keywords(company, ["fica", "ss"], root_type="Liability")
+        overrides.get("social_security_payable_account")
+        or match_account_by_keywords(liability_accounts, [["social", "security"], ["fica", "ss"]])
+        or payroll_payable
     )
     medicare_payable = (
-        get_default_account_by_keywords(company, ["medicare"], root_type="Liability")
-        or get_default_account_by_keywords(company, ["fica", "medicare"], root_type="Liability")
+        overrides.get("medicare_payable_account")
+        or match_account_by_keywords(liability_accounts, [["medicare"], ["fica", "medicare"]])
+        or payroll_payable
     )
 
     return {
-        "payroll_expense_account": expense_account,
+        "payroll_expense_account": payroll_expense_account,
         "payroll_payable_account": payroll_payable,
         "federal_withholding_payable_account": federal_payable,
         "colorado_withholding_payable_account": colorado_payable,
@@ -1150,7 +1148,11 @@ def get_payroll_account_map(company, payroll_payable_account=None):
     }
 
 
-def build_payroll_journal_entry_preview(payroll_result):
+def unresolved_payroll_accounts(account_map):
+    return [k for k, v in account_map.items() if not v and k in ("payroll_expense_account", "payroll_payable_account")]
+
+
+def build_payroll_journal_entry_preview(payroll_result, account_overrides=None):
     slip = frappe.get_doc("Salary Slip", payroll_result["slip_name"])
     company = slip.company
     cost_center = getattr(slip, "cost_center", None)
@@ -1158,12 +1160,12 @@ def build_payroll_journal_entry_preview(payroll_result):
     payroll_payable_account = getattr(slip, "payroll_payable_account", None)
 
     liability = summarize_payroll_liabilities(payroll_result)
-    account_map = get_payroll_account_map(company, payroll_payable_account=payroll_payable_account)
-
-    if not account_map["payroll_expense_account"]:
-        frappe.throw("Could not resolve a payroll expense account for Journal Entry preview.")
-    if not account_map["payroll_payable_account"]:
-        frappe.throw("Could not resolve a payroll payable account for Journal Entry preview.")
+    account_map = get_payroll_account_map(
+        company,
+        payroll_payable_account=payroll_payable_account,
+        overrides=account_overrides,
+    )
+    missing = unresolved_payroll_accounts(account_map)
 
     lines = []
 
@@ -1188,36 +1190,36 @@ def build_payroll_journal_entry_preview(payroll_result):
             line["user_remark"] = remark
         lines.append(line)
 
-    # Debits
-    add_line(
-        account_map["payroll_expense_account"],
-        debit=liability["gross_wages"],
-        remark="Gross wages expense",
-    )
-
-    employer_tax_total = liability["employer_tax_total"]
-    if employer_tax_total:
+    if account_map["payroll_expense_account"]:
         add_line(
             account_map["payroll_expense_account"],
-            debit=employer_tax_total,
-            remark="Employer payroll tax expense",
+            debit=liability["gross_wages"],
+            remark="Gross wages expense",
         )
 
-    # Credits
-    add_line(
-        account_map["payroll_payable_account"],
-        credit=liability["net_pay"],
-        remark="Net payroll payable to employee",
-    )
+        employer_tax_total = liability["employer_tax_total"]
+        if employer_tax_total:
+            add_line(
+                account_map["payroll_expense_account"],
+                debit=employer_tax_total,
+                remark="Employer payroll tax expense",
+            )
+
+    if account_map["payroll_payable_account"]:
+        add_line(
+            account_map["payroll_payable_account"],
+            credit=liability["net_pay"],
+            remark="Net payroll payable to employee",
+        )
 
     ss_total = flt(
         liability["employee_taxes"]["social_security_employee"] +
         liability["employer_taxes"]["social_security_employer"],
         2,
     )
-    if ss_total:
+    if ss_total and account_map["social_security_payable_account"]:
         add_line(
-            account_map["social_security_payable_account"] or account_map["payroll_payable_account"],
+            account_map["social_security_payable_account"],
             credit=ss_total,
             remark="Social Security payable",
         )
@@ -1227,25 +1229,25 @@ def build_payroll_journal_entry_preview(payroll_result):
         liability["employer_taxes"]["medicare_employer"],
         2,
     )
-    if medicare_total:
+    if medicare_total and account_map["medicare_payable_account"]:
         add_line(
-            account_map["medicare_payable_account"] or account_map["payroll_payable_account"],
+            account_map["medicare_payable_account"],
             credit=medicare_total,
             remark="Medicare payable",
         )
 
     fed = liability["employee_taxes"]["federal_withholding"]
-    if fed:
+    if fed and account_map["federal_withholding_payable_account"]:
         add_line(
-            account_map["federal_withholding_payable_account"] or account_map["payroll_payable_account"],
+            account_map["federal_withholding_payable_account"],
             credit=fed,
             remark="Federal withholding payable",
         )
 
     co = liability["employee_taxes"]["colorado_withholding"]
-    if co:
+    if co and account_map["colorado_withholding_payable_account"]:
         add_line(
-            account_map["colorado_withholding_payable_account"] or account_map["payroll_payable_account"],
+            account_map["colorado_withholding_payable_account"],
             credit=co,
             remark="Colorado withholding payable",
         )
@@ -1261,14 +1263,22 @@ def build_payroll_journal_entry_preview(payroll_result):
         "accounts": lines,
         "total_debit": total_debit,
         "total_credit": total_credit,
-        "is_balanced": total_debit == total_credit,
+        "is_balanced": total_debit == total_credit and not missing,
+        "is_ready_to_create": not missing and total_debit == total_credit and len(lines) > 0,
+        "missing_accounts": missing,
         "account_map": account_map,
         "liability_summary": liability,
     }
 
 
-def create_payroll_journal_entry_draft(payroll_result):
-    preview = build_payroll_journal_entry_preview(payroll_result)
+def create_payroll_journal_entry_draft(payroll_result, account_overrides=None):
+    preview = build_payroll_journal_entry_preview(payroll_result, account_overrides=account_overrides)
+
+    if preview["missing_accounts"]:
+        frappe.throw(
+            "Cannot create Journal Entry draft. Missing required account mappings: "
+            + ", ".join(preview["missing_accounts"])
+        )
 
     if not preview["is_balanced"]:
         frappe.throw(
@@ -1295,6 +1305,7 @@ def create_payroll_journal_entry_draft(payroll_result):
         "total_debit": preview["total_debit"],
         "total_credit": preview["total_credit"],
         "is_balanced": preview["is_balanced"],
+        "missing_accounts": preview["missing_accounts"],
         "account_map": preview["account_map"],
         "liability_summary": preview["liability_summary"],
     }
@@ -1330,6 +1341,7 @@ def rebuild_hourly_salary_slip(
     federal_profile=None,
     colorado_profile=None,
     use_employee_tax_profile=True,
+    account_overrides=None,
 ):
     stored_profile = get_employee_tax_profile(employee) if use_employee_tax_profile else None
 
@@ -1383,8 +1395,7 @@ def rebuild_hourly_salary_slip(
         if federal_profile:
             if payroll_frequency != "Weekly":
                 frappe.throw(
-                    "Federal withholding automation in this script is currently implemented "
-                    "for weekly payroll only."
+                    "Federal withholding automation in this script is currently implemented for weekly payroll only."
                 )
             fed = calculate_federal_withholding_2026_weekly(gross, federal_profile=federal_profile)
             federal_withholding = fed["withholding"]
@@ -1457,7 +1468,10 @@ def rebuild_hourly_salary_slip(
 
     result["liability_summary"] = summarize_payroll_liabilities(result)
     result["payroll_register_row"] = payroll_register_row(result)
-    result["journal_entry_preview"] = build_payroll_journal_entry_preview(result)
+    result["journal_entry_preview"] = build_payroll_journal_entry_preview(
+        result,
+        account_overrides=account_overrides,
+    )
 
     frappe.db.commit()
     return result
