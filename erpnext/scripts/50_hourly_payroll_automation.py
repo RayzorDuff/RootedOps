@@ -10,13 +10,13 @@ Phase 3 currently implemented:
 - Federal withholding for 2026 weekly payroll using IRS Pub. 15-T
   Percentage Method tables for 2020-or-later Form W-4 inputs
 - Colorado withholding for 2026 using DR 1098
+- Persistent employee federal / Colorado tax profile storage on Employee custom fields
 
 Still not implemented here:
 - Additional Medicare tax > $200,000 annual wages
 - 2019-or-earlier federal W-4 handling
 - Journal Entry / Payroll Entry automation
 - Employer tax posting automation
-- Persistent employee tax-profile storage in ERPNext custom fields / doctype
 
 Run inside bench console with:
     exec(open("/home/frappe/frappe-bench/sites/50_hourly_payroll_automation.py").read(), globals())
@@ -27,6 +27,7 @@ from contextlib import contextmanager
 import frappe
 from frappe.utils import cint, date_diff, flt, getdate
 from hrms.payroll.doctype.salary_slip.salary_slip import SalarySlip
+from frappe.custom.doctype.custom_field.custom_field import create_custom_fields
 
 
 SS_WAGE_BASE_2026 = 184500.0
@@ -48,7 +49,7 @@ PAY_PERIODS_PER_YEAR = {
     "Daily": 260,
 }
 
-# 2026 IRS Pub 15-T weekly percentage-method tables for 2020-or-later W-4.
+# 2026 IRS Pub. 15-T weekly percentage-method tables for 2020-or-later W-4.
 # Each row: (lower_bound_inclusive, upper_bound_exclusive_or_None, base_tax, rate, excess_over)
 FEDERAL_WEEKLY_TABLES_2026 = {
     "standard": {
@@ -116,6 +117,246 @@ FEDERAL_WEEKLY_TABLES_2026 = {
         ],
     },
 }
+
+
+# ---------------------------------------------------------------------------
+# Employee custom fields for tax profile storage
+# ---------------------------------------------------------------------------
+
+EMPLOYEE_TAX_CUSTOM_FIELDS = {
+    "Employee": [
+        {
+            "fieldname": "rootedops_payroll_section",
+            "label": "RootedOps Payroll",
+            "fieldtype": "Section Break",
+            "insert_after": "salary_currency",
+            "collapsible": 1,
+        },
+        {
+            "fieldname": "rootedops_federal_filing_status",
+            "label": "Federal Filing Status",
+            "fieldtype": "Select",
+            "options": "\nSingle\nMarried Filing Jointly\nMarried Filing Separately\nHead of Household",
+            "insert_after": "rootedops_payroll_section",
+        },
+        {
+            "fieldname": "rootedops_federal_step2_checked",
+            "label": "Federal W-4 Step 2 Checked",
+            "fieldtype": "Check",
+            "insert_after": "rootedops_federal_filing_status",
+            "default": "0",
+        },
+        {
+            "fieldname": "rootedops_federal_step3_annual_credits",
+            "label": "Federal W-4 Step 3 Annual Credits",
+            "fieldtype": "Currency",
+            "insert_after": "rootedops_federal_step2_checked",
+            "default": "0",
+        },
+        {
+            "fieldname": "rootedops_federal_step4a_other_income",
+            "label": "Federal W-4 Step 4(a) Other Income",
+            "fieldtype": "Currency",
+            "insert_after": "rootedops_federal_step3_annual_credits",
+            "default": "0",
+        },
+        {
+            "fieldname": "rootedops_federal_step4b_deductions",
+            "label": "Federal W-4 Step 4(b) Deductions",
+            "fieldtype": "Currency",
+            "insert_after": "rootedops_federal_step4a_other_income",
+            "default": "0",
+        },
+        {
+            "fieldname": "rootedops_federal_step4c_extra_withholding",
+            "label": "Federal W-4 Step 4(c) Extra Withholding Per Pay Period",
+            "fieldtype": "Currency",
+            "insert_after": "rootedops_federal_step4b_deductions",
+            "default": "0",
+        },
+        {
+            "fieldname": "rootedops_federal_exempt",
+            "label": "Federal Withholding Exempt",
+            "fieldtype": "Check",
+            "insert_after": "rootedops_federal_step4c_extra_withholding",
+            "default": "0",
+        },
+        {
+            "fieldname": "rootedops_colorado_column_break",
+            "label": "",
+            "fieldtype": "Column Break",
+            "insert_after": "rootedops_federal_exempt",
+        },
+        {
+            "fieldname": "rootedops_colorado_filing_status",
+            "label": "Colorado Filing Status",
+            "fieldtype": "Select",
+            "options": "\nSingle\nMarried Filing Jointly\nMarried Filing Separately\nHead of Household",
+            "insert_after": "rootedops_colorado_column_break",
+        },
+        {
+            "fieldname": "rootedops_colorado_dr0004_line2",
+            "label": "Colorado DR 0004 Line 2",
+            "fieldtype": "Currency",
+            "insert_after": "rootedops_colorado_filing_status",
+        },
+        {
+            "fieldname": "rootedops_colorado_dr0004_line3",
+            "label": "Colorado DR 0004 Line 3 Additional Withholding",
+            "fieldtype": "Currency",
+            "insert_after": "rootedops_colorado_dr0004_line2",
+            "default": "0",
+        },
+        {
+            "fieldname": "rootedops_colorado_exempt",
+            "label": "Colorado Withholding Exempt",
+            "fieldtype": "Check",
+            "insert_after": "rootedops_colorado_dr0004_line3",
+            "default": "0",
+        },
+        {
+            "fieldname": "rootedops_hourly_rate",
+            "label": "RootedOps Hourly Rate",
+            "fieldtype": "Currency",
+            "insert_after": "rootedops_colorado_exempt",
+        },
+    ]
+}
+
+
+def ensure_employee_tax_profile_custom_fields():
+    create_custom_fields(EMPLOYEE_TAX_CUSTOM_FIELDS, update=True)
+    frappe.db.commit()
+    return True
+
+
+def employee_tax_custom_fieldnames():
+    return [
+        "rootedops_federal_filing_status",
+        "rootedops_federal_step2_checked",
+        "rootedops_federal_step3_annual_credits",
+        "rootedops_federal_step4a_other_income",
+        "rootedops_federal_step4b_deductions",
+        "rootedops_federal_step4c_extra_withholding",
+        "rootedops_federal_exempt",
+        "rootedops_colorado_filing_status",
+        "rootedops_colorado_dr0004_line2",
+        "rootedops_colorado_dr0004_line3",
+        "rootedops_colorado_exempt",
+        "rootedops_hourly_rate",
+    ]
+
+
+def get_employee_tax_profile(employee):
+    ensure_employee_tax_profile_custom_fields()
+
+    values = frappe.db.get_value(
+        "Employee",
+        employee,
+        employee_tax_custom_fieldnames(),
+        as_dict=True,
+    ) or {}
+
+    federal_profile = {
+        "filing_status": values.get("rootedops_federal_filing_status") or None,
+        "step2_checked": cint(values.get("rootedops_federal_step2_checked") or 0),
+        "step3_annual_credits": flt(values.get("rootedops_federal_step3_annual_credits") or 0.0, 2),
+        "step4a_other_income": flt(values.get("rootedops_federal_step4a_other_income") or 0.0, 2),
+        "step4b_deductions": flt(values.get("rootedops_federal_step4b_deductions") or 0.0, 2),
+        "step4c_extra_withholding": flt(values.get("rootedops_federal_step4c_extra_withholding") or 0.0, 2),
+        "exempt": cint(values.get("rootedops_federal_exempt") or 0),
+    }
+
+    colorado_profile = {
+        "filing_status": values.get("rootedops_colorado_filing_status") or None,
+        "dr0004_line2": values.get("rootedops_colorado_dr0004_line2"),
+        "dr0004_line3": flt(values.get("rootedops_colorado_dr0004_line3") or 0.0, 2),
+        "exempt": cint(values.get("rootedops_colorado_exempt") or 0),
+    }
+
+    hourly_rate = values.get("rootedops_hourly_rate")
+    hourly_rate = None if hourly_rate in (None, "") else flt(hourly_rate, 2)
+
+    return {
+        "employee": employee,
+        "hourly_rate": hourly_rate,
+        "federal_profile": federal_profile,
+        "colorado_profile": colorado_profile,
+        "raw": values,
+    }
+
+
+def update_employee_tax_profile(
+    employee,
+    hourly_rate=None,
+    federal_profile=None,
+    colorado_profile=None,
+):
+    ensure_employee_tax_profile_custom_fields()
+
+    updates = {}
+
+    if hourly_rate is not None:
+        updates["rootedops_hourly_rate"] = flt(hourly_rate, 2)
+
+    federal_profile = federal_profile or {}
+    colorado_profile = colorado_profile or {}
+
+    if "filing_status" in federal_profile:
+        updates["rootedops_federal_filing_status"] = federal_profile.get("filing_status")
+    if "step2_checked" in federal_profile:
+        updates["rootedops_federal_step2_checked"] = cint(federal_profile.get("step2_checked") or 0)
+    if "step3_annual_credits" in federal_profile:
+        updates["rootedops_federal_step3_annual_credits"] = flt(federal_profile.get("step3_annual_credits") or 0.0, 2)
+    if "step4a_other_income" in federal_profile:
+        updates["rootedops_federal_step4a_other_income"] = flt(federal_profile.get("step4a_other_income") or 0.0, 2)
+    if "step4b_deductions" in federal_profile:
+        updates["rootedops_federal_step4b_deductions"] = flt(federal_profile.get("step4b_deductions") or 0.0, 2)
+    if "step4c_extra_withholding" in federal_profile:
+        updates["rootedops_federal_step4c_extra_withholding"] = flt(federal_profile.get("step4c_extra_withholding") or 0.0, 2)
+    if "exempt" in federal_profile:
+        updates["rootedops_federal_exempt"] = cint(federal_profile.get("exempt") or 0)
+
+    if "filing_status" in colorado_profile:
+        updates["rootedops_colorado_filing_status"] = colorado_profile.get("filing_status")
+    if "dr0004_line2" in colorado_profile:
+        value = colorado_profile.get("dr0004_line2")
+        updates["rootedops_colorado_dr0004_line2"] = None if value in (None, "") else flt(value, 2)
+    if "dr0004_line3" in colorado_profile:
+        updates["rootedops_colorado_dr0004_line3"] = flt(colorado_profile.get("dr0004_line3") or 0.0, 2)
+    if "exempt" in colorado_profile:
+        updates["rootedops_colorado_exempt"] = cint(colorado_profile.get("exempt") or 0)
+
+    if not updates:
+        return get_employee_tax_profile(employee)
+
+    for fieldname, value in updates.items():
+        frappe.db.set_value("Employee", employee, fieldname, value, update_modified=False)
+
+    frappe.db.commit()
+    return get_employee_tax_profile(employee)
+
+
+def seed_test_employee_tax_profile():
+    return update_employee_tax_profile(
+        employee="HR-EMP-00001",
+        hourly_rate=20.0,
+        federal_profile={
+            "filing_status": "Single",
+            "step2_checked": 0,
+            "step3_annual_credits": 0.0,
+            "step4a_other_income": 0.0,
+            "step4b_deductions": 0.0,
+            "step4c_extra_withholding": 0.0,
+            "exempt": 0,
+        },
+        colorado_profile={
+            "filing_status": "Single",
+            "dr0004_line2": None,
+            "dr0004_line3": 0.0,
+            "exempt": 0,
+        },
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -260,7 +501,6 @@ def medicare_employer_amount(current_gross):
 def lookup_federal_weekly_row_2026(adjusted_wage_amount, filing_status, step2_checked):
     schedule_key = "step2" if cint(step2_checked) else "standard"
     rows = FEDERAL_WEEKLY_TABLES_2026[schedule_key][filing_status]
-
     wage = flt(adjusted_wage_amount, 2)
 
     for lower, upper, base_tax, rate, excess_over in rows:
@@ -595,11 +835,9 @@ def ensure_draft_salary_slip(employee, start_date, end_date, payroll_frequency="
 
 def set_assignment_fields(slip, employee, start_date):
     assignment = get_active_salary_structure_assignment(employee, start_date)
-
     slip.salary_structure = assignment.salary_structure
     if hasattr(slip, "salary_structure_assignment"):
         slip.salary_structure_assignment = assignment.name
-
     return assignment
 
 
@@ -727,18 +965,18 @@ def normalize_saved_child_rows(slip):
     changed = 0
 
     for row in list(slip.earnings) + list(slip.deductions):
-        should_save = False
+        target_amount = flt(getattr(row, "amount", 0.0), 2)
 
+        updates = {}
         if cint(getattr(row, "depends_on_payment_days", 0)) != 0:
-            row.depends_on_payment_days = 0
-            should_save = True
+            updates["depends_on_payment_days"] = 0
 
-        if flt(getattr(row, "default_amount", 0.0), 2) != flt(getattr(row, "amount", 0.0), 2):
-            row.default_amount = flt(getattr(row, "amount", 0.0), 2)
-            should_save = True
+        if flt(getattr(row, "default_amount", 0.0), 2) != target_amount:
+            updates["default_amount"] = target_amount
 
-        if should_save:
-            row.db_update()
+        if updates:
+            for fieldname, value in updates.items():
+                frappe.db.set_value(row.doctype, row.name, fieldname, value, update_modified=False)
             changed += 1
 
     if changed:
@@ -756,12 +994,12 @@ def save_custom_salary_slip(slip, employee, start_date):
     slip.reload()
     normalize_saved_child_rows(slip)
 
-    # Reassert totals after child-row normalization.
     set_manual_totals(slip)
     with custom_salary_slip_save_mode():
         slip.save(ignore_permissions=True)
 
     slip.reload()
+    normalize_saved_child_rows(slip)
     return slip
 
 
@@ -829,14 +1067,35 @@ def rebuild_hourly_salary_slip(
     employee,
     start_date,
     end_date,
-    hourly_rate,
+    hourly_rate=None,
     payroll_frequency="Weekly",
     company=None,
     federal_withholding=None,
     colorado_withholding=None,
     federal_profile=None,
     colorado_profile=None,
+    use_employee_tax_profile=True,
 ):
+    stored_profile = get_employee_tax_profile(employee) if use_employee_tax_profile else None
+
+    if hourly_rate is None:
+        if stored_profile and stored_profile.get("hourly_rate") is not None:
+            hourly_rate = stored_profile["hourly_rate"]
+        else:
+            frappe.throw(
+                f"No hourly_rate provided and no RootedOps Hourly Rate stored on Employee {employee}."
+            )
+
+    if federal_withholding is None and not federal_profile and stored_profile:
+        candidate = stored_profile.get("federal_profile") or {}
+        if candidate.get("filing_status"):
+            federal_profile = candidate
+
+    if colorado_withholding is None and not colorado_profile and stored_profile:
+        candidate = stored_profile.get("colorado_profile") or {}
+        if candidate.get("filing_status"):
+            colorado_profile = candidate
+
     slip = ensure_draft_salary_slip(
         employee=employee,
         start_date=start_date,
@@ -936,6 +1195,7 @@ def rebuild_hourly_salary_slip(
         "gross_pay_field": flt(getattr(slip, "gross_pay", 0.0), 2),
         "total_deduction_field": flt(getattr(slip, "total_deduction", 0.0), 2),
         "net_pay": flt(getattr(slip, "net_pay", 0.0), 2),
+        "stored_employee_tax_profile_used": stored_profile if use_employee_tax_profile else None,
         "federal_detail": federal_detail,
         "colorado_detail": colorado_detail,
         "issues": issues,
