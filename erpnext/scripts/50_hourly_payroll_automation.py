@@ -7,16 +7,16 @@ Phase 3 currently implemented:
 - Employee Medicare
 - Employer Social Security (reported in return payload)
 - Employer Medicare (reported in return payload)
+- Federal withholding for 2026 weekly payroll using IRS Pub. 15-T
+  Percentage Method tables for 2020-or-later Form W-4 inputs
+- Colorado withholding for 2026 using DR 1098
 
-Not yet implemented:
-- Federal withholding from W-4 / IRS 15-T
-- Colorado withholding
+Still not implemented here:
+- Additional Medicare tax > $200,000 annual wages
+- 2019-or-earlier federal W-4 handling
 - Journal Entry / Payroll Entry automation
 - Employer tax posting automation
-
-This script uses a custom hourly salary-slip path while preserving a valid
-Salary Structure Assignment on the Salary Slip so ERPNext/HRMS mandatory field
-validation passes.
+- Persistent employee tax-profile storage in ERPNext custom fields / doctype
 
 Run inside bench console with:
     exec(open("/home/frappe/frappe-bench/sites/50_hourly_payroll_automation.py").read(), globals())
@@ -32,6 +32,90 @@ from hrms.payroll.doctype.salary_slip.salary_slip import SalarySlip
 SS_WAGE_BASE_2026 = 184500.0
 SS_RATE = 0.062
 MEDICARE_RATE = 0.0145
+COLORADO_RATE_2026 = 0.044
+
+PAY_PERIODS_PER_YEAR = {
+    "Weekly": 52,
+    "Bi-Weekly": 26,
+    "Biweekly": 26,
+    "Semimonthly": 24,
+    "Semi-Monthly": 24,
+    "Monthly": 12,
+    "Quarterly": 4,
+    "Semi-Annually": 2,
+    "Semiannually": 2,
+    "Annually": 1,
+    "Daily": 260,
+}
+
+# 2026 IRS Pub 15-T weekly percentage-method tables for 2020-or-later W-4.
+# Each row: (lower_bound_inclusive, upper_bound_exclusive_or_None, base_tax, rate, excess_over)
+FEDERAL_WEEKLY_TABLES_2026 = {
+    "standard": {
+        "married_filing_jointly": [
+            (0.00, 619.00, 0.00, 0.00, 0.00),
+            (619.00, 1096.00, 0.00, 0.10, 619.00),
+            (1096.00, 2558.00, 47.70, 0.12, 1096.00),
+            (2558.00, 4685.00, 223.14, 0.22, 2558.00),
+            (4685.00, 8380.00, 691.08, 0.24, 4685.00),
+            (8380.00, 10474.00, 1577.88, 0.32, 8380.00),
+            (10474.00, 15402.00, 2247.96, 0.35, 10474.00),
+            (15402.00, None, 3972.76, 0.37, 15402.00),
+        ],
+        "single_or_married_filing_separately": [
+            (0.00, 310.00, 0.00, 0.00, 0.00),
+            (310.00, 548.00, 0.00, 0.10, 310.00),
+            (548.00, 1279.00, 23.80, 0.12, 548.00),
+            (1279.00, 2342.00, 111.52, 0.22, 1279.00),
+            (2342.00, 4190.00, 345.38, 0.24, 2342.00),
+            (4190.00, 5237.00, 788.90, 0.32, 4190.00),
+            (5237.00, 12629.00, 1123.94, 0.35, 5237.00),
+            (12629.00, None, 3711.14, 0.37, 12629.00),
+        ],
+        "head_of_household": [
+            (0.00, 464.00, 0.00, 0.00, 0.00),
+            (464.00, 805.00, 0.00, 0.10, 464.00),
+            (805.00, 1762.00, 34.10, 0.12, 805.00),
+            (1762.00, 2497.00, 148.94, 0.22, 1762.00),
+            (2497.00, 4344.00, 310.64, 0.24, 2497.00),
+            (4344.00, 5391.00, 753.92, 0.32, 4344.00),
+            (5391.00, 12784.00, 1088.96, 0.35, 5391.00),
+            (12784.00, None, 3676.51, 0.37, 12784.00),
+        ],
+    },
+    "step2": {
+        "married_filing_jointly": [
+            (0.00, 310.00, 0.00, 0.00, 0.00),
+            (310.00, 548.00, 0.00, 0.10, 310.00),
+            (548.00, 1279.00, 23.80, 0.12, 548.00),
+            (1279.00, 2342.00, 111.52, 0.22, 1279.00),
+            (2342.00, 4190.00, 345.38, 0.24, 2342.00),
+            (4190.00, 5237.00, 788.90, 0.32, 4190.00),
+            (5237.00, 7701.00, 1123.94, 0.35, 5237.00),
+            (7701.00, None, 1986.34, 0.37, 7701.00),
+        ],
+        "single_or_married_filing_separately": [
+            (0.00, 155.00, 0.00, 0.00, 0.00),
+            (155.00, 274.00, 0.00, 0.10, 155.00),
+            (274.00, 639.00, 11.90, 0.12, 274.00),
+            (639.00, 1171.00, 55.70, 0.22, 639.00),
+            (1171.00, 2095.00, 172.74, 0.24, 1171.00),
+            (2095.00, 2619.00, 394.50, 0.32, 2095.00),
+            (2619.00, 6314.00, 562.18, 0.35, 2619.00),
+            (6314.00, None, 1855.43, 0.37, 6314.00),
+        ],
+        "head_of_household": [
+            (0.00, 232.00, 0.00, 0.00, 0.00),
+            (232.00, 402.00, 0.00, 0.10, 232.00),
+            (402.00, 881.00, 17.00, 0.12, 402.00),
+            (881.00, 1249.00, 74.48, 0.22, 881.00),
+            (1249.00, 2172.00, 155.44, 0.24, 1249.00),
+            (2172.00, 2696.00, 376.96, 0.32, 2172.00),
+            (2696.00, 6392.00, 544.64, 0.35, 2696.00),
+            (6392.00, None, 1838.24, 0.37, 6392.00),
+        ],
+    },
+}
 
 
 # ---------------------------------------------------------------------------
@@ -69,7 +153,64 @@ def attendance_summary(employee, start_date, end_date):
 
 
 # ---------------------------------------------------------------------------
-# Tax helpers
+# General helpers
+# ---------------------------------------------------------------------------
+
+def get_pay_periods_per_year(payroll_frequency):
+    if payroll_frequency not in PAY_PERIODS_PER_YEAR:
+        frappe.throw(f"Unsupported payroll_frequency: {payroll_frequency}")
+    return PAY_PERIODS_PER_YEAR[payroll_frequency]
+
+
+def normalized_federal_filing_status(value):
+    raw = (value or "").strip().lower().replace("-", " ").replace("_", " ")
+
+    mapping = {
+        "single": "single_or_married_filing_separately",
+        "married filing separately": "single_or_married_filing_separately",
+        "single or married filing separately": "single_or_married_filing_separately",
+        "married filing jointly": "married_filing_jointly",
+        "mfj": "married_filing_jointly",
+        "qualifying surviving spouse": "married_filing_jointly",
+        "qss": "married_filing_jointly",
+        "head of household": "head_of_household",
+        "hoh": "head_of_household",
+    }
+
+    if raw not in mapping:
+        frappe.throw(
+            "Unsupported federal filing_status. Use one of: "
+            "'single', 'married filing jointly', 'married filing separately', "
+            "'single or married filing separately', or 'head of household'."
+        )
+
+    return mapping[raw]
+
+
+def normalized_colorado_filing_status(value):
+    raw = (value or "").strip().lower().replace("-", " ").replace("_", " ")
+
+    if raw in ("married filing jointly", "mfj", "qualifying surviving spouse", "qss"):
+        return "married_filing_jointly"
+
+    if raw in (
+        "single",
+        "married filing separately",
+        "single or married filing separately",
+        "head of household",
+        "hoh",
+    ):
+        return "other"
+
+    frappe.throw(
+        "Unsupported Colorado filing_status. Use one of: "
+        "'single', 'married filing jointly', 'married filing separately', "
+        "'single or married filing separately', or 'head of household'."
+    )
+
+
+# ---------------------------------------------------------------------------
+# Tax helpers - FICA
 # ---------------------------------------------------------------------------
 
 def ytd_gross_before_period(employee, start_date, exclude_slip_name=None):
@@ -110,6 +251,168 @@ def ss_employer_amount(current_gross, ytd_before):
 
 def medicare_employer_amount(current_gross):
     return flt(flt(current_gross) * MEDICARE_RATE, 2)
+
+
+# ---------------------------------------------------------------------------
+# Tax helpers - Federal withholding (2026, weekly, 2020+ W-4)
+# ---------------------------------------------------------------------------
+
+def lookup_federal_weekly_row_2026(adjusted_wage_amount, filing_status, step2_checked):
+    schedule_key = "step2" if cint(step2_checked) else "standard"
+    rows = FEDERAL_WEEKLY_TABLES_2026[schedule_key][filing_status]
+
+    wage = flt(adjusted_wage_amount, 2)
+
+    for lower, upper, base_tax, rate, excess_over in rows:
+        if upper is None:
+            if wage >= lower:
+                return {
+                    "lower": lower,
+                    "upper": upper,
+                    "base_tax": base_tax,
+                    "rate": rate,
+                    "excess_over": excess_over,
+                }
+        else:
+            if wage >= lower and wage < upper:
+                return {
+                    "lower": lower,
+                    "upper": upper,
+                    "base_tax": base_tax,
+                    "rate": rate,
+                    "excess_over": excess_over,
+                }
+
+    frappe.throw(
+        f"Unable to find weekly federal withholding row for adjusted wage {wage}, "
+        f"filing_status {filing_status}, step2_checked {step2_checked}"
+    )
+
+
+def calculate_federal_withholding_2026_weekly(gross, federal_profile=None):
+    profile = federal_profile or {}
+
+    if cint(profile.get("exempt", 0)):
+        return {
+            "withholding": 0.0,
+            "detail": {
+                "method": "irs_2026_weekly_percentage_method",
+                "exempt": 1,
+            },
+        }
+
+    filing_status = normalized_federal_filing_status(
+        profile.get("filing_status", "single")
+    )
+    step2_checked = cint(profile.get("step2_checked", 0))
+    step3_annual_credits = flt(profile.get("step3_annual_credits", 0.0), 2)
+    step4a_other_income = flt(profile.get("step4a_other_income", 0.0), 2)
+    step4b_deductions = flt(profile.get("step4b_deductions", 0.0), 2)
+    step4c_extra_withholding = flt(profile.get("step4c_extra_withholding", 0.0), 2)
+
+    pay_periods = 52
+
+    line_1a = flt(gross, 2)
+    line_1d = flt(step4a_other_income / pay_periods, 2)
+    line_1e = flt(line_1a + line_1d, 2)
+    line_1g = flt(step4b_deductions / pay_periods, 2)
+    line_1h = max(0.0, flt(line_1e - line_1g, 2))
+
+    row = lookup_federal_weekly_row_2026(
+        adjusted_wage_amount=line_1h,
+        filing_status=filing_status,
+        step2_checked=step2_checked,
+    )
+
+    line_2d = flt(line_1h - row["excess_over"], 2)
+    line_2e = flt(line_2d * row["rate"], 2)
+    line_2f = flt(row["base_tax"] + line_2e, 2)
+
+    line_3b = flt(step3_annual_credits / pay_periods, 2)
+    line_3c = max(0.0, flt(line_2f - line_3b, 2))
+
+    line_4a = step4c_extra_withholding
+    line_4b = flt(line_3c + line_4a, 2)
+
+    return {
+        "withholding": flt(max(0.0, line_4b), 2),
+        "detail": {
+            "method": "irs_2026_weekly_percentage_method",
+            "filing_status": filing_status,
+            "step2_checked": step2_checked,
+            "step3_annual_credits": step3_annual_credits,
+            "step4a_other_income": step4a_other_income,
+            "step4b_deductions": step4b_deductions,
+            "step4c_extra_withholding": step4c_extra_withholding,
+            "line_1a_gross": line_1a,
+            "line_1d_other_income_per_period": line_1d,
+            "line_1e": line_1e,
+            "line_1g_deductions_per_period": line_1g,
+            "line_1h_adjusted_wage_amount": line_1h,
+            "line_2_row": row,
+            "line_2d_excess_wage": line_2d,
+            "line_2e_percentage_tax": line_2e,
+            "line_2f_tentative_withholding": line_2f,
+            "line_3b_credits_per_period": line_3b,
+            "line_3c_after_credits": line_3c,
+            "line_4b_final_withholding": flt(max(0.0, line_4b), 2),
+        },
+    }
+
+
+# ---------------------------------------------------------------------------
+# Tax helpers - Colorado withholding (2026 DR 1098)
+# ---------------------------------------------------------------------------
+
+def calculate_colorado_withholding_2026(gross, payroll_frequency, colorado_profile=None):
+    profile = colorado_profile or {}
+
+    if cint(profile.get("exempt", 0)):
+        return {
+            "withholding": 0.0,
+            "detail": {
+                "method": "colorado_dr1098_2026",
+                "exempt": 1,
+            },
+        }
+
+    pay_periods = get_pay_periods_per_year(payroll_frequency)
+    filing_status = normalized_colorado_filing_status(
+        profile.get("filing_status", "single")
+    )
+
+    line_1a = flt(gross, 2)
+    line_1b = pay_periods
+    line_1c = flt(line_1a * line_1b, 2)
+
+    dr0004_line2 = profile.get("dr0004_line2", None)
+    if dr0004_line2 is None or str(dr0004_line2).strip() == "":
+        line_2a = 11000.0 if filing_status == "married_filing_jointly" else 5500.0
+    else:
+        line_2a = flt(dr0004_line2, 2)
+
+    line_2b = max(0.0, flt(line_1c - line_2a, 2))
+    line_2c = flt(line_2b * COLORADO_RATE_2026, 2)
+    line_2d = flt(line_2c / line_1b, 2)
+    line_2e = flt(profile.get("dr0004_line3", 0.0), 2)
+    line_2f = flt(line_2d + line_2e, 2)
+
+    return {
+        "withholding": flt(max(0.0, line_2f), 2),
+        "detail": {
+            "method": "colorado_dr1098_2026",
+            "filing_status": filing_status,
+            "line_1a_gross": line_1a,
+            "line_1b_pay_periods": line_1b,
+            "line_1c_annualized_wages": line_1c,
+            "line_2a_subtraction_amount": line_2a,
+            "line_2b": line_2b,
+            "line_2c_tax_at_4_4_percent": line_2c,
+            "line_2d_per_period_tax": line_2d,
+            "line_2e_additional_withholding": line_2e,
+            "line_2f_final_withholding": flt(max(0.0, line_2f), 2),
+        },
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -213,7 +516,6 @@ def get_existing_submitted_slip(employee, start_date, end_date):
 
 @contextmanager
 def custom_salary_slip_save_mode():
-    """Temporarily bypass HRMS structure-driven calculation methods."""
     originals = {
         "set_salary_structure_assignment": SalarySlip.set_salary_structure_assignment,
         "calculate_net_pay": SalarySlip.calculate_net_pay,
@@ -421,9 +723,41 @@ def set_manual_totals(slip):
     }
 
 
+def normalize_saved_child_rows(slip):
+    changed = 0
+
+    for row in list(slip.earnings) + list(slip.deductions):
+        should_save = False
+
+        if cint(getattr(row, "depends_on_payment_days", 0)) != 0:
+            row.depends_on_payment_days = 0
+            should_save = True
+
+        if flt(getattr(row, "default_amount", 0.0), 2) != flt(getattr(row, "amount", 0.0), 2):
+            row.default_amount = flt(getattr(row, "amount", 0.0), 2)
+            should_save = True
+
+        if should_save:
+            row.db_update()
+            changed += 1
+
+    if changed:
+        slip.reload()
+
+    return changed
+
+
 def save_custom_salary_slip(slip, employee, start_date):
     set_assignment_fields(slip, employee, start_date)
 
+    with custom_salary_slip_save_mode():
+        slip.save(ignore_permissions=True)
+
+    slip.reload()
+    normalize_saved_child_rows(slip)
+
+    # Reassert totals after child-row normalization.
+    set_manual_totals(slip)
     with custom_salary_slip_save_mode():
         slip.save(ignore_permissions=True)
 
@@ -500,12 +834,9 @@ def rebuild_hourly_salary_slip(
     company=None,
     federal_withholding=None,
     colorado_withholding=None,
+    federal_profile=None,
+    colorado_profile=None,
 ):
-    if federal_withholding is None:
-        federal_withholding = 0.0
-    if colorado_withholding is None:
-        colorado_withholding = 0.0
-
     slip = ensure_draft_salary_slip(
         employee=employee,
         start_date=start_date,
@@ -530,6 +861,38 @@ def rebuild_hourly_salary_slip(
     medicare_employee = medicare_employee_amount(gross)
     ss_employer = ss_employer_amount(gross, ytd_before)
     medicare_employer = medicare_employer_amount(gross)
+
+    federal_detail = None
+    colorado_detail = None
+
+    if federal_withholding is None:
+        if federal_profile:
+            if payroll_frequency != "Weekly":
+                frappe.throw(
+                    "Federal withholding automation in this script is currently implemented "
+                    "for weekly payroll only."
+                )
+            fed = calculate_federal_withholding_2026_weekly(gross, federal_profile=federal_profile)
+            federal_withholding = fed["withholding"]
+            federal_detail = fed["detail"]
+        else:
+            federal_withholding = 0.0
+    else:
+        federal_withholding = flt(federal_withholding, 2)
+
+    if colorado_withholding is None:
+        if colorado_profile:
+            co = calculate_colorado_withholding_2026(
+                gross,
+                payroll_frequency=payroll_frequency,
+                colorado_profile=colorado_profile,
+            )
+            colorado_withholding = co["withholding"]
+            colorado_detail = co["detail"]
+        else:
+            colorado_withholding = 0.0
+    else:
+        colorado_withholding = flt(colorado_withholding, 2)
 
     earnings_rows = build_earnings_rows(gross)
     deduction_rows = build_deduction_rows(
@@ -573,6 +936,8 @@ def rebuild_hourly_salary_slip(
         "gross_pay_field": flt(getattr(slip, "gross_pay", 0.0), 2),
         "total_deduction_field": flt(getattr(slip, "total_deduction", 0.0), 2),
         "net_pay": flt(getattr(slip, "net_pay", 0.0), 2),
+        "federal_detail": federal_detail,
+        "colorado_detail": colorado_detail,
         "issues": issues,
         "diagnostic": diagnose_salary_slip_math(slip.name),
     }
