@@ -1,0 +1,122 @@
+{
+  "project": "RootedOps ERPNext payroll",
+  "environment": {
+    "frappe": "16.11.0",
+    "erpnext": "16.9.1",
+    "hrms": "16.4.3",
+    "employee_self_service": "2.2.2"
+  },
+  "phase_completed": [
+    "Phase 1 - attendance foundation",
+    "Phase 2 - hourly payroll foundation and FICA script",
+    "Phase 3 - federal withholding, Colorado withholding, employee tax profiles, liability summary, and draft Journal Entry creation"
+  ],
+  "phase_next": "Phase 4 - payroll batching and consolidated Journal Entry workflow",
+  "attendance_verified": [
+    {
+      "date": "2026-03-16",
+      "status": "Present",
+      "working_hours": 8.0
+    },
+    {
+      "date": "2026-03-17",
+      "status": "Present",
+      "working_hours": 8.0
+    }
+  ],
+  "employee_tax_profile_verified": {
+    "employee": "HR-EMP-00001",
+    "hourly_rate": 20.0,
+    "federal_profile": {
+      "filing_status": "Single",
+      "step2_checked": 0,
+      "step3_annual_credits": 0.0,
+      "step4a_other_income": 0.0,
+      "step4b_deductions": 0.0,
+      "step4c_extra_withholding": 0.0,
+      "exempt": 0
+    },
+    "colorado_profile": {
+      "filing_status": "Single",
+      "dr0004_line2": null,
+      "dr0004_line2_override": 0,
+      "dr0004_line3": 0.0,
+      "exempt": 0
+    }
+  },
+  "latest_payroll_test": {
+    "period_start": "2026-03-15",
+    "period_end": "2026-03-21",
+    "hours": 16.0,
+    "gross": 320.0,
+    "ss_employee": 19.84,
+    "medicare_employee": 4.64,
+    "federal_withholding": 1.0,
+    "colorado_withholding": 9.43,
+    "ss_employer": 19.84,
+    "medicare_employer": 4.64,
+    "net_pay": 285.09
+  },
+  "liability_summary_verified": {
+    "gross_wages": 320.0,
+    "employee_tax_total": 34.91,
+    "employer_tax_total": 24.48,
+    "total_payroll_expense": 344.48,
+    "total_liability_before_cash": 59.39
+  },
+  "journal_entry_preview_verified": {
+    "is_balanced": true,
+    "is_ready_to_create": true,
+    "total_debit": 344.48,
+    "total_credit": 344.48,
+    "account_map": {
+      "payroll_expense_account": "Payroll Expense - DML",
+      "payroll_tax_expense_account": "Payroll Tax Expense - DML",
+      "payroll_payable_account": "Payroll Payable - DML",
+      "payroll_tax_payable_account": "Payroll Tax Payable - DML",
+      "payroll_withholding_payable_account": "Payroll Withholding Payable - DML",
+      "federal_withholding_payable_account": "Payroll Withholding Payable - DML",
+      "colorado_withholding_payable_account": "Payroll Withholding Payable - DML",
+      "social_security_payable_account": "Payroll Tax Payable - DML",
+      "medicare_payable_account": "Payroll Tax Payable - DML"
+    }
+  },
+  "journal_entry_creation_verified": {
+    "status": "draft created successfully",
+    "important_note": "Journal Entry account rows cannot use reference_type='Salary Slip' in this ERPNext environment; Salary Slip linkage is kept in user_remark."
+  },
+  "scripts": [
+    "scripts/10_setup_master_data.py",
+    "scripts/20_setup_shift_and_test_employee.py",
+    "scripts/30_create_employee_home_page.py",
+    "scripts/40_setup_payroll_test_foundation.py",
+    "scripts/50_hourly_payroll_automation.py"
+  ],
+  "erpnext_configuration_verified": {
+    "company": "Dank Mushrooms, LLC",
+    "default_payroll_payable_account": "Payroll Payable - DML",
+    "accounts": [
+      "Payroll Expense - DML",
+      "Payroll Tax Expense - DML",
+      "Payroll Payable - DML",
+      "Payroll Tax Payable - DML",
+      "Payroll Withholding Payable - DML"
+    ],
+    "payroll_settings": {
+      "payroll_based_on": "Attendance",
+      "consider_unmarked_attendance_as": "Absent"
+    }
+  },
+  "update_procedures_to_document_and_follow": [
+    "Start-of-year update of IRS Publication 15-T federal weekly tables, Social Security wage base, and Colorado withholding values/logic",
+    "Employee hourly-rate changes using stored Employee custom field",
+    "New W-4 updates using stored Employee federal tax-profile custom fields",
+    "New Colorado withholding form updates using stored Employee Colorado tax-profile custom fields"
+  ],
+  "open_questions": [
+    "How should multiple salary slips be batched into one payroll-period run?",
+    "How should one consolidated Journal Entry be built for multiple employees/slips?",
+    "Should the project adopt Payroll Entry objects or continue with the custom scripted path?",
+    "What validation and reconciliation helpers should be added before onboarding the first real employee?"
+  ]
+}

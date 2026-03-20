@@ -1,0 +1,225 @@
+# RootedOps ERPNext Payroll Handoff
+
+## Project
+RootedOps / `erpnext/` folder
+
+## Environment
+- Frappe: 16.11.0
+- ERPNext: 16.9.1
+- HRMS: 16.4.3
+- employee_self_service: 2.2.2
+
+## High-level goals
+- Track attendance from check-in / check-out
+- Run payroll for Dank Mushrooms, LLC without an outside payroll processor
+- Support an ad-hoc hourly W-2 employee who may work weekends
+- Deliver payslips, backend payroll records, and accounting entries
+- Later onboard a real employee using actual W-4 and Colorado withholding data
+
+## What has been completed
+
+### Phase 1 — Attendance foundation
+Completed.
+
+- Day Shift created and validated
+- Auto attendance enabled
+- Shift logic changed to use explicit log types
+- Shift Assignment created and submitted
+- Clean checkins now produce Attendance with working_hours
+
+Verified attendance state:
+- 2026-03-16 = Present, 8.0 hours
+- 2026-03-17 = Present, 8.0 hours
+- 2026-03-15 = Absent, 0.0 hours (test artifact)
+
+### Phase 2 — Hourly payroll foundation
+Completed.
+
+- Payroll Settings changed from leave-based to attendance-based payroll
+- Stock weekly salary-structure proration model was tested and rejected for this use case
+- A custom attendance-driven hourly payroll script was implemented
+
+Confirmed diagnosis of the old wrong-net-pay result:
+- ERPNext was still applying the submitted Salary Structure during Salary Slip calculation
+- The test structure earning `800.00` with `depends_on_payment_days = 1` was being prorated to `228.57`
+- `228.57 - 19.84 SS - 4.64 Medicare = 204.09`
+- The custom gross of `320.00` was not the value driving final net pay until the custom path was corrected
+
+### Phase 3 — Withholding automation, employee tax profiles, and draft Journal Entry creation
+Completed.
+
+What now works:
+- sums Attendance.working_hours
+- calculates gross as hours * hourly_rate
+- calculates employee Social Security and Medicare
+- calculates employer Social Security and Medicare
+- calculates federal withholding for 2026 weekly payroll using stored W-4 style inputs
+- calculates Colorado withholding for 2026 using stored DR 1098 / DR 0004 style inputs
+- stores hourly rate and tax-profile defaults on Employee custom fields
+- rebuilds a draft Salary Slip with those values
+- generates payroll liability summary
+- generates payroll register row
+- generates Journal Entry preview
+- creates draft Journal Entry successfully
+
+## Latest successful verified test result
+
+### Test employee
+- Employee: `HR-EMP-00001`
+- Company: `Dank Mushrooms, LLC`
+- Stored hourly rate: `20.00`
+
+### Stored employee tax profile
+Federal:
+- Filing Status: `Single`
+- Step 2 checked: `0`
+- Step 3 annual credits: `0.00`
+- Step 4(a): `0.00`
+- Step 4(b): `0.00`
+- Step 4(c): `0.00`
+- Exempt: `0`
+
+Colorado:
+- Filing Status: `Single`
+- DR 0004 line 2 override: `0`
+- DR 0004 line 2 logical value: `None`
+- DR 0004 line 3: `0.00`
+- Exempt: `0`
+
+### Payroll result for period `2026-03-15` to `2026-03-21`
+- hours: `16.0`
+- gross: `320.0`
+- ss_employee: `19.84`
+- medicare_employee: `4.64`
+- federal_withholding: `1.0`
+- colorado_withholding: `9.43`
+- ss_employer: `19.84`
+- medicare_employer: `4.64`
+- net_pay: `285.09`
+
+### Liability summary
+- gross_wages: `320.00`
+- employee_tax_total: `34.91`
+- employer_tax_total: `24.48`
+- total_payroll_expense: `344.48`
+- total_liability_before_cash: `59.39`
+
+### Validated payroll account mapping
+- `Payroll Expense - DML`
+- `Payroll Tax Expense - DML`
+- `Payroll Payable - DML`
+- `Payroll Tax Payable - DML`
+- `Payroll Withholding Payable - DML`
+
+Validated company config:
+- `Company("Dank Mushrooms, LLC").default_payroll_payable_account = "Payroll Payable - DML"`
+
+### Validated Journal Entry preview
+- total debit: `344.48`
+- total credit: `344.48`
+- balanced: `True`
+- ready_to_create: `True`
+
+JE line mapping currently used:
+- Gross wages expense -> `Payroll Expense - DML`
+- Employer payroll tax expense -> `Payroll Tax Expense - DML`
+- Net payroll payable -> `Payroll Payable - DML`
+- Social Security payable -> `Payroll Tax Payable - DML`
+- Medicare payable -> `Payroll Tax Payable - DML`
+- Federal withholding payable -> `Payroll Withholding Payable - DML`
+- Colorado withholding payable -> `Payroll Withholding Payable - DML`
+
+### Important JE implementation note
+A first draft JE attempt failed because `Journal Entry Account.reference_type` does not allow `"Salary Slip"` in this ERPNext environment.
+
+The working fix:
+- do not set `reference_type`
+- do not set `reference_name`
+- keep the Salary Slip linkage in JE and row `user_remark`
+
+A draft Journal Entry was successfully created after this change.
+
+## What scripts now exist
+
+### `scripts/10_setup_master_data.py`
+Creates basic departments, designations, and payroll-related cost centers/master data.
+
+### `scripts/20_setup_shift_and_test_employee.py`
+Creates/updates Payroll Settings, Day Shift, test employee, and submitted Shift Assignment.
+
+### `scripts/30_create_employee_home_page.py`
+Creates the custom Desk page `employee-home`.
+
+### `scripts/40_setup_payroll_test_foundation.py`
+Creates the clean salary structure and assignment used for payroll testing.
+
+### `scripts/50_hourly_payroll_automation.py`
+Main payroll automation script. Current scope includes:
+- attendance-based hourly payroll
+- FICA
+- federal withholding
+- Colorado withholding
+- employee tax-profile storage
+- liability summary
+- payroll register row
+- JE preview
+- draft JE creation
+
+## Important lessons learned
+- Default shift on Employee was not enough; submitted Shift Assignment mattered.
+- `last_sync_of_checkin` had to be moved far enough forward for historical auto attendance tests.
+- Pasting large scripts into bench console was unreliable.
+- Best pattern is:
+  1. copy script into container with `docker cp`
+  2. load with `exec(open(...).read(), globals())`
+- Colorado DR 0004 line 2 handling needed a separate override checkbox because the field itself may not be nullable in this site.
+- Salary Slip custom rows needed to be normalized after save so `depends_on_payment_days = 0` persisted.
+- JE account rows in this ERPNext site cannot use `reference_type = "Salary Slip"`.
+
+## Current ERPNext configuration that should remain
+- Payroll Settings:
+  - `payroll_based_on = Attendance`
+  - `consider_unmarked_attendance_as = Absent`
+- Company default payroll payable account:
+  - `Payroll Payable - DML`
+- Payroll accounts:
+  - `Payroll Expense - DML`
+  - `Payroll Tax Expense - DML`
+  - `Payroll Payable - DML`
+  - `Payroll Tax Payable - DML`
+  - `Payroll Withholding Payable - DML`
+
+## Operational update procedures already supported by the current script
+
+### Annual tax-table update
+At the beginning of a new year, update:
+- federal weekly withholding tables
+- Social Security wage base
+- Colorado rate / subtraction values / DR 1098 logic
+
+Then rerun a payroll validation test before first real payroll.
+
+### Employee hourly-rate change
+Update the stored Employee rate, then rerun a payroll validation test.
+
+### New W-4
+Map the W-4 into the stored Employee federal profile fields, then rerun payroll validation.
+
+### New Colorado withholding form
+Map the Colorado values into the stored Employee Colorado profile fields, then rerun payroll validation.
+
+## Immediate next phase
+Phase 4 — payroll batching and operationalization.
+
+Recommended next work:
+1. batch multiple salary slips into one payroll-period run
+2. create consolidated payroll register output
+3. create one consolidated Journal Entry for a payroll period
+4. decide whether to introduce Payroll Entry objects or stay on the custom scripted path
+5. add stronger validation / reconciliation helpers
+6. document a first real employee onboarding procedure using actual W-4 and Colorado inputs
+
+## Suggested opening request for the next ChatGPT session
+"""
+Continue RootedOps ERPNext payroll Phase 4. Phase 3 is complete: attendance-based hourly payroll, FICA, federal withholding, Colorado withholding, employee tax-profile storage, liability summary, and draft Journal Entry creation are working. Review `erpnext/CHATGPT_HANDOFF.md`, `erpnext/CHATGPT_HANDOFF.json`, `erpnext/README.md`, and `erpnext/scripts/50_hourly_payroll_automation.py`. Start by planning and implementing batching multiple salary slips into a payroll-period run and one consolidated Journal Entry.
+"""
