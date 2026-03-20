@@ -1187,12 +1187,11 @@ def build_payroll_journal_entry_preview(payroll_result, account_overrides=None):
     company = slip.company
     cost_center = getattr(slip, "cost_center", None)
     posting_date = slip.end_date
-    payroll_payable_account = getattr(slip, "payroll_payable_account", None)
 
     liability = summarize_payroll_liabilities(payroll_result)
     account_map = get_payroll_account_map(
         company,
-        payroll_payable_account=payroll_payable_account,
+        payroll_payable_account=getattr(slip, "payroll_payable_account", None),
         overrides=account_overrides,
     )
     missing = unresolved_payroll_accounts(account_map)
@@ -1211,8 +1210,6 @@ def build_payroll_journal_entry_preview(payroll_result, account_overrides=None):
             "account": account,
             "debit_in_account_currency": debit,
             "credit_in_account_currency": credit,
-            "reference_type": "Salary Slip",
-            "reference_name": slip.name,
         }
         if cost_center:
             line["cost_center"] = cost_center
@@ -1223,20 +1220,20 @@ def build_payroll_journal_entry_preview(payroll_result, account_overrides=None):
     add_line(
         account_map["payroll_expense_account"],
         debit=liability["gross_wages"],
-        remark="Gross wages expense",
+        remark=f"Gross wages expense for {slip.name}",
     )
 
     if liability["employer_tax_total"]:
         add_line(
             account_map["payroll_tax_expense_account"],
             debit=liability["employer_tax_total"],
-            remark="Employer payroll tax expense",
+            remark=f"Employer payroll tax expense for {slip.name}",
         )
 
     add_line(
         account_map["payroll_payable_account"],
         credit=liability["net_pay"],
-        remark="Net payroll payable to employee",
+        remark=f"Net payroll payable for {slip.name}",
     )
 
     ss_total = flt(
@@ -1247,7 +1244,7 @@ def build_payroll_journal_entry_preview(payroll_result, account_overrides=None):
     add_line(
         account_map["social_security_payable_account"],
         credit=ss_total,
-        remark="Social Security payable",
+        remark=f"Social Security payable for {slip.name}",
     )
 
     medicare_total = flt(
@@ -1258,21 +1255,21 @@ def build_payroll_journal_entry_preview(payroll_result, account_overrides=None):
     add_line(
         account_map["medicare_payable_account"],
         credit=medicare_total,
-        remark="Medicare payable",
+        remark=f"Medicare payable for {slip.name}",
     )
 
     fed = liability["employee_taxes"]["federal_withholding"]
     add_line(
         account_map["federal_withholding_payable_account"],
         credit=fed,
-        remark="Federal withholding payable",
+        remark=f"Federal withholding payable for {slip.name}",
     )
 
     co = liability["employee_taxes"]["colorado_withholding"]
     add_line(
         account_map["colorado_withholding_payable_account"],
         credit=co,
-        remark="Colorado withholding payable",
+        remark=f"Colorado withholding payable for {slip.name}",
     )
 
     total_debit = flt(sum(flt(d.get("debit_in_account_currency", 0.0)) for d in lines), 2)
@@ -1282,7 +1279,7 @@ def build_payroll_journal_entry_preview(payroll_result, account_overrides=None):
         "voucher_type": "Journal Entry",
         "company": company,
         "posting_date": posting_date,
-        "user_remark": f"Payroll accrual for {slip.employee} {slip.start_date} to {slip.end_date}",
+        "user_remark": f"Payroll accrual for {slip.employee} {slip.start_date} to {slip.end_date} (Salary Slip {slip.name})",
         "accounts": lines,
         "total_debit": total_debit,
         "total_credit": total_credit,
