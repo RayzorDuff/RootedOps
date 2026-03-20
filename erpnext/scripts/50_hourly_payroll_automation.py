@@ -393,6 +393,31 @@ def get_present_attendance_rows(employee, start_date, end_date):
     )
 
 
+def get_employees_with_attendance_in_period(start_date, end_date, company=None):
+    filters = {
+        "attendance_date": ["between", [start_date, end_date]],
+        "docstatus": 1,
+        "status": "Present",
+    }
+
+    rows = frappe.get_all(
+        "Attendance",
+        filters=filters,
+        fields=["employee"],
+        order_by="employee asc",
+    )
+
+    employees = sorted({row.employee for row in rows if row.employee})
+    if not company:
+        return employees
+
+    return [
+        employee
+        for employee in employees
+        if frappe.db.get_value("Employee", employee, "company") == company
+    ]
+
+
 def attendance_summary(employee, start_date, end_date):
     rows = get_present_attendance_rows(employee, start_date, end_date)
     total_hours = sum(flt(row.working_hours) for row in rows)
@@ -1180,6 +1205,388 @@ def unresolved_payroll_accounts(account_map):
         "colorado_withholding_payable_account",
     ]
     return [k for k in required if not account_map.get(k)]
+
+
+def payroll_result_cost_center(payroll_result):
+    slip = frappe.get_doc("Salary Slip", payroll_result["slip_name"])
+    return getattr(slip, "cost_center", None)
+
+
+def build_consolidated_payroll_register(payroll_results):
+    register_rows = [payroll_register_row(result) for result in payroll_results]
+
+    totals = {
+        "gross_wages": 0.0,
+        "net_pay": 0.0,
+        "ss_employee": 0.0,
+        "medicare_employee": 0.0,
+        "federal_withholding": 0.0,
+        "colorado_withholding": 0.0,
+        "ss_employer": 0.0,
+        "medicare_employer": 0.0,
+        "employee_tax_total": 0.0,
+        "employer_tax_total": 0.0,
+        "total_payroll_expense": 0.0,
+    }
+
+    for row in register_rows:
+        for key in totals:
+            totals[key] = flt(totals[key] + flt(row.get(key, 0.0)), 2)
+
+    return {
+        "rows": register_rows,
+        "totals": {key: flt(value, 2) for key, value in totals.items()},
+        "employee_count": len(register_rows),
+    }
+
+
+def summarize_consolidated_payroll_liabilities(payroll_results):
+    summary = {
+        "gross_wages": 0.0,
+        "net_pay": 0.0,
+        "employee_taxes": {
+            "social_security_employee": 0.0,
+            "medicare_employee": 0.0,
+            "federal_withholding": 0.0,
+            "colorado_withholding": 0.0,
+        },
+        "employee_tax_total": 0.0,
+        "employer_taxes": {
+            "social_security_employer": 0.0,
+            "medicare_employer": 0.0,
+        },
+        "employer_tax_total": 0.0,
+        "total_payroll_expense": 0.0,
+        "total_liability_before_cash": 0.0,
+        "employee_count": len(payroll_results),
+    }
+
+    for payroll_result in payroll_results:
+        liability = summarize_payroll_liabilities(payroll_result)
+        summary["gross_wages"] = flt(summary["gross_wages"] + liability["gross_wages"], 2)
+        summary["net_pay"] = flt(summary["net_pay"] + liability["net_pay"], 2)
+        summary["employee_tax_total"] = flt(summary["employee_tax_total"] + liability["employee_tax_total"], 2)
+        summary["employer_tax_total"] = flt(summary["employer_tax_total"] + liability["employer_tax_total"], 2)
+        summary["total_payroll_expense"] = flt(summary["total_payroll_expense"] + liability["total_payroll_expense"], 2)
+        summary["total_liability_before_cash"] = flt(
+            summary["total_liability_before_cash"] + liability["total_liability_before_cash"],
+            2,
+        )
+
+        for key in summary["employee_taxes"]:
+            summary["employee_taxes"][key] = flt(
+                summary["employee_taxes"][key] + liability["employee_taxes"][key],
+                2,
+            )
+
+        for key in summary["employer_taxes"]:
+            summary["employer_taxes"][key] = flt(
+                summary["employer_taxes"][key] + liability["employer_taxes"][key],
+                2,
+            )
+
+    return summary
+
+
+def build_consolidated_payroll_journal_entry_preview(
+    payroll_results,
+    posting_date=None,
+    company=None,
+    account_overrides=None,
+    user_remark=None,
+):
+    if not payroll_results:
+        frappe.throw("No payroll_results provided for consolidated Journal Entry preview.")
+
+    slips = [frappe.get_doc("Salary Slip", result["slip_name"]) for result in payroll_results]
+    companies = sorted({slip.company for slip in slips})
+    if company is None:
+        if len(companies) != 1:
+            frappe.throw(
+                "Consolidated payroll Journal Entry requires a single company per run. Found: "
+                + ", ".join(companies)
+            )
+        company = companies[0]
+    elif any(slip.company != company for slip in slips):
+        frappe.throw("Not all salary slips in payroll_results belong to company {0}.".format(company))
+
+    posting_date = posting_date or max(slip.end_date for slip in slips)
+    payroll_payable_account = None
+    for slip in slips:
+        candidate = getattr(slip, "payroll_payable_account", None)
+        if candidate:
+            payroll_payable_account = candidate
+            break
+
+    account_map = get_payroll_account_map(
+        company,
+        payroll_payable_account=payroll_payable_account,
+        overrides=account_overrides,
+    )
+    missing = unresolved_payroll_accounts(account_map)
+
+    aggregated = {}
+
+    def add_line(account, debit=0.0, credit=0.0, cost_center=None, remark=None):
+        if not account:
+            return
+        debit = flt(debit, 2)
+        credit = flt(credit, 2)
+        if not debit and not credit:
+            return
+
+        key = (account, cost_center or "")
+        if key not in aggregated:
+            aggregated[key] = {
+                "account": account,
+                "debit_in_account_currency": 0.0,
+                "credit_in_account_currency": 0.0,
+                "cost_center": cost_center,
+                "remarks": [],
+            }
+
+        aggregated[key]["debit_in_account_currency"] = flt(
+            aggregated[key]["debit_in_account_currency"] + debit,
+            2,
+        )
+        aggregated[key]["credit_in_account_currency"] = flt(
+            aggregated[key]["credit_in_account_currency"] + credit,
+            2,
+        )
+        if remark:
+            aggregated[key]["remarks"].append(remark)
+
+    for payroll_result, slip in zip(payroll_results, slips):
+        liability = summarize_payroll_liabilities(payroll_result)
+        cost_center = getattr(slip, "cost_center", None)
+
+        add_line(
+            account_map["payroll_expense_account"],
+            debit=liability["gross_wages"],
+            cost_center=cost_center,
+            remark=f"Gross wages expense for {slip.name}",
+        )
+
+        if liability["employer_tax_total"]:
+            add_line(
+                account_map["payroll_tax_expense_account"],
+                debit=liability["employer_tax_total"],
+                cost_center=cost_center,
+                remark=f"Employer payroll tax expense for {slip.name}",
+            )
+
+        add_line(
+            account_map["payroll_payable_account"],
+            credit=liability["net_pay"],
+            cost_center=cost_center,
+            remark=f"Net payroll payable for {slip.name}",
+        )
+
+        ss_total = flt(
+            liability["employee_taxes"]["social_security_employee"]
+            + liability["employer_taxes"]["social_security_employer"],
+            2,
+        )
+        add_line(
+            account_map["social_security_payable_account"],
+            credit=ss_total,
+            cost_center=cost_center,
+            remark=f"Social Security payable for {slip.name}",
+        )
+
+        medicare_total = flt(
+            liability["employee_taxes"]["medicare_employee"]
+            + liability["employer_taxes"]["medicare_employer"],
+            2,
+        )
+        add_line(
+            account_map["medicare_payable_account"],
+            credit=medicare_total,
+            cost_center=cost_center,
+            remark=f"Medicare payable for {slip.name}",
+        )
+
+        add_line(
+            account_map["federal_withholding_payable_account"],
+            credit=liability["employee_taxes"]["federal_withholding"],
+            cost_center=cost_center,
+            remark=f"Federal withholding payable for {slip.name}",
+        )
+
+        add_line(
+            account_map["colorado_withholding_payable_account"],
+            credit=liability["employee_taxes"]["colorado_withholding"],
+            cost_center=cost_center,
+            remark=f"Colorado withholding payable for {slip.name}",
+        )
+
+    lines = []
+    for _, row in sorted(aggregated.items(), key=lambda item: (item[0][0], item[0][1])):
+        line = {
+            "account": row["account"],
+            "debit_in_account_currency": flt(row["debit_in_account_currency"], 2),
+            "credit_in_account_currency": flt(row["credit_in_account_currency"], 2),
+        }
+        if row["cost_center"]:
+            line["cost_center"] = row["cost_center"]
+        if row["remarks"]:
+            line["user_remark"] = "; ".join(row["remarks"][:10])
+        lines.append(line)
+
+    total_debit = flt(sum(flt(d.get("debit_in_account_currency", 0.0)) for d in lines), 2)
+    total_credit = flt(sum(flt(d.get("credit_in_account_currency", 0.0)) for d in lines), 2)
+
+    period_start = min(slip.start_date for slip in slips)
+    period_end = max(slip.end_date for slip in slips)
+
+    return {
+        "voucher_type": "Journal Entry",
+        "company": company,
+        "posting_date": posting_date,
+        "user_remark": user_remark
+        or f"Consolidated payroll accrual for {company} {period_start} to {period_end} ({len(payroll_results)} salary slips)",
+        "accounts": lines,
+        "total_debit": total_debit,
+        "total_credit": total_credit,
+        "is_balanced": total_debit == total_credit and not missing,
+        "is_ready_to_create": not missing and total_debit == total_credit and len(lines) > 0,
+        "missing_accounts": missing,
+        "account_map": account_map,
+        "liability_summary": summarize_consolidated_payroll_liabilities(payroll_results),
+        "salary_slip_names": [result["slip_name"] for result in payroll_results],
+        "period_start": period_start,
+        "period_end": period_end,
+        "employee_count": len(payroll_results),
+    }
+
+
+def create_consolidated_payroll_journal_entry_draft(
+    payroll_results,
+    posting_date=None,
+    company=None,
+    account_overrides=None,
+    user_remark=None,
+):
+    preview = build_consolidated_payroll_journal_entry_preview(
+        payroll_results=payroll_results,
+        posting_date=posting_date,
+        company=company,
+        account_overrides=account_overrides,
+        user_remark=user_remark,
+    )
+
+    if preview["missing_accounts"]:
+        frappe.throw(
+            "Cannot create consolidated Journal Entry draft. Missing required account mappings: "
+            + ", ".join(preview["missing_accounts"])
+        )
+
+    if not preview["is_balanced"]:
+        frappe.throw(
+            f"Consolidated Journal Entry preview is not balanced: debit={preview['total_debit']} credit={preview['total_credit']}"
+        )
+
+    je = frappe.get_doc(
+        {
+            "doctype": "Journal Entry",
+            "voucher_type": preview["voucher_type"],
+            "company": preview["company"],
+            "posting_date": preview["posting_date"],
+            "user_remark": preview["user_remark"],
+            "accounts": preview["accounts"],
+        }
+    )
+    je.insert(ignore_permissions=True)
+    frappe.db.commit()
+
+    return {
+        "journal_entry_name": je.name,
+        "posting_date": je.posting_date,
+        "company": je.company,
+        "total_debit": preview["total_debit"],
+        "total_credit": preview["total_credit"],
+        "is_balanced": preview["is_balanced"],
+        "missing_accounts": preview["missing_accounts"],
+        "account_map": preview["account_map"],
+        "liability_summary": preview["liability_summary"],
+        "salary_slip_names": preview["salary_slip_names"],
+        "employee_count": preview["employee_count"],
+    }
+
+
+def run_batched_hourly_payroll(
+    employees,
+    start_date,
+    end_date,
+    payroll_frequency="Weekly",
+    company=None,
+    employee_configs=None,
+    use_employee_tax_profile=True,
+    account_overrides=None,
+    create_consolidated_journal_entry=False,
+    consolidated_posting_date=None,
+    consolidated_user_remark=None,
+):
+    if not employees:
+        frappe.throw("Provide at least one employee for batched payroll.")
+
+    employee_configs = employee_configs or {}
+    payroll_results = []
+    employees_processed = []
+
+    for employee in employees:
+        employee_config = employee_configs.get(employee, {}) or {}
+        result = rebuild_hourly_salary_slip(
+            employee=employee,
+            start_date=start_date,
+            end_date=end_date,
+            hourly_rate=employee_config.get("hourly_rate"),
+            payroll_frequency=employee_config.get("payroll_frequency") or payroll_frequency,
+            company=employee_config.get("company") or company,
+            federal_withholding=employee_config.get("federal_withholding"),
+            colorado_withholding=employee_config.get("colorado_withholding"),
+            federal_profile=employee_config.get("federal_profile"),
+            colorado_profile=employee_config.get("colorado_profile"),
+            use_employee_tax_profile=employee_config.get("use_employee_tax_profile", use_employee_tax_profile),
+            account_overrides=employee_config.get("account_overrides") or account_overrides,
+        )
+        payroll_results.append(result)
+        employees_processed.append(employee)
+
+    consolidated_register = build_consolidated_payroll_register(payroll_results)
+    consolidated_liability_summary = summarize_consolidated_payroll_liabilities(payroll_results)
+    consolidated_journal_entry_preview = build_consolidated_payroll_journal_entry_preview(
+        payroll_results=payroll_results,
+        posting_date=consolidated_posting_date,
+        company=company,
+        account_overrides=account_overrides,
+        user_remark=consolidated_user_remark,
+    )
+
+    consolidated_journal_entry_draft = None
+    if create_consolidated_journal_entry:
+        consolidated_journal_entry_draft = create_consolidated_payroll_journal_entry_draft(
+            payroll_results=payroll_results,
+            posting_date=consolidated_posting_date,
+            company=company,
+            account_overrides=account_overrides,
+            user_remark=consolidated_user_remark,
+        )
+
+    return {
+        "period_start": start_date,
+        "period_end": end_date,
+        "company": consolidated_journal_entry_preview["company"],
+        "payroll_frequency": payroll_frequency,
+        "employees": employees_processed,
+        "employee_count": len(employees_processed),
+        "salary_slip_names": [result["slip_name"] for result in payroll_results],
+        "payroll_results": payroll_results,
+        "consolidated_register": consolidated_register,
+        "consolidated_liability_summary": consolidated_liability_summary,
+        "consolidated_journal_entry_preview": consolidated_journal_entry_preview,
+        "consolidated_journal_entry_draft": consolidated_journal_entry_draft,
+    }
 
 
 def build_payroll_journal_entry_preview(payroll_result, account_overrides=None):

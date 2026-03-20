@@ -2,49 +2,46 @@
 
 This directory contains the ERPNext-specific configuration assets for RootedOps.
 
-The focus of this folder is:
-
+Primary focus:
 - Dank Mushrooms, LLC payroll and accounting
 - Rooted Psyche accounting and future payroll
-- employee attendance and hourly payroll automation
-- supporting scripts that replace part of the earlier CSV/import workflow
+- employee attendance and hourly payroll support
+- ERPNext configuration assets that combine CSV imports and bench-console scripts
 
-This README is intentionally long-form. It is meant to preserve the state of the project after the CSV pack was first created and after the later bench-console work completed in ChatGPT.
+This README is the high-level configuration guide. Script-specific operating details, bench-console usage, and payroll automation maintenance notes now live in `scripts/README_SCRIPTS.md`.
 
 ---
 
 # Current Status Summary
 
-As of the latest update in this folder, the project has progressed through these phases:
-
 ## Phase 0 — Initial ERPNext configuration pack
 Completed earlier.
 
 Included:
-- Companies
-- Chart of Accounts CSVs
-- Cost Centers
-- Departments
-- Designations
-- Suppliers
-- Projects
-- Bank accounts template
-- Asset categories
-- Expense claim types
-- Employee template
+- companies
+- chart of accounts CSVs
+- cost centers
+- departments
+- designations
+- suppliers
+- projects
+- bank accounts template
+- asset categories
+- expense claim types
+- employee template
 
-These files are still present and still useful.
+These files remain useful for initial setup and rebuilds.
 
 ## Phase 1 — Attendance foundation
 Completed.
 
-What was accomplished:
-- Created and validated a `Day Shift`
-- Enabled auto attendance
-- Changed check-in/out interpretation to use explicit log type
-- Created and submitted a `Shift Assignment`
-- Confirmed clean `Employee Checkin` rows are converted into `Attendance`
-- Confirmed `working_hours` is populated from check-in/check-out data
+Accomplished:
+- created and validated `Day Shift`
+- enabled auto attendance
+- changed check-in/out interpretation to use explicit log type
+- created and submitted a `Shift Assignment`
+- confirmed clean `Employee Checkin` rows convert into `Attendance`
+- confirmed `working_hours` is populated from check-in/check-out data
 
 Result:
 - Attendance is now a reliable source of hours worked.
@@ -52,44 +49,98 @@ Result:
 ## Phase 2 — Hourly payroll foundation
 Completed.
 
-What was accomplished:
-- Switched Payroll Settings from leave-based payroll to attendance-based payroll
-- Verified the stock ERPNext “payment days” model is not a good fit for an ad-hoc hourly employee
-- Created a custom Python payroll automation approach
-- Confirmed attendance-derived hours can be turned into:
-  - gross pay
-  - employee Social Security
-  - employee Medicare
-  - employer Social Security
-  - employer Medicare
-- Confirmed custom draft salary slip generation works from a script loaded into bench console
+Accomplished:
+- switched Payroll Settings from leave-based payroll to attendance-based payroll
+- verified the stock ERPNext payment-days model is not a good fit for this ad-hoc hourly employee
+- created a custom Python payroll automation approach
+- confirmed attendance-derived hours can be turned into gross pay plus employee/employer FICA
+- confirmed custom draft salary slip generation works from a script loaded into bench console
 
 Result:
-- The system now has a working scripted baseline for hourly payroll.
+- The system has a working scripted baseline for hourly payroll.
 
-Confirmed diagnosis:
-- The 204.09 net-pay result is explained by ERPNext still applying the submitted salary structure during salary-slip calculation.
-- The test salary structure uses `Hourly Wage = 800.00` with `depends_on_payment_days = 1`.
-- With 2 payment days out of a 7-day weekly period, ERPNext prorates that structure earning to 228.57.
-- 228.57 - 19.84 Social Security - 4.64 Medicare = 204.09.
-- In other words, the scripted attendance gross of 320.00 was not the value ultimately driving `net_pay`; the salary structure’s prorated earning was.
+## Phase 3 — Withholding automation, employee tax profiles, and Journal Entry draft creation
+Completed.
 
-## Phase 3 — Federal and Colorado withholding automation
-Not yet completed.
+Accomplished:
+- resolved the original `204.09` net-pay issue caused by ERPNext salary-structure recalculation
+- added federal withholding for 2026 weekly payroll
+- added Colorado withholding for 2026
+- added persistent employee tax-profile storage on Employee custom fields
+- added persistent employee hourly-rate storage on Employee custom fields
+- added payroll liability summary generation
+- added payroll register output for a single slip
+- added Journal Entry preview generation
+- added successful Journal Entry draft creation using cleaned-up payroll account mapping
 
-Next work:
-- store employee W-4 / Colorado withholding inputs
-- automate federal withholding from IRS Publication 15-T inputs
-- automate Colorado withholding from DR 1098 / DR 0004 inputs
-- wire those calculations into the custom payroll script
+Result:
+- A full single-employee payroll calculation now works end to end through a draft Salary Slip and a draft Journal Entry.
+
+---
+
+# Latest Verified Working State
+
+## Test employee
+- Employee: `HR-EMP-00001`
+- Company: `Dank Mushrooms, LLC`
+- Hourly rate stored on Employee: `20.00`
+
+## Verified attendance
+- 2026-03-16 = Present, 8.0 hours
+- 2026-03-17 = Present, 8.0 hours
+
+## Verified payroll calculation for period `2026-03-15` to `2026-03-21`
+- Hours: `16.0`
+- Gross: `320.00`
+- Employee Social Security: `19.84`
+- Employee Medicare: `4.64`
+- Federal withholding: `1.00`
+- Colorado withholding: `9.43`
+- Employer Social Security: `19.84`
+- Employer Medicare: `4.64`
+- Net pay: `285.09`
+
+## Verified liability summary
+- Gross wages: `320.00`
+- Employee tax total: `34.91`
+- Employer tax total: `24.48`
+- Total payroll expense: `344.48`
+- Total liability before cash: `59.39`
+
+## Verified payroll accounts / company configuration
+Validated accounts:
+- `Payroll Expense - DML`
+- `Payroll Tax Expense - DML`
+- `Payroll Payable - DML`
+- `Payroll Tax Payable - DML`
+- `Payroll Withholding Payable - DML`
+
+Validated company field:
+- `Company("Dank Mushrooms, LLC").default_payroll_payable_account = "Payroll Payable - DML"`
+
+## Verified Journal Entry preview / draft creation
+Resolved mapping:
+- `Payroll Expense - DML` → gross wages expense
+- `Payroll Tax Expense - DML` → employer payroll tax expense
+- `Payroll Payable - DML` → net payroll payable to employee
+- `Payroll Tax Payable - DML` → Social Security and Medicare payable
+- `Payroll Withholding Payable - DML` → federal and Colorado withholding payable
+
+Verified JE preview:
+- total debit: `344.48`
+- total credit: `344.48`
+- balanced: yes
+
+Verified JE drafting:
+- a draft Journal Entry was successfully created
+- unsupported `reference_type="Salary Slip"` values were removed from JE rows and replaced with `user_remark` linkage
 
 ---
 
 # Directory Contents
 
 ## CSV / import files
-
-These files remain part of the project and are still useful for initial ERPNext setup:
+These remain useful for initial ERPNext setup:
 
 | File | Purpose |
 |---|---|
@@ -107,32 +158,28 @@ These files remain part of the project and are still useful for initial ERPNext 
 | `asset_categories.csv` | Asset category import |
 
 ## Scripts
-
-These scripts were added after the initial CSV pack and represent the newer, bench-console-driven configuration work:
+These scripts now handle the active ERPNext configuration and payroll workflow:
 
 | Script | Purpose |
 |---|---|
-| `scripts/10_setup_master_data.py` | Idempotent creation of cost centers, departments, designations, and a payroll payable account structure outline |
+| `scripts/10_setup_master_data.py` | Creates/updates cost centers, departments, designations, and helper master data |
 | `scripts/20_setup_shift_and_test_employee.py` | Creates/updates Day Shift, Payroll Settings, test employee, and submitted Shift Assignment |
 | `scripts/30_create_employee_home_page.py` | Creates the file-backed custom Desk page for the employee landing page |
-| `scripts/40_setup_payroll_test_foundation.py` | Creates the clean test salary structure and assignment used during payroll testing |
-| `scripts/50_hourly_payroll_automation.py` | Attendance-driven hourly payroll script with FICA calculations |
-| `scripts/README_SCRIPTS.md` | Script usage notes and execution pattern |
+| `scripts/40_setup_payroll_test_foundation.py` | Creates/repairs the test salary structure and assignment |
+| `scripts/50_hourly_payroll_automation.py` | Attendance-driven hourly payroll with FICA, withholding, employee tax profiles, single-slip and batched payroll runs, consolidated register output, JE preview, and draft JE creation |
+| `scripts/README_SCRIPTS.md` | Script usage notes, payroll automation details, maintenance procedures, and validation steps |
 
 ## Handoff files
-
 | File | Purpose |
 |---|---|
-| `CHATGPT_HANDOFF.md` | Full narrative handoff for a new ChatGPT session |
-| `CHATGPT_HANDOFF.json` | Structured summary for quick reference |
+| `CHATGPT_HANDOFF.md` | Narrative handoff for a new ChatGPT session |
+| `CHATGPT_HANDOFF.json` | Structured handoff summary |
 
 ---
 
 # What still uses CSV imports vs. what is now better done by script
 
 ## Still best handled by CSV / importer
-These are stable master-data imports and should remain as CSVs unless there is a strong reason to fully script them:
-
 - companies
 - chart of accounts
 - suppliers
@@ -141,185 +188,29 @@ These are stable master-data imports and should remain as CSVs unless there is a
 - expense claim types
 
 ## Now better handled by script
-These were actively manipulated in the bench console during later troubleshooting and are now better represented by scripts:
-
 - payroll settings
 - shift setup
 - shift assignment
 - test employee creation / update
 - salary structure cleanup and recreation
 - attendance-driven payroll automation
+- employee payroll tax profile storage
 - employee Desk page creation
+- payroll liability summary / JE preview / draft JE creation
+- batched payroll-period runs with one consolidated Journal Entry preview/draft
 
 ---
 
-# Reset ERPNext to a Clean State (Optional)
+# Payroll accounting design currently in use
 
-If ERPNext already has incorrect data and you want a real clean slate:
+For Phase 3, the accounting model now assumes:
+- wages expense booked to `Payroll Expense - DML`
+- employer payroll tax expense booked to `Payroll Tax Expense - DML`
+- net wages credited to `Payroll Payable - DML`
+- Social Security and Medicare credited to `Payroll Tax Payable - DML`
+- federal and Colorado withholding credited to `Payroll Withholding Payable - DML`
 
-```bash
-docker compose down
-docker volume rm docker_erpnext_db_data
-docker volume rm docker_erpnext_sites
-docker volume rm docker_erpnext_apps
-docker volume rm docker_erpnext_logs
-docker compose up -d
-```
-
-Then re-bootstrap ERPNext and reapply the configuration.
-
----
-
-# Initial Import Order (CSV-based bootstrap)
-
-If starting from scratch in ERPNext and using the import files first, the baseline order remains:
-
-1. `companies.csv`
-2. Chart of Accounts (per company)
-3. `cost_centers.csv`
-4. `departments.csv`
-5. `designations.csv`
-6. `bank_accounts_template.csv`
-7. `suppliers.csv`
-8. `projects.csv`
-9. `expense_claim_types.csv`
-10. `asset_categories.csv`
-11. `employees_template.csv`
-
-After that baseline, the newer scripts in `scripts/` should be used to bring the environment to the current working state.
-
----
-
-# Bench-console execution pattern for scripts
-
-The scripts in `erpnext/scripts/` are intended to be loaded into bench console.
-
-## Recommended pattern
-
-From the project root on the host:
-
-```bash
-sudo docker cp erpnext/scripts/50_hourly_payroll_automation.py   erpnext-backend:/home/frappe/frappe-bench/sites/50_hourly_payroll_automation.py
-```
-
-Then open bench console:
-
-```bash
-sudo docker compose --env-file ./.env -f docker/docker-compose.yml exec erpnext-backend   bash -lc "bench --site erp.danks.store console"
-```
-
-Then load the script:
-
-```python
-exec(open("/home/frappe/frappe-bench/sites/50_hourly_payroll_automation.py").read(), globals())
-```
-
-This pattern was necessary because pasting large Python blocks directly into the terminal/console proved unreliable.
-
----
-
-# Phase 1 Details — Attendance Foundation
-
-The following was verified and/or corrected:
-
-- `Employee`: `HR-EMP-00001`
-- employee company: `Dank Mushrooms, LLC`
-- employee default shift: `Day Shift`
-
-## Shift Type
-A `Day Shift` Shift Type was created and corrected to use:
-
-- `enable_auto_attendance = 1`
-- `determine_check_in_and_check_out = Strictly based on Log Type in Employee Checkin`
-- `working_hours_calculation_based_on = First Check-in and Last Check-out`
-
-## Shift Assignment
-A submitted Shift Assignment was required. Default shift on Employee alone was not enough.
-
-## Auto attendance behavior discovered
-A key troubleshooting lesson:
-
-`last_sync_of_checkin` must be set well past the end of the shift window for historical test data, otherwise `process_auto_attendance()` may not convert clean checkins into attendance rows.
-
-The working test state used:
-
-- `process_attendance_after = 2026-03-14`
-- `last_sync_of_checkin = 2026-03-17 23:59:59`
-
-## Working result
-Attendance now shows:
-
-- 2026-03-16 = Present, 8.0 hours
-- 2026-03-17 = Present, 8.0 hours
-
-This established the reliable foundation:
-
-```text
-Employee Checkin -> Attendance -> working_hours
-```
-
----
-
-# Phase 2 Details — Payroll Foundation
-
-## Payroll Settings correction
-The original Payroll Settings were wrong for this use case:
-
-- `payroll_based_on = Leave`
-- `consider_unmarked_attendance_as = Present`
-
-This produced incorrect salary slips.
-
-The working settings are now:
-
-- `payroll_based_on = Attendance`
-- `consider_unmarked_attendance_as = Absent`
-
-## Stock ERPNext salary behavior that was tested and rejected
-A weekly salary structure was created and successfully generated a salary slip, but it used the stock “payment days” model.
-
-That resulted in proration like:
-
-```text
-800 * 2 / 7 = 228.57
-```
-
-That model is wrong for this employee because:
-
-- the employee is hourly
-- the schedule is ad-hoc
-- weekends may be worked
-- the goal is true hours-worked pay, not fixed weekly salary prorated by attendance days
-
-## New payroll design
-The chosen design is:
-
-```text
-Attendance -> hours -> gross pay from hourly rate
-          -> employee FICA deductions
-          -> employer FICA tracking
-          -> future federal withholding
-          -> future Colorado withholding
-          -> net pay
-```
-
-## What is now automated
-The custom hourly payroll script currently handles:
-
-- attendance hour summation
-- gross pay from `hours * hourly_rate`
-- employee Social Security
-- employee Medicare
-- employer Social Security
-- employer Medicare
-- draft salary slip rebuilding
-
-## Current compliance boundary
-As of this phase, the script automates FICA only.
-
-Still to be implemented:
-- federal withholding from W-4 inputs and IRS 15-T logic
-- Colorado withholding from W-4 / DR 0004 inputs and Colorado rules
+This should be treated as the working baseline for future payroll phases.
 
 ---
 
@@ -328,78 +219,43 @@ Still to be implemented:
 Because the ERPNext v16 Workspace UI was inconsistent, a file-backed custom Desk page was created as a working employee landing page.
 
 Working URLs:
-
 - `https://erp.danks.store/desk/employee-home`
 - `https://erp.danks.store/app/employee-home`
 
-The page assets live inside the container/app path:
+The page assets live in:
 
 ```text
 apps/hrms/hrms/hr/page/employee_home
 ```
 
-This is not managed by the CSV files. It is created by script.
+This page is script-managed rather than CSV-managed.
 
 ---
 
-# Payroll Compliance Notes
+# Phase 4 — Payroll batching and operationalization
+In progress.
 
-## FICA
-The script currently uses 2026 FICA rates:
+Completed in this step:
+1. added `run_batched_hourly_payroll()` to process multiple employees for one payroll period
+2. added `get_employees_with_attendance_in_period()` helper for attendance-driven employee selection
+3. added consolidated payroll register output across multiple salary slips
+4. added consolidated payroll liability summary across a payroll-period run
+5. added consolidated Journal Entry preview creation
+6. added consolidated draft Journal Entry creation
+7. preserved the existing single-slip rebuild / preview / JE-draft flow
 
-- Social Security employee = 6.2%
-- Social Security employer = 6.2%
-- Medicare employee = 1.45%
-- Medicare employer = 1.45%
-- Social Security wage base = 184,500 for 2026
-
-## Federal withholding
-Planned approach:
-- store the employee’s W-4 inputs
-- compute withholding from those stored values
-- only revisit when:
-  - employee submits a new W-4
-  - or the tax year changes
-
-## Colorado withholding
-Planned approach:
-- store Colorado withholding inputs
-- compute withholding from those stored values
-- only revisit when:
-  - employee changes Colorado withholding setup
-  - or the tax year changes
-
-This matches the intended real-world workflow better than manual per-pay-cycle calculation.
+Current recommended next work:
+1. add duplicate-run guards around consolidated Journal Entry creation for real production use
+2. add optional employee auto-discovery + filtering for active payroll employees beyond attendance-only selection
+3. decide whether to introduce Payroll Entry objects or stay on the custom scripted path
+4. add stronger validation and reconciliation helpers
+5. document a first real employee onboarding procedure using actual W-4 and Colorado inputs
+6. document an operator checklist for running and reviewing each payroll period
 
 ---
 
-# Recommended next steps
+# Suggested opening request for the next ChatGPT session
 
-## Immediate next phase
-Implement withholding automation:
-
-1. create employee tax profile data structure
-2. implement federal withholding calculation
-3. implement Colorado withholding calculation
-4. integrate those into the payroll script
-5. create liability accounts and posting structure
-
-## After that
-1. clean up salary component/account mappings
-2. finalize the payroll payable and withholding accounts
-3. create a “first real employee” setup script
-4. update documentation again
-
----
-
-# Important project note
-
-The `Shift Type` list issue turned out to be caused by a UI filter. The shift itself was valid the whole time.
-
-That is an example of why the newer scripts are valuable: they document the *actual* working backend state independent of the UI.
-
----
-
-# See also
-
-- `scripts/README_SCRIPTS.md`
+"""
+Continue RootedOps ERPNext payroll Phase 4. Phase 4 batching basics are now implemented in `erpnext/scripts/50_hourly_payroll_automation.py`, including `run_batched_hourly_payroll()`, consolidated register output, and consolidated Journal Entry preview/draft creation. Review `erpnext/CHATGPT_HANDOFF.md`, `erpnext/CHATGPT_HANDOFF.json`, `erpnext/README.md`, `erpnext/scripts/README_SCRIPTS.md`, and `erpnext/scripts/50_hourly_payroll_automation.py`. Next, harden the payroll-period workflow with reconciliation checks, duplicate-run safeguards, and an operator checklist.
+"""

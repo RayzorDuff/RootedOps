@@ -62,6 +62,18 @@ What now works:
 - generates Journal Entry preview
 - creates draft Journal Entry successfully
 
+### Phase 4 — Payroll batching and consolidated Journal Entry workflow
+In progress.
+
+What is now implemented:
+- batches multiple employee salary-slip rebuilds into one payroll-period run
+- supports attendance-driven employee discovery for a date range
+- generates consolidated payroll register output for the run
+- generates consolidated payroll liability summary for the run
+- generates one consolidated payroll Journal Entry preview for the run
+- creates one consolidated draft Journal Entry for the run
+- preserves the single-slip workflow for debugging and employee-level review
+
 ## Latest successful verified test result
 
 ### Test employee
@@ -164,6 +176,10 @@ Main payroll automation script. Current scope includes:
 - payroll register row
 - JE preview
 - draft JE creation
+- batched payroll-period runs
+- consolidated payroll register output
+- consolidated JE preview
+- consolidated draft JE creation
 
 ## Important lessons learned
 - Default shift on Employee was not enough; submitted Shift Assignment mattered.
@@ -208,18 +224,23 @@ Map the W-4 into the stored Employee federal profile fields, then rerun payroll 
 ### New Colorado withholding form
 Map the Colorado values into the stored Employee Colorado profile fields, then rerun payroll validation.
 
-## Immediate next phase
-Phase 4 — payroll batching and operationalization.
+## Current phase status
+Phase 4 — payroll batching and operationalization is now in progress.
 
-Recommended next work:
+Completed in this step:
 1. batch multiple salary slips into one payroll-period run
 2. create consolidated payroll register output
-3. create one consolidated Journal Entry for a payroll period
-4. decide whether to introduce Payroll Entry objects or stay on the custom scripted path
-5. add stronger validation / reconciliation helpers
-6. document a first real employee onboarding procedure using actual W-4 and Colorado inputs
+3. create one consolidated Journal Entry preview for a payroll period
+4. create one consolidated draft Journal Entry for a payroll period
+
+Recommended next work:
+1. add duplicate-run safeguards around consolidated JE creation
+2. add stronger validation / reconciliation helpers
+3. decide whether to introduce Payroll Entry objects or stay on the custom scripted path
+4. document a first real employee onboarding procedure using actual W-4 and Colorado inputs
+5. document an operator checklist for running each payroll period
 
 ## Suggested opening request for the next ChatGPT session
 """
-Continue RootedOps ERPNext payroll Phase 4. Phase 3 is complete: attendance-based hourly payroll, FICA, federal withholding, Colorado withholding, employee tax-profile storage, liability summary, and draft Journal Entry creation are working. Review `erpnext/CHATGPT_HANDOFF.md`, `erpnext/CHATGPT_HANDOFF.json`, `erpnext/README.md`, and `erpnext/scripts/50_hourly_payroll_automation.py`. Start by planning and implementing batching multiple salary slips into a payroll-period run and one consolidated Journal Entry.
+Continue RootedOps ERPNext payroll Phase 4. Phase 4 batching basics are now implemented in `erpnext/scripts/50_hourly_payroll_automation.py`, including `run_batched_hourly_payroll()`, consolidated register output, and consolidated Journal Entry preview/draft creation. Review `erpnext/CHATGPT_HANDOFF.md`, `erpnext/CHATGPT_HANDOFF.json`, `erpnext/README.md`, `erpnext/scripts/README_SCRIPTS.md`, and `erpnext/scripts/50_hourly_payroll_automation.py`. Next, harden the payroll-period workflow with reconciliation checks, duplicate-run safeguards, and an operator checklist.
 """
