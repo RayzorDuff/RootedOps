@@ -80,7 +80,7 @@ Result:
 
 
 ## Phase 4 — Batch payroll-period runs and consolidated Journal Entry foundation
-In progress.
+Working and validated through a three-employee payroll batch.
 
 Accomplished so far:
 - added batched payroll-period helpers to `scripts/50_hourly_payroll_automation.py`
@@ -89,11 +89,8 @@ Accomplished so far:
 - added consolidated Journal Entry preview generation
 - added draft consolidated Journal Entry creation support
 - preserved the existing single-slip workflow for isolated testing
-
-Immediate next test:
-- create a second payroll-test employee
-- record attendance for both employees in the same payroll week
-- verify the consolidated Journal Entry remains balanced across multiple salary slips
+- validated a clean three-employee payroll run after fixing attendance preprocessing and stored payroll profile values
+- hardened payroll diagnostics so zero-hour attendance and `skip_auto_attendance = 1` checkins are surfaced immediately
 
 # Latest Verified Working State
 
@@ -274,3 +271,117 @@ Continue RootedOps ERPNext payroll Phase 4. Phase 4 batching basics are now impl
 ## Payroll-ready employee onboarding for hourly payroll
 
 Use `erpnext/scripts/21_create_employee.py` for test or scripted onboarding. The employee must have a submitted Shift Assignment, a submitted Salary Structure Assignment, and RootedOps payroll custom fields populated. `erpnext/scripts/50_hourly_payroll_automation.py` now processes auto attendance first by default during batch runs, but the safest operational pattern is still: create employee -> add checkins -> confirm attendance -> run payroll batch.
+
+
+# Latest multi-employee validation
+
+## Verified three-employee payroll calculation for period `2026-03-15` to `2026-03-21`
+- `HR-EMP-00001` gross `400.00`, net `347.45`
+- `HR-EMP-00002` gross `472.50`, net `403.96`
+- `HR-EMP-00003` gross `258.75`, net `232.23`
+
+This confirms:
+- attendance-based hourly payroll works across multiple employees
+- stored employee payroll profile values are read from Employee custom fields
+- one payroll-period batch can rebuild multiple draft Salary Slips
+- one consolidated Journal Entry preview can summarize the payroll period
+
+## Known operational caveats now documented
+- Historical employees created before the patched `21_create_employee.py` may need payroll-field backfill.
+- Test or imported `Employee Checkin` rows with `skip_auto_attendance = 1` will be ignored by auto attendance.
+- If checkins change after attendance is already submitted, cancel/delete and regenerate the affected Attendance rows before rerunning payroll.
+
+# Clean steps to create a fourth employee and test the batch
+
+## 1. Load the employee helper
+```python
+exec(open("/home/frappe/frappe-bench/sites/21_create_employee.py").read(), globals())
+```
+
+## 2. Create employee 4 as payroll-ready from the start
+```python
+result = create_or_update_employee(
+    employee_name="Payroll Test Employee 4",
+    first_name="Payroll",
+    last_name="Employee 4",
+    user_email="payroll.test4@example.com",
+    company="Dank Mushrooms, LLC",
+    department="Operations - DML",
+    designation="Cultivation Technician",
+    default_shift="Day Shift",
+    shift_assignment_start_date="2026-03-15",
+    hourly_rate=24.00,
+    salary_structure="Dank Mushrooms Weekly Test",
+    salary_structure_assignment_start_date="2026-03-15",
+    salary_structure_base=800.0,
+    create_salary_structure_assignment=True,
+    federal_profile={
+        "filing_status": "Single",
+        "step2_checked": 0,
+        "step3_annual_credits": 0.0,
+        "step4a_other_income": 0.0,
+        "step4b_deductions": 0.0,
+        "step4c_extra_withholding": 0.0,
+        "exempt": 0,
+    },
+    colorado_profile={
+        "filing_status": "Single",
+        "dr0004_line2": None,
+        "dr0004_line2_override": 0,
+        "dr0004_line3": 0.0,
+        "exempt": 0,
+    },
+)
+result
+```
+
+## 3. Insert clean test checkins with auto attendance enabled
+```python
+insert_checkin_pair("HR-EMP-00004", "2026-03-16 09:00:00", "2026-03-16 13:00:00")
+insert_checkin_pair("HR-EMP-00004", "2026-03-17 10:00:00", "2026-03-17 15:30:00")
+insert_checkin_pair("HR-EMP-00004", "2026-03-18 08:30:00", "2026-03-18 12:30:00")
+```
+
+## 4. Process auto attendance and verify hours
+```python
+shift = frappe.get_doc("Shift Type", "Day Shift")
+shift.process_auto_attendance()
+frappe.db.commit()
+
+frappe.get_all(
+    "Attendance",
+    filters={
+        "employee": "HR-EMP-00004",
+        "attendance_date": ["between", ["2026-03-15", "2026-03-21"]],
+    },
+    fields=["name", "attendance_date", "status", "working_hours", "docstatus"],
+    order_by="attendance_date asc",
+)
+```
+
+## 5. Run the four-employee payroll batch
+```python
+exec(open("/home/frappe/frappe-bench/sites/50_hourly_payroll_automation.py").read(), globals())
+
+batch = run_batched_hourly_payroll(
+    employees=["HR-EMP-00001", "HR-EMP-00002", "HR-EMP-00003", "HR-EMP-00004"],
+    start_date="2026-03-15",
+    end_date="2026-03-21",
+    company="Dank Mushrooms, LLC",
+)
+```
+
+## 6. Verify the result
+```python
+batch["salary_slip_names"]
+preview = batch["consolidated_journal_entry_preview"]
+preview["employee_count"], preview["is_balanced"]
+preview["liability_summary"]
+
+for slip_name in batch["salary_slip_names"]:
+    slip = frappe.get_doc("Salary Slip", slip_name)
+    print("
+", slip.name, slip.employee)
+    print("Gross:", slip.gross_pay)
+    print("Net:", slip.net_pay)
+```

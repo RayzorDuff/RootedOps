@@ -269,3 +269,27 @@ Recommended next sequence:
 - Confirmed combined liability summary for employees HR-EMP-00001 and HR-EMP-00002 for 2026-03-15 through 2026-03-21: gross wages 668.75, net pay 592.59, employer tax total 51.16, balanced consolidated JE.
 - Employee onboarding gap found: `21_create_employee.py` originally wrote the wrong custom fieldnames and did not create a Salary Structure Assignment. Patch this before validating a third employee.
 - Payroll run gap found: batched payroll should process auto attendance before reading attendance-based hours. Patch this before validating a third employee.
+
+
+## Phase 4 validation update - three employees successful
+- A full three-employee payroll batch was validated for `2026-03-15` through `2026-03-21`.
+- Verified salary-slip results:
+  - `HR-EMP-00001` gross `400.00`, net `347.45`
+  - `HR-EMP-00002` gross `472.50`, net `403.96`
+  - `HR-EMP-00003` gross `258.75`, net `232.23`
+- Consolidated payroll-period JE preview remained balanced.
+- The onboarding helper now created a payroll-ready third employee without manual salary-structure or custom-field fixes.
+- Remaining hardening added afterward:
+  - detect zero or missing hourly rate earlier
+  - detect checkins with `skip_auto_attendance = 1`
+  - detect employees with checkins in period but zero resolved attendance hours
+  - provide a helper to backfill payroll setup on older employees created before the onboarding fixes
+  - provide a helper to create clean IN/OUT checkin pairs with auto attendance enabled
+
+## Recommended next validation
+Use the documented fourth-employee checklist in `erpnext/README.md` and `erpnext/scripts/README_SCRIPTS.md`:
+1. create `HR-EMP-00004` with `create_or_update_employee(...)`
+2. create clean checkins with `insert_checkin_pair(...)`
+3. process auto attendance
+4. run `run_batched_hourly_payroll(...)` for employees 1 through 4
+5. confirm all four salary slips show nonzero gross and net and the consolidated JE preview is balanced

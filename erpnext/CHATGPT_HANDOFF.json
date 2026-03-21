@@ -11,9 +11,10 @@
     "Phase 2 - hourly payroll foundation and FICA script",
     "Phase 3 - federal withholding, Colorado withholding, employee tax profiles, liability summary, and draft Journal Entry creation",
     "Phase 4 (partial) - batched payroll-period runs, consolidated register output, and consolidated Journal Entry preview/draft creation",
-    "Phase 4 - two-employee batched payroll validated with consolidated Journal Entry preview"
+    "Phase 4 - two-employee batched payroll validated with consolidated Journal Entry preview",
+    "Phase 4 - three-employee batched payroll validated with consolidated Journal Entry preview"
   ],
-  "phase_next": "Phase 4 hardening - payroll-ready employee onboarding, auto-attendance preprocessing, reconciliation checks, and duplicate-run safeguards",
+  "phase_next": "Phase 4 hardening - fourth-employee validation, duplicate-run safeguards, reconciliation checks, and payment/disbursement workflow",
   "attendance_verified": [
     {
       "date": "2026-03-16",
@@ -49,28 +50,34 @@
   "latest_payroll_test": {
     "period_start": "2026-03-15",
     "period_end": "2026-03-21",
-    "employee_count": 2,
+    "employee_count": 3,
     "employees": [
       "HR-EMP-00001",
-      "HR-EMP-00002"
+      "HR-EMP-00002",
+      "HR-EMP-00003"
     ],
-    "gross": 668.75,
-    "net_pay": 592.59,
-    "ss_employee": 41.46,
-    "medicare_employee": 9.7,
-    "federal_withholding": 4.88,
-    "colorado_withholding": 20.12,
-    "ss_employer": 41.46,
-    "medicare_employer": 9.7,
+    "employee_results": [
+      {
+        "employee": "HR-EMP-00001",
+        "gross": 400.0,
+        "net_pay": 347.45
+      },
+      {
+        "employee": "HR-EMP-00002",
+        "gross": 472.5,
+        "net_pay": 403.96
+      },
+      {
+        "employee": "HR-EMP-00003",
+        "gross": 258.75,
+        "net_pay": 232.23
+      }
+    ],
     "is_balanced": true
   },
   "liability_summary_verified": {
-    "gross_wages": 668.75,
-    "employee_tax_total": 76.16,
-    "employer_tax_total": 51.16,
-    "total_payroll_expense": 719.91,
-    "total_liability_before_cash": 127.32,
-    "employee_count": 2
+    "gross_wages": 1131.25,
+    "employee_count": 3
   },
   "journal_entry_preview_verified": {
     "is_balanced": true,
@@ -125,8 +132,9 @@
   ],
   "open_questions": [
     "Should the project adopt Payroll Entry objects or continue with the custom scripted path?",
-    "What validation and reconciliation helpers should be added before onboarding the first real employee?",
-    "Should batched payroll auto-submit salary slips or keep them as drafts until reviewed?"
+    "What duplicate-run safeguards should be added before creating consolidated Journal Entries in repeated tests or real payroll?",
+    "Should batched payroll auto-submit salary slips or keep them as drafts until reviewed?",
+    "Should the payroll script create payment entries / reserve transfers after payroll review?"
   ],
   "phase_4_status": {
     "status": "in_progress",
@@ -141,15 +149,20 @@
       "run_batched_hourly_payroll() implemented",
       "run_batched_hourly_payroll() patched to process auto attendance first by default",
       "summarize_consolidated_payroll_liabilities() implemented",
-      "two-employee batch validation completed"
+      "two-employee batch validation completed",
+      "three-employee batch validation completed successfully",
+      "insert_checkin_pair helper added to 21_create_employee.py",
+      "backfill_employee_payroll_setup helper added to 21_create_employee.py",
+      "payroll prerequisite diagnostics added for zero-rate, skip_auto_attendance, and zero-hour attendance cases"
     ],
     "next_recommended_work": [
-      "validate a third employee using only the patched onboarding flow",
+      "validate a fourth employee using only the documented onboarding flow",
       "add duplicate-run safeguards for consolidated Journal Entry creation",
       "add reconciliation helpers comparing salary-slip totals to consolidated JE totals",
-      "document payroll operator checklist for each pay period"
+      "document payroll operator checklist for each pay period",
+      "design payment/disbursement helpers for net pay and payroll liabilities"
     ],
-    "next_validation_step": "Create a third test employee with scripts/21_create_employee.py using create_salary_structure_assignment=True, add checkins, run batched payroll without manual employee overrides, and verify all three employees contribute wages to the consolidated Journal Entry."
+    "next_validation_step": "Create a fourth test employee with scripts/21_create_employee.py, add clean checkins with insert_checkin_pair(...), process auto attendance, run batched payroll for employees 1 through 4, and verify all four employees contribute wages to the consolidated Journal Entry."
   },
   "script_functions_added_phase_4": [
     "get_employees_with_attendance_in_period",

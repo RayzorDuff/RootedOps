@@ -62,6 +62,9 @@ Creates or updates a payroll-test employee with configurable values:
 - submitted Shift Assignment
 - hourly rate custom field
 - optional federal and Colorado withholding profile custom fields
+- optional submitted Salary Structure Assignment
+- helper to backfill payroll setup for older employees created before this script was patched
+- helper to create IN/OUT Employee Checkin pairs with `skip_auto_attendance = 0`
 
 Use this before multi-employee payroll testing and payroll-ready onboarding so each employee is created consistently for the scripted payroll flow.
 
@@ -592,3 +595,103 @@ result
 ```
 
 After inserting test checkins, `run_batched_hourly_payroll()` now processes auto attendance first by default before rebuilding salary slips.
+
+
+# Multi-employee validation status
+
+Validated payroll batches:
+- 2-employee batch validated successfully for `2026-03-15` through `2026-03-21`
+- 3-employee batch validated successfully for `2026-03-15` through `2026-03-21`
+
+Verified three-employee pay results:
+- `HR-EMP-00001` gross `400.00`, net `347.45`
+- `HR-EMP-00002` gross `472.50`, net `403.96`
+- `HR-EMP-00003` gross `258.75`, net `232.23`
+
+# Hardening now present in `50_hourly_payroll_automation.py`
+
+The payroll script now surfaces these problems earlier:
+- employee hourly rate is missing or `<= 0`
+- checkins in the pay period exist but attendance resolves to `0.0` hours
+- checkins in the pay period have `skip_auto_attendance = 1`
+- federal or Colorado filing status is missing when attendance hours exist
+
+These diagnostics are included in payroll results and can stop a run before a zero-hour employee silently reaches the batch.
+
+# Clean fourth-employee validation procedure
+
+## 1. Create employee 4 with payroll-ready onboarding
+```python
+exec(open("/home/frappe/frappe-bench/sites/21_create_employee.py").read(), globals())
+
+result = create_or_update_employee(
+    employee_name="Payroll Test Employee 4",
+    first_name="Payroll",
+    last_name="Employee 4",
+    user_email="payroll.test4@example.com",
+    company="Dank Mushrooms, LLC",
+    department="Operations - DML",
+    designation="Cultivation Technician",
+    default_shift="Day Shift",
+    shift_assignment_start_date="2026-03-15",
+    hourly_rate=24.00,
+    salary_structure="Dank Mushrooms Weekly Test",
+    salary_structure_assignment_start_date="2026-03-15",
+    salary_structure_base=800.0,
+    create_salary_structure_assignment=True,
+    federal_profile={"filing_status": "Single", "step2_checked": 0, "step3_annual_credits": 0.0, "step4a_other_income": 0.0, "step4b_deductions": 0.0, "step4c_extra_withholding": 0.0, "exempt": 0},
+    colorado_profile={"filing_status": "Single", "dr0004_line2": None, "dr0004_line2_override": 0, "dr0004_line3": 0.0, "exempt": 0},
+)
+result
+```
+
+## 2. Create clean checkins
+```python
+insert_checkin_pair("HR-EMP-00004", "2026-03-16 09:00:00", "2026-03-16 13:00:00")
+insert_checkin_pair("HR-EMP-00004", "2026-03-17 10:00:00", "2026-03-17 15:30:00")
+insert_checkin_pair("HR-EMP-00004", "2026-03-18 08:30:00", "2026-03-18 12:30:00")
+```
+
+## 3. Process auto attendance and confirm hours
+```python
+shift = frappe.get_doc("Shift Type", "Day Shift")
+shift.process_auto_attendance()
+frappe.db.commit()
+
+frappe.get_all(
+    "Attendance",
+    filters={
+        "employee": "HR-EMP-00004",
+        "attendance_date": ["between", ["2026-03-15", "2026-03-21"]],
+    },
+    fields=["attendance_date", "status", "working_hours", "docstatus"],
+    order_by="attendance_date asc",
+)
+```
+
+## 4. Run the four-employee batch
+```python
+exec(open("/home/frappe/frappe-bench/sites/50_hourly_payroll_automation.py").read(), globals())
+
+batch = run_batched_hourly_payroll(
+    employees=["HR-EMP-00001", "HR-EMP-00002", "HR-EMP-00003", "HR-EMP-00004"],
+    start_date="2026-03-15",
+    end_date="2026-03-21",
+    company="Dank Mushrooms, LLC",
+)
+```
+
+## 5. Confirm all four employees contributed wages
+```python
+batch["salary_slip_names"]
+preview = batch["consolidated_journal_entry_preview"]
+preview["employee_count"], preview["is_balanced"]
+preview["liability_summary"]
+
+for slip_name in batch["salary_slip_names"]:
+    slip = frappe.get_doc("Salary Slip", slip_name)
+    print("
+", slip.name, slip.employee)
+    print("Gross:", slip.gross_pay)
+    print("Net:", slip.net_pay)
+```

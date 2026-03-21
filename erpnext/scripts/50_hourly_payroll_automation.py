@@ -434,6 +434,24 @@ def attendance_summary(employee, start_date, end_date):
     }
 
 
+def checkin_diagnostics(employee, start_date, end_date):
+    rows = frappe.get_all(
+        "Employee Checkin",
+        filters={
+            "employee": employee,
+            "time": ["between", [f"{getdate(start_date)} 00:00:00", f"{getdate(end_date)} 23:59:59"]],
+        },
+        fields=["name", "time", "log_type", "skip_auto_attendance", "shift"],
+        order_by="time asc",
+    )
+
+    return {
+        "count": len(rows),
+        "rows": rows,
+        "skip_auto_attendance_count": sum(cint(row.skip_auto_attendance or 0) for row in rows),
+    }
+
+
 def process_auto_attendance_for_employees(employees, start_date=None, end_date=None):
     employees = [employee for employee in (employees or []) if employee]
     if not employees:
@@ -464,13 +482,25 @@ def process_auto_attendance_for_employees(employees, start_date=None, end_date=N
     frappe.db.commit()
 
     attendance_counts = {}
+    checkin_counts = {}
+    skip_auto_attendance_counts = {}
     for employee in employees:
-        attendance_counts[employee] = len(get_present_attendance_rows(employee, start_date, end_date)) if start_date and end_date else 0
+        if start_date and end_date:
+            attendance_counts[employee] = len(get_present_attendance_rows(employee, start_date, end_date))
+            checkin_info = checkin_diagnostics(employee, start_date, end_date)
+            checkin_counts[employee] = checkin_info["count"]
+            skip_auto_attendance_counts[employee] = checkin_info["skip_auto_attendance_count"]
+        else:
+            attendance_counts[employee] = 0
+            checkin_counts[employee] = 0
+            skip_auto_attendance_counts[employee] = 0
 
     return {
         "employees": employees,
         "shifts_processed": shift_types,
         "attendance_counts": attendance_counts,
+        "checkin_counts": checkin_counts,
+        "skip_auto_attendance_counts": skip_auto_attendance_counts,
     }
 
 
@@ -1814,6 +1844,43 @@ def payroll_register_row(payroll_result):
     }
 
 
+def payroll_prerequisite_issues(employee, start_date, end_date, hourly_rate, stored_profile=None, federal_profile=None, colorado_profile=None):
+    summary = attendance_summary(employee, start_date, end_date)
+    checkins = checkin_diagnostics(employee, start_date, end_date)
+    issues = []
+
+    if hourly_rate is None or flt(hourly_rate) <= 0:
+        issues.append(f"Employee {employee} has no usable hourly rate for this payroll run.")
+
+    if checkins["skip_auto_attendance_count"]:
+        issues.append(
+            f"Employee {employee} has {checkins['skip_auto_attendance_count']} checkins with skip_auto_attendance=1."
+        )
+
+    if checkins["count"] and summary["hours"] <= 0:
+        issues.append(
+            f"Employee {employee} has {checkins['count']} checkins in the pay period but attendance resolved to 0.0 hours."
+        )
+
+    effective_federal = federal_profile or (stored_profile or {}).get("federal_profile") or {}
+    if summary["hours"] > 0 and not effective_federal.get("filing_status"):
+        issues.append(
+            f"Employee {employee} is missing a stored or explicit federal filing status; federal withholding will default to 0.0."
+        )
+
+    effective_colorado = colorado_profile or (stored_profile or {}).get("colorado_profile") or {}
+    if summary["hours"] > 0 and not effective_colorado.get("filing_status"):
+        issues.append(
+            f"Employee {employee} is missing a stored or explicit Colorado filing status; Colorado withholding will default to 0.0."
+        )
+
+    return {
+        "attendance_summary": summary,
+        "checkins": checkins,
+        "issues": issues,
+    }
+
+
 def rebuild_hourly_salary_slip(
     employee,
     start_date,
@@ -1838,6 +1905,11 @@ def rebuild_hourly_salary_slip(
                 f"No hourly_rate provided and no RootedOps Hourly Rate stored on Employee {employee}."
             )
 
+    if flt(hourly_rate) <= 0:
+        frappe.throw(
+            f"Employee {employee} has an hourly rate of {flt(hourly_rate, 2)}. Store a positive RootedOps Hourly Rate or pass hourly_rate explicitly."
+        )
+
     if federal_withholding is None and not federal_profile and stored_profile:
         candidate = stored_profile.get("federal_profile") or {}
         if candidate.get("filing_status"):
@@ -1847,6 +1919,22 @@ def rebuild_hourly_salary_slip(
         candidate = stored_profile.get("colorado_profile") or {}
         if candidate.get("filing_status"):
             colorado_profile = candidate
+
+    prerequisite_diagnostics = payroll_prerequisite_issues(
+        employee=employee,
+        start_date=start_date,
+        end_date=end_date,
+        hourly_rate=hourly_rate,
+        stored_profile=stored_profile,
+        federal_profile=federal_profile,
+        colorado_profile=colorado_profile,
+    )
+    blocking_issues = [
+        issue for issue in prerequisite_diagnostics["issues"]
+        if "skip_auto_attendance=1" in issue or "attendance resolved to 0.0 hours" in issue
+    ]
+    if blocking_issues:
+        frappe.throw("; ".join(blocking_issues))
 
     slip = ensure_draft_salary_slip(
         employee=employee,
@@ -1918,11 +2006,12 @@ def rebuild_hourly_salary_slip(
     manual_totals = set_manual_totals(slip)
     slip = save_custom_salary_slip(slip, employee, start_date)
 
-    issues = validate_custom_math(
+    issues = list(prerequisite_diagnostics["issues"])
+    issues.extend(validate_custom_math(
         slip=slip,
         expected_gross=manual_totals["gross_pay"],
         expected_net=manual_totals["net_pay"],
-    )
+    ))
 
     result = {
         "slip_name": slip.name,
@@ -1948,7 +2037,11 @@ def rebuild_hourly_salary_slip(
         "federal_detail": federal_detail,
         "colorado_detail": colorado_detail,
         "issues": issues,
-        "diagnostic": diagnose_salary_slip_math(slip.name),
+        "diagnostic": {
+            **diagnose_salary_slip_math(slip.name),
+            "attendance_summary": prerequisite_diagnostics["attendance_summary"],
+            "checkins": prerequisite_diagnostics["checkins"],
+        },
     }
 
     result["liability_summary"] = summarize_payroll_liabilities(result)

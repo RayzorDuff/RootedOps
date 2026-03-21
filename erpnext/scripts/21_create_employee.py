@@ -6,6 +6,8 @@ Purpose:
 - optionally create a submitted Shift Assignment
 - optionally store hourly-payroll custom field values used by 50_hourly_payroll_automation.py
 - optionally create a submitted Salary Structure Assignment so the employee is payroll-ready
+- backfill payroll setup for employees created before this helper was patched
+- create test Employee Checkin IN/OUT pairs with auto-attendance enabled
 
 Run inside bench console with:
     exec(open("/home/frappe/frappe-bench/sites/21_create_employee.py").read(), globals())
@@ -73,6 +75,71 @@ COLORADO_FIELD_MAP = {
 }
 
 HOURLY_RATE_FIELDNAME = "rootedops_hourly_rate"
+
+
+def insert_checkin_pair(employee, in_time, out_time, skip_auto_attendance=0):
+    """Create one IN/OUT Employee Checkin pair for testing payroll attendance.
+
+    The saved rows are explicitly reloaded and saved so skip_auto_attendance is
+    persisted as 0 in sites where initial insert defaults it to 1.
+    """
+    created = []
+    for log_type, timestamp in (("IN", in_time), ("OUT", out_time)):
+        doc = frappe.get_doc({
+            "doctype": "Employee Checkin",
+            "employee": employee,
+            "time": timestamp,
+            "log_type": log_type,
+            "skip_auto_attendance": cint(skip_auto_attendance or 0),
+        })
+        doc.insert(ignore_permissions=True)
+        doc.reload()
+        doc.skip_auto_attendance = cint(skip_auto_attendance or 0)
+        doc.save(ignore_permissions=True)
+        created.append(doc.name)
+
+    frappe.db.commit()
+    return {"in": created[0], "out": created[1]}
+
+
+def backfill_employee_payroll_setup(
+    employee,
+    hourly_rate=None,
+    federal_profile=None,
+    colorado_profile=None,
+    salary_structure=None,
+    salary_structure_assignment_start_date=None,
+    salary_structure_base=0.0,
+    create_salary_structure_assignment=False,
+    company=DEFAULT_COMPANY,
+):
+    """Repair payroll setup for an already-existing employee."""
+    emp = frappe.get_doc("Employee", employee)
+    updated_payroll_fields = apply_payroll_profile(
+        emp,
+        hourly_rate=hourly_rate,
+        federal_profile=federal_profile,
+        colorado_profile=colorado_profile,
+    )
+
+    salary_structure_assignment = None
+    if create_salary_structure_assignment and salary_structure:
+        salary_structure_assignment = ensure_salary_structure_assignment(
+            employee_id=emp.name,
+            salary_structure=salary_structure,
+            from_date=salary_structure_assignment_start_date,
+            company=company or emp.company,
+            base=salary_structure_base,
+        )
+
+    frappe.db.commit()
+    return {
+        "employee": emp.name,
+        "employee_name": emp.employee_name,
+        "salary_structure_assignment": salary_structure_assignment.name if salary_structure_assignment else None,
+        "salary_structure": salary_structure_assignment.salary_structure if salary_structure_assignment else None,
+        "payroll_fields_updated": updated_payroll_fields,
+    }
 
 
 def _coerce_date(value):
