@@ -63,7 +63,7 @@ Creates or updates a payroll-test employee with configurable values:
 - hourly rate custom field
 - optional federal and Colorado withholding profile custom fields
 
-Use this before multi-employee payroll testing so each employee is created consistently for the scripted payroll flow.
+Use this before multi-employee payroll testing and payroll-ready onboarding so each employee is created consistently for the scripted payroll flow.
 
 ## `30_create_employee_home_page.py`
 Creates the file-backed Desk page:
@@ -563,3 +563,32 @@ Notes:
 - The actual employee ID will be returned in `result["employee"]`.
 - If the payroll custom fields do not exist in the site yet, the helper skips those fields instead of failing.
 - Use the returned employee ID in attendance/checkin setup and later batch payroll tests.
+
+
+### Recommended payroll-ready employee setup
+
+```python
+exec(open("/home/frappe/frappe-bench/sites/21_create_employee.py").read(), globals())
+
+result = create_or_update_employee(
+    employee_name="Payroll Test Employee 3",
+    first_name="Payroll",
+    last_name="Employee 3",
+    user_email="payroll.test3@example.com",
+    company="Dank Mushrooms, LLC",
+    department="Operations - DML",
+    designation="Cultivation Technician",
+    default_shift="Day Shift",
+    shift_assignment_start_date="2026-03-15",
+    hourly_rate=22.50,
+    salary_structure="Dank Mushrooms Weekly Test",
+    salary_structure_assignment_start_date="2026-03-15",
+    salary_structure_base=800.0,
+    create_salary_structure_assignment=True,
+    federal_profile={"filing_status": "Single", "step2_checked": 0, "step3_annual_credits": 0.0, "step4a_other_income": 0.0, "step4b_deductions": 0.0, "step4c_extra_withholding": 0.0, "exempt": 0},
+    colorado_profile={"filing_status": "Single", "dr0004_line2": None, "dr0004_line2_override": 0, "dr0004_line3": 0.0, "exempt": 0},
+)
+result
+```
+
+After inserting test checkins, `run_batched_hourly_payroll()` now processes auto attendance first by default before rebuilding salary slips.

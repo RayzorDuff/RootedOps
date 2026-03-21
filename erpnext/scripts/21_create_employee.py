@@ -5,6 +5,7 @@ Purpose:
 - optionally create a linked User
 - optionally create a submitted Shift Assignment
 - optionally store hourly-payroll custom field values used by 50_hourly_payroll_automation.py
+- optionally create a submitted Salary Structure Assignment so the employee is payroll-ready
 
 Run inside bench console with:
     exec(open("/home/frappe/frappe-bench/sites/21_create_employee.py").read(), globals())
@@ -21,6 +22,10 @@ Typical usage:
         default_shift="Day Shift",
         shift_assignment_start_date="2026-03-01",
         hourly_rate=22.50,
+        salary_structure="Dank Mushrooms Weekly Test",
+        salary_structure_assignment_start_date="2026-03-15",
+        salary_structure_base=800.0,
+        create_salary_structure_assignment=True,
         federal_profile={
             "filing_status": "Single",
             "step2_checked": 0,
@@ -50,24 +55,24 @@ DEFAULT_SHIFT = "Day Shift"
 DEFAULT_SHIFT_ASSIGNMENT_START = "2026-03-01"
 
 FEDERAL_FIELD_MAP = {
-    "filing_status": "custom_federal_filing_status",
-    "step2_checked": "custom_federal_step2_checked",
-    "step3_annual_credits": "custom_federal_step3_annual_credits",
-    "step4a_other_income": "custom_federal_step4a_other_income",
-    "step4b_deductions": "custom_federal_step4b_deductions",
-    "step4c_extra_withholding": "custom_federal_step4c_extra_withholding",
-    "exempt": "custom_federal_tax_exempt",
+    "filing_status": "rootedops_federal_filing_status",
+    "step2_checked": "rootedops_federal_step2_checked",
+    "step3_annual_credits": "rootedops_federal_step3_annual_credits",
+    "step4a_other_income": "rootedops_federal_step4a_other_income",
+    "step4b_deductions": "rootedops_federal_step4b_deductions",
+    "step4c_extra_withholding": "rootedops_federal_step4c_extra_withholding",
+    "exempt": "rootedops_federal_exempt",
 }
 
 COLORADO_FIELD_MAP = {
-    "filing_status": "custom_colorado_filing_status",
-    "dr0004_line2": "custom_colorado_dr0004_line2",
-    "dr0004_line2_override": "custom_colorado_dr0004_line2_override",
-    "dr0004_line3": "custom_colorado_dr0004_line3",
-    "exempt": "custom_colorado_tax_exempt",
+    "filing_status": "rootedops_colorado_filing_status",
+    "dr0004_line2": "rootedops_colorado_dr0004_line2",
+    "dr0004_line2_override": "rootedops_colorado_dr0004_line2_override",
+    "dr0004_line3": "rootedops_colorado_dr0004_line3",
+    "exempt": "rootedops_colorado_exempt",
 }
 
-HOURLY_RATE_FIELDNAME = "custom_hourly_rate"
+HOURLY_RATE_FIELDNAME = "rootedops_hourly_rate"
 
 
 def _coerce_date(value):
@@ -268,6 +273,46 @@ def ensure_shift_assignment(employee_id, shift_type=DEFAULT_SHIFT, start_date=DE
     return doc
 
 
+def ensure_salary_structure_assignment(
+    employee_id,
+    salary_structure=None,
+    from_date=None,
+    company=DEFAULT_COMPANY,
+    base=0.0,
+):
+    if not salary_structure or not from_date:
+        return None
+
+    existing = frappe.db.exists(
+        "Salary Structure Assignment",
+        {
+            "employee": employee_id,
+            "salary_structure": salary_structure,
+            "from_date": from_date,
+            "docstatus": ["<", 2],
+        },
+    )
+    if existing:
+        doc = frappe.get_doc("Salary Structure Assignment", existing)
+    else:
+        doc = frappe.get_doc({
+            "doctype": "Salary Structure Assignment",
+            "employee": employee_id,
+            "salary_structure": salary_structure,
+            "from_date": from_date,
+            "company": company,
+            "base": base,
+        })
+        doc.insert(ignore_permissions=True)
+
+    doc.company = company
+    doc.base = frappe.utils.flt(base or 0.0, 2)
+    doc.save(ignore_permissions=True)
+    if doc.docstatus == 0:
+        doc.submit()
+    return doc
+
+
 def apply_payroll_profile(emp, hourly_rate=None, federal_profile=None, colorado_profile=None):
     updated_fields = []
     if hourly_rate is not None and _set_if_field_exists(emp, HOURLY_RATE_FIELDNAME, hourly_rate):
@@ -306,6 +351,10 @@ def create_or_update_employee(
     gender=None,
     date_of_birth=None,
     date_of_joining=None,
+    salary_structure=None,
+    salary_structure_assignment_start_date=None,
+    salary_structure_base=0.0,
+    create_salary_structure_assignment=False,
 ):
     user = None
     if create_user_record and user_email:
@@ -340,6 +389,16 @@ def create_or_update_employee(
             start_date=shift_assignment_start_date,
         )
 
+    salary_structure_assignment = None
+    if create_salary_structure_assignment and salary_structure:
+        salary_structure_assignment = ensure_salary_structure_assignment(
+            employee_id=emp.name,
+            salary_structure=salary_structure,
+            from_date=salary_structure_assignment_start_date or shift_assignment_start_date or date_of_joining,
+            company=company,
+            base=salary_structure_base,
+        )
+
     frappe.db.commit()
 
     return {
@@ -351,5 +410,7 @@ def create_or_update_employee(
         "designation": emp.designation,
         "default_shift": getattr(emp, "default_shift", None),
         "shift_assignment": shift_assignment.name if shift_assignment else None,
+        "salary_structure_assignment": salary_structure_assignment.name if salary_structure_assignment else None,
+        "salary_structure": salary_structure_assignment.salary_structure if salary_structure_assignment else None,
         "payroll_fields_updated": updated_payroll_fields,
     }

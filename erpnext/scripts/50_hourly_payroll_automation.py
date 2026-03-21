@@ -434,6 +434,46 @@ def attendance_summary(employee, start_date, end_date):
     }
 
 
+def process_auto_attendance_for_employees(employees, start_date=None, end_date=None):
+    employees = [employee for employee in (employees or []) if employee]
+    if not employees:
+        return {"employees": [], "shifts_processed": [], "attendance_counts": {}}
+
+    shift_rows = frappe.get_all(
+        "Shift Assignment",
+        filters={
+            "employee": ["in", employees],
+            "docstatus": 1,
+            "status": "Active",
+        },
+        fields=["employee", "shift_type", "start_date", "end_date"],
+        order_by="employee asc, start_date asc",
+    )
+
+    shift_types = sorted({row.shift_type for row in shift_rows if row.shift_type})
+    for shift_type in shift_types:
+        shift_doc = frappe.get_doc("Shift Type", shift_type)
+        if getattr(shift_doc, "enable_auto_attendance", 0):
+            if end_date and getattr(shift_doc, "last_sync_of_checkin", None):
+                target_end = frappe.utils.get_datetime(f"{getdate(end_date)} 23:59:59")
+                if shift_doc.last_sync_of_checkin < target_end:
+                    shift_doc.last_sync_of_checkin = target_end
+                    shift_doc.save(ignore_permissions=True)
+            shift_doc.process_auto_attendance()
+
+    frappe.db.commit()
+
+    attendance_counts = {}
+    for employee in employees:
+        attendance_counts[employee] = len(get_present_attendance_rows(employee, start_date, end_date)) if start_date and end_date else 0
+
+    return {
+        "employees": employees,
+        "shifts_processed": shift_types,
+        "attendance_counts": attendance_counts,
+    }
+
+
 def get_pay_periods_per_year(payroll_frequency):
     if payroll_frequency not in PAY_PERIODS_PER_YEAR:
         frappe.throw(f"Unsupported payroll_frequency: {payroll_frequency}")
@@ -1534,6 +1574,7 @@ def run_batched_hourly_payroll(
     create_consolidated_journal_entry=False,
     consolidated_posting_date=None,
     consolidated_user_remark=None,
+    process_auto_attendance_first=True,
 ):
     if not employees:
         frappe.throw("Provide at least one employee for batched payroll.")
@@ -1541,6 +1582,14 @@ def run_batched_hourly_payroll(
     employee_configs = employee_configs or {}
     payroll_results = []
     employees_processed = []
+
+    auto_attendance_result = None
+    if process_auto_attendance_first:
+        auto_attendance_result = process_auto_attendance_for_employees(
+            employees=employees,
+            start_date=start_date,
+            end_date=end_date,
+        )
 
     for employee in employees:
         employee_config = employee_configs.get(employee, {}) or {}
@@ -1594,6 +1643,7 @@ def run_batched_hourly_payroll(
         "consolidated_liability_summary": consolidated_liability_summary,
         "consolidated_journal_entry_preview": consolidated_journal_entry_preview,
         "consolidated_journal_entry_draft": consolidated_journal_entry_draft,
+        "auto_attendance_result": auto_attendance_result,
     }
 
 

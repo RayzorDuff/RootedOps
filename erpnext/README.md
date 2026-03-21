@@ -269,3 +269,8 @@ Recommended next work:
 """
 Continue RootedOps ERPNext payroll Phase 4. Phase 4 batching basics are now implemented in `erpnext/scripts/50_hourly_payroll_automation.py`, including `run_batched_hourly_payroll()`, consolidated register output, and consolidated Journal Entry preview/draft creation. Review `erpnext/CHATGPT_HANDOFF.md`, `erpnext/CHATGPT_HANDOFF.json`, `erpnext/README.md`, `erpnext/scripts/README_SCRIPTS.md`, and `erpnext/scripts/50_hourly_payroll_automation.py`. Next, harden the payroll-period workflow with reconciliation checks, duplicate-run safeguards, and an operator checklist.
 """
+
+
+## Payroll-ready employee onboarding for hourly payroll
+
+Use `erpnext/scripts/21_create_employee.py` for test or scripted onboarding. The employee must have a submitted Shift Assignment, a submitted Salary Structure Assignment, and RootedOps payroll custom fields populated. `erpnext/scripts/50_hourly_payroll_automation.py` now processes auto attendance first by default during batch runs, but the safest operational pattern is still: create employee -> add checkins -> confirm attendance -> run payroll batch.

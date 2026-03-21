@@ -163,7 +163,7 @@ Creates/updates Payroll Settings, Day Shift, test employee, and submitted Shift 
 Creates the custom Desk page `employee-home`.
 
 ### `scripts/40_setup_payroll_test_foundation.py`
-Creates the clean salary structure and assignment used for payroll testing.
+Creates the clean salary structure and assignment used for payroll testing and payroll-ready onboarding.
 
 ### `scripts/50_hourly_payroll_automation.py`
 Main payroll automation script. Current scope includes:
@@ -262,3 +262,10 @@ Recommended next sequence:
 3. run `run_batched_hourly_payroll(...)`
 4. verify consolidated JE grouping, totals, and balancing across multiple salary slips
 5. only after that, continue into payment/disbursement helpers
+
+
+## Phase 4 validation update
+- Two-employee batched payroll validation succeeded after processing auto attendance and supplying employee 2 payroll profile values.
+- Confirmed combined liability summary for employees HR-EMP-00001 and HR-EMP-00002 for 2026-03-15 through 2026-03-21: gross wages 668.75, net pay 592.59, employer tax total 51.16, balanced consolidated JE.
+- Employee onboarding gap found: `21_create_employee.py` originally wrote the wrong custom fieldnames and did not create a Salary Structure Assignment. Patch this before validating a third employee.
+- Payroll run gap found: batched payroll should process auto attendance before reading attendance-based hours. Patch this before validating a third employee.
