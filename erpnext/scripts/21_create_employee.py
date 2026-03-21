@@ -81,28 +81,65 @@ def _default_date_of_birth(joining_date):
     return frappe.utils.add_years(joining_date, -30)
 
 
-def _pick_default_gender():
+def _meta_has_field(doc_or_meta, fieldname):
+    if not fieldname:
+        return False
+
+    meta = getattr(doc_or_meta, "meta", doc_or_meta)
+    return bool(meta and meta.get_field(fieldname))
+
+
+def _resolve_gender_value(preferred=None):
     meta = frappe.get_meta("Employee")
     field = meta.get_field("gender")
-    options = []
-    if field and getattr(field, "options", None):
-        options = [opt.strip() for opt in field.options.split("\n") if opt.strip()]
+    if not field:
+        return preferred or None
 
-    preferred = ["Male", "Female", "Other", "Prefer not to say"]
-    for choice in preferred:
-        if choice in options:
-            return choice
+    preferred_values = []
+    for value in [preferred, "Male", "Female", "Other", "Prefer not to say"]:
+        if value and value not in preferred_values:
+            preferred_values.append(value)
 
-    if options:
-        return options[0]
+    if field.fieldtype == "Select":
+        options = [opt.strip() for opt in (field.options or "").split("\n") if opt.strip()]
+        for choice in preferred_values:
+            if choice in options:
+                return choice
+        return options[0] if options else (preferred or None)
 
-    return "Other"
+    if field.fieldtype == "Link":
+        options_doctype = field.options
+        if not options_doctype:
+            return preferred or None
+
+        for choice in preferred_values:
+            if frappe.db.exists(options_doctype, choice):
+                return choice
+
+        existing = frappe.get_all(options_doctype, pluck="name", limit=1)
+        if existing:
+            return existing[0]
+
+        if options_doctype == "Gender":
+            for choice in preferred_values:
+                try:
+                    doc = frappe.get_doc({
+                        "doctype": "Gender",
+                        "gender": choice,
+                    })
+                    doc.insert(ignore_permissions=True)
+                    return doc.name
+                except Exception:
+                    frappe.db.rollback()
+                    continue
+
+    return preferred or None
 
 
 def _set_if_field_exists(doc, fieldname, value):
     if not fieldname:
         return False
-    if fieldname not in doc.meta.get_fieldnames():
+    if not _meta_has_field(doc, fieldname):
         return False
     doc.set(fieldname, value)
     return True
@@ -160,7 +197,7 @@ def ensure_employee(
         resolved_joining_date = frappe.utils.getdate()
 
     resolved_date_of_birth = _coerce_date(date_of_birth) or _default_date_of_birth(resolved_joining_date)
-    resolved_gender = gender or _pick_default_gender()
+    resolved_gender = _resolve_gender_value(gender)
 
     if existing:
         emp = frappe.get_doc("Employee", existing)
@@ -182,9 +219,9 @@ def ensure_employee(
         emp.insert(ignore_permissions=True)
 
     emp.employee_name = employee_name or emp.employee_name
-    if "first_name" in emp.meta.get_fieldnames():
+    if _meta_has_field(emp, "first_name"):
         emp.first_name = first_name or emp.first_name
-    if "last_name" in emp.meta.get_fieldnames() and last_name is not None:
+    if _meta_has_field(emp, "last_name") and last_name is not None:
         emp.last_name = last_name
     emp.company = company
     emp.department = department
@@ -192,13 +229,13 @@ def ensure_employee(
     emp.status = status
     if user_email:
         emp.user_id = user_email
-    if default_shift:
+    if default_shift and _meta_has_field(emp, "default_shift"):
         emp.default_shift = default_shift
-    if "gender" in emp.meta.get_fieldnames() and not getattr(emp, "gender", None):
+    if _meta_has_field(emp, "gender") and resolved_gender and not getattr(emp, "gender", None):
         emp.gender = resolved_gender
-    if "date_of_birth" in emp.meta.get_fieldnames() and not getattr(emp, "date_of_birth", None):
+    if _meta_has_field(emp, "date_of_birth") and not getattr(emp, "date_of_birth", None):
         emp.date_of_birth = resolved_date_of_birth
-    if "date_of_joining" in emp.meta.get_fieldnames() and not getattr(emp, "date_of_joining", None):
+    if _meta_has_field(emp, "date_of_joining") and not getattr(emp, "date_of_joining", None):
         emp.date_of_joining = resolved_joining_date
     emp.save(ignore_permissions=True)
     return emp
