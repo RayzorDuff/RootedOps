@@ -78,6 +78,23 @@ Result:
 
 ---
 
+
+## Phase 4 — Batch payroll-period runs and consolidated Journal Entry foundation
+In progress.
+
+Accomplished so far:
+- added batched payroll-period helpers to `scripts/50_hourly_payroll_automation.py`
+- added consolidated payroll register output
+- added consolidated liability summary output
+- added consolidated Journal Entry preview generation
+- added draft consolidated Journal Entry creation support
+- preserved the existing single-slip workflow for isolated testing
+
+Immediate next test:
+- create a second payroll-test employee
+- record attendance for both employees in the same payroll week
+- verify the consolidated Journal Entry remains balanced across multiple salary slips
+
 # Latest Verified Working State
 
 ## Test employee
@@ -164,6 +181,7 @@ These scripts now handle the active ERPNext configuration and payroll workflow:
 |---|---|
 | `scripts/10_setup_master_data.py` | Creates/updates cost centers, departments, designations, and helper master data |
 | `scripts/20_setup_shift_and_test_employee.py` | Creates/updates Day Shift, Payroll Settings, test employee, and submitted Shift Assignment |
+| `scripts/21_create_employee.py` | Creates or updates a payroll-test employee, linked User, optional payroll custom fields, and submitted Shift Assignment |
 | `scripts/30_create_employee_home_page.py` | Creates the file-backed custom Desk page for the employee landing page |
 | `scripts/40_setup_payroll_test_foundation.py` | Creates/repairs the test salary structure and assignment |
 | `scripts/50_hourly_payroll_automation.py` | Attendance-driven hourly payroll with FICA, withholding, employee tax profiles, single-slip and batched payroll runs, consolidated register output, JE preview, and draft JE creation |
@@ -192,6 +210,7 @@ These scripts now handle the active ERPNext configuration and payroll workflow:
 - shift setup
 - shift assignment
 - test employee creation / update
+- creation of additional payroll-test employees for multi-employee batch testing
 - salary structure cleanup and recreation
 - attendance-driven payroll automation
 - employee payroll tax profile storage
@@ -232,25 +251,16 @@ This page is script-managed rather than CSV-managed.
 
 ---
 
-# Phase 4 — Payroll batching and operationalization
-In progress.
+# Immediate Next Phase
 
-Completed in this step:
-1. added `run_batched_hourly_payroll()` to process multiple employees for one payroll period
-2. added `get_employees_with_attendance_in_period()` helper for attendance-driven employee selection
-3. added consolidated payroll register output across multiple salary slips
-4. added consolidated payroll liability summary across a payroll-period run
-5. added consolidated Journal Entry preview creation
-6. added consolidated draft Journal Entry creation
-7. preserved the existing single-slip rebuild / preview / JE-draft flow
-
-Current recommended next work:
-1. add duplicate-run guards around consolidated Journal Entry creation for real production use
-2. add optional employee auto-discovery + filtering for active payroll employees beyond attendance-only selection
-3. decide whether to introduce Payroll Entry objects or stay on the custom scripted path
-4. add stronger validation and reconciliation helpers
-5. document a first real employee onboarding procedure using actual W-4 and Colorado inputs
-6. document an operator checklist for running and reviewing each payroll period
+## Phase 4 — Payroll batching and operationalization
+Recommended next work:
+1. batch multiple salary slips into one payroll-period run
+2. create consolidated payroll register output
+3. create one consolidated Journal Entry for a payroll period
+4. decide whether to introduce Payroll Entry objects or stay on the custom scripted path
+5. add stronger validation and reconciliation helpers
+6. document a first real employee onboarding procedure using actual W-4 and Colorado inputs
 
 ---
 

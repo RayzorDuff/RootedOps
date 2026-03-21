@@ -244,3 +244,21 @@ Recommended next work:
 """
 Continue RootedOps ERPNext payroll Phase 4. Phase 4 batching basics are now implemented in `erpnext/scripts/50_hourly_payroll_automation.py`, including `run_batched_hourly_payroll()`, consolidated register output, and consolidated Journal Entry preview/draft creation. Review `erpnext/CHATGPT_HANDOFF.md`, `erpnext/CHATGPT_HANDOFF.json`, `erpnext/README.md`, `erpnext/scripts/README_SCRIPTS.md`, and `erpnext/scripts/50_hourly_payroll_automation.py`. Next, harden the payroll-period workflow with reconciliation checks, duplicate-run safeguards, and an operator checklist.
 """
+
+## Phase 4 update in progress
+
+The project has started Phase 4 by adding batched payroll-period helpers to `scripts/50_hourly_payroll_automation.py` so multiple salary slips can be processed into one consolidated Journal Entry preview/draft.
+
+Before validating the multi-employee path, use `scripts/21_create_employee.py` to create an additional payroll-test employee with:
+- linked User
+- Employee master record
+- default shift
+- submitted Shift Assignment
+- optional hourly rate and federal/Colorado tax-profile custom fields
+
+Recommended next sequence:
+1. create second test employee with `21_create_employee.py`
+2. record checkins / attendance for both employees in the same payroll week
+3. run `run_batched_hourly_payroll(...)`
+4. verify consolidated JE grouping, totals, and balancing across multiple salary slips
+5. only after that, continue into payment/disbursement helpers

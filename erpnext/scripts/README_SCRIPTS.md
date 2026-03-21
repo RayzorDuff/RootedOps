@@ -54,6 +54,17 @@ Creates or updates:
 - submitted Shift Assignment
 - clean test checkins (optional helper)
 
+## `21_create_employee.py`
+Creates or updates a payroll-test employee with configurable values:
+- linked User record
+- Employee master record
+- default shift
+- submitted Shift Assignment
+- hourly rate custom field
+- optional federal and Colorado withholding profile custom fields
+
+Use this before multi-employee payroll testing so each employee is created consistently for the scripted payroll flow.
+
 ## `30_create_employee_home_page.py`
 Creates the file-backed Desk page:
 - `employee-home`
@@ -493,3 +504,62 @@ Next work:
 """
 Continue RootedOps ERPNext payroll Phase 4. Phase 4 batching basics are now implemented in `erpnext/scripts/50_hourly_payroll_automation.py`, including `run_batched_hourly_payroll()`, consolidated register output, and consolidated Journal Entry preview/draft creation. Review `erpnext/CHATGPT_HANDOFF.md`, `erpnext/CHATGPT_HANDOFF.json`, `erpnext/README.md`, `erpnext/scripts/README_SCRIPTS.md`, and `erpnext/scripts/50_hourly_payroll_automation.py`. Next, harden the payroll-period workflow with reconciliation checks, duplicate-run safeguards, and an operator checklist.
 """
+
+---
+
+# Creating a second payroll test employee
+
+Before testing batched payroll across multiple employees, create the additional employee in a consistent way with `21_create_employee.py`.
+
+Copy the script into the ERPNext container:
+
+```bash
+sudo docker cp erpnext/scripts/21_create_employee.py   erpnext-backend:/home/frappe/frappe-bench/sites/21_create_employee.py
+```
+
+Load it in bench console:
+
+```python
+exec(open("/home/frappe/frappe-bench/sites/21_create_employee.py").read(), globals())
+```
+
+Example call for a second test employee:
+
+```python
+result = create_or_update_employee(
+    employee_name="Payroll Test Employee 2",
+    first_name="Payroll",
+    last_name="Employee 2",
+    user_email="payroll.test2@example.com",
+    company="Dank Mushrooms, LLC",
+    department="Operations - DML",
+    designation="Cultivation Technician",
+    default_shift="Day Shift",
+    shift_assignment_start_date="2026-03-01",
+    hourly_rate=22.50,
+    federal_profile={
+        "filing_status": "Single",
+        "step2_checked": 0,
+        "step3_annual_credits": 0.0,
+        "step4a_other_income": 0.0,
+        "step4b_deductions": 0.0,
+        "step4c_extra_withholding": 0.0,
+        "exempt": 0,
+    },
+    colorado_profile={
+        "filing_status": "Single",
+        "dr0004_line2": None,
+        "dr0004_line2_override": 0,
+        "dr0004_line3": 0.0,
+        "exempt": 0,
+    },
+)
+result
+```
+
+Notes:
+- `user_email` is the safest lookup key. Re-running the helper with the same email updates the same Employee instead of creating another one.
+- `employee_name` is the display name, not the ERPNext employee ID.
+- The actual employee ID will be returned in `result["employee"]`.
+- If the payroll custom fields do not exist in the site yet, the helper skips those fields instead of failing.
+- Use the returned employee ID in attendance/checkin setup and later batch payroll tests.

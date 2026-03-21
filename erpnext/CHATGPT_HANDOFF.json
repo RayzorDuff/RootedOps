@@ -135,7 +135,8 @@
       "add reconciliation helpers comparing salary-slip totals to consolidated JE totals",
       "document payroll operator checklist for each pay period",
       "decide whether to stay on the custom scripted path or introduce Payroll Entry objects"
-    ]
+    ],
+    "next_validation_step": "Create a second test employee with scripts/21_create_employee.py, add attendance for both employees in the same payroll period, and verify the consolidated Journal Entry remains balanced across multiple salary slips."
   },
   "script_functions_added_phase_4": [
     "get_employees_with_attendance_in_period",
