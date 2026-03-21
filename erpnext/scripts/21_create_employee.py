@@ -70,6 +70,35 @@ COLORADO_FIELD_MAP = {
 HOURLY_RATE_FIELDNAME = "custom_hourly_rate"
 
 
+def _coerce_date(value):
+    if not value:
+        return None
+    return frappe.utils.getdate(value)
+
+
+def _default_date_of_birth(joining_date):
+    joining_date = _coerce_date(joining_date) or frappe.utils.getdate()
+    return frappe.utils.add_years(joining_date, -30)
+
+
+def _pick_default_gender():
+    meta = frappe.get_meta("Employee")
+    field = meta.get_field("gender")
+    options = []
+    if field and getattr(field, "options", None):
+        options = [opt.strip() for opt in field.options.split("\n") if opt.strip()]
+
+    preferred = ["Male", "Female", "Other", "Prefer not to say"]
+    for choice in preferred:
+        if choice in options:
+            return choice
+
+    if options:
+        return options[0]
+
+    return "Other"
+
+
 def _set_if_field_exists(doc, fieldname, value):
     if not fieldname:
         return False
@@ -116,12 +145,22 @@ def ensure_employee(
     designation=DEFAULT_DESIGNATION,
     default_shift=DEFAULT_SHIFT,
     status="Active",
+    gender=None,
+    date_of_birth=None,
+    date_of_joining=None,
 ):
     existing = None
     if user_email:
         existing = frappe.db.exists("Employee", {"user_id": user_email})
     if not existing and employee_name:
         existing = frappe.db.exists("Employee", {"employee_name": employee_name})
+
+    resolved_joining_date = _coerce_date(date_of_joining)
+    if not resolved_joining_date:
+        resolved_joining_date = frappe.utils.getdate()
+
+    resolved_date_of_birth = _coerce_date(date_of_birth) or _default_date_of_birth(resolved_joining_date)
+    resolved_gender = gender or _pick_default_gender()
 
     if existing:
         emp = frappe.get_doc("Employee", existing)
@@ -136,6 +175,9 @@ def ensure_employee(
             "department": department,
             "designation": designation,
             "user_id": user_email,
+            "gender": resolved_gender,
+            "date_of_birth": resolved_date_of_birth,
+            "date_of_joining": resolved_joining_date,
         })
         emp.insert(ignore_permissions=True)
 
@@ -152,6 +194,12 @@ def ensure_employee(
         emp.user_id = user_email
     if default_shift:
         emp.default_shift = default_shift
+    if "gender" in emp.meta.get_fieldnames() and not getattr(emp, "gender", None):
+        emp.gender = resolved_gender
+    if "date_of_birth" in emp.meta.get_fieldnames() and not getattr(emp, "date_of_birth", None):
+        emp.date_of_birth = resolved_date_of_birth
+    if "date_of_joining" in emp.meta.get_fieldnames() and not getattr(emp, "date_of_joining", None):
+        emp.date_of_joining = resolved_joining_date
     emp.save(ignore_permissions=True)
     return emp
 
@@ -218,6 +266,9 @@ def create_or_update_employee(
     hourly_rate=None,
     federal_profile=None,
     colorado_profile=None,
+    gender=None,
+    date_of_birth=None,
+    date_of_joining=None,
 ):
     user = None
     if create_user_record and user_email:
@@ -232,6 +283,9 @@ def create_or_update_employee(
         department=department,
         designation=designation,
         default_shift=default_shift,
+        gender=gender,
+        date_of_birth=date_of_birth,
+        date_of_joining=date_of_joining or shift_assignment_start_date,
     )
 
     updated_payroll_fields = apply_payroll_profile(
