@@ -132,6 +132,7 @@ Verified output:
 - batched payroll-period runs
 - consolidated payroll register output
 - consolidated Journal Entry preview and draft creation succeeded
+- clean four-employee batch validation completed successfully
 
 ---
 
@@ -695,3 +696,20 @@ for slip_name in batch["salary_slip_names"]:
     print("Gross:", slip.gross_pay)
     print("Net:", slip.net_pay)
 ```
+
+
+# Clean handoff state after four-employee validation
+
+A clean four-employee payroll batch has now been validated with these per-employee results for pay period `2026-03-15` to `2026-03-21`:
+- `HR-EMP-00001` → Gross `400.00`, Net `347.45`
+- `HR-EMP-00002` → Gross `472.50`, Net `403.96`
+- `HR-EMP-00003` → Gross `258.75`, Net `232.23`
+- `HR-EMP-00004` → Gross `600.00`, Net `502.31`
+
+The current scripts are strong enough to continue validation, but the next session should stop extending bench-console-only operation and instead design the ERPNext UI / automation-hook layer around the now-working payroll engine.
+
+## Recommended next-session objectives
+- decide the UI entry point for weekly payroll runs
+- wrap `run_batched_hourly_payroll(...)` behind a server-side method callable from ERPNext UI
+- decide where operator review, approval, and accounting links should live in the UI
+- add payment and reserve-transfer workflow after payroll accrual review

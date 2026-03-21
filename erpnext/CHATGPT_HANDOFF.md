@@ -63,7 +63,7 @@ What now works:
 - creates draft Journal Entry successfully
 
 ### Phase 4 — Payroll batching and consolidated Journal Entry workflow
-In progress.
+Completed and validated through a clean four-employee payroll batch.
 
 What is now implemented:
 - batches multiple employee salary-slip rebuilds into one payroll-period run
@@ -74,82 +74,31 @@ What is now implemented:
 - creates one consolidated draft Journal Entry for the run
 - preserves the single-slip workflow for debugging and employee-level review
 
-## Latest successful verified test result
+## Latest successful verified multi-employee test result
 
-### Test employee
-- Employee: `HR-EMP-00001`
-- Company: `Dank Mushrooms, LLC`
-- Stored hourly rate: `20.00`
+### Four-employee validation run
+Company: `Dank Mushrooms, LLC`
+Pay period: `2026-03-15` to `2026-03-21`
 
-### Stored employee tax profile
-Federal:
-- Filing Status: `Single`
-- Step 2 checked: `0`
-- Step 3 annual credits: `0.00`
-- Step 4(a): `0.00`
-- Step 4(b): `0.00`
-- Step 4(c): `0.00`
-- Exempt: `0`
+### Employee results from the clean four-employee batch
+- `HR-EMP-00001` → Gross `400.00`, Net `347.45`
+- `HR-EMP-00002` → Gross `472.50`, Net `403.96`
+- `HR-EMP-00003` → Gross `258.75`, Net `232.23`
+- `HR-EMP-00004` → Gross `600.00`, Net `502.31`
 
-Colorado:
-- Filing Status: `Single`
-- DR 0004 line 2 override: `0`
-- DR 0004 line 2 logical value: `None`
-- DR 0004 line 3: `0.00`
-- Exempt: `0`
+### Consolidated batch result for period `2026-03-15` to `2026-03-21`
+- employee_count: `4`
+- consolidated Journal Entry preview balanced: `True`
+- all four employees produced non-zero payroll results
+- auto-attendance preprocessing and payroll prerequisite diagnostics are active in the current script
 
-### Payroll result for period `2026-03-15` to `2026-03-21`
-- hours: `16.0`
-- gross: `320.0`
-- ss_employee: `19.84`
-- medicare_employee: `4.64`
-- federal_withholding: `1.0`
-- colorado_withholding: `9.43`
-- ss_employer: `19.84`
-- medicare_employer: `4.64`
-- net_pay: `285.09`
+### Important hardening findings from validation
+- Older employee records created before the onboarding script fix may need payroll-field backfill.
+- Checkins with `skip_auto_attendance = 1` will prevent attendance-driven payroll and now fail fast in the payroll script.
+- Reprocessing attendance may require cancelling/deleting existing Attendance rows before rerunning `Shift Type.process_auto_attendance()`.
 
-### Liability summary
-- gross_wages: `320.00`
-- employee_tax_total: `34.91`
-- employer_tax_total: `24.48`
-- total_payroll_expense: `344.48`
-- total_liability_before_cash: `59.39`
-
-### Validated payroll account mapping
-- `Payroll Expense - DML`
-- `Payroll Tax Expense - DML`
-- `Payroll Payable - DML`
-- `Payroll Tax Payable - DML`
-- `Payroll Withholding Payable - DML`
-
-Validated company config:
-- `Company("Dank Mushrooms, LLC").default_payroll_payable_account = "Payroll Payable - DML"`
-
-### Validated Journal Entry preview
-- total debit: `344.48`
-- total credit: `344.48`
-- balanced: `True`
-- ready_to_create: `True`
-
-JE line mapping currently used:
-- Gross wages expense -> `Payroll Expense - DML`
-- Employer payroll tax expense -> `Payroll Tax Expense - DML`
-- Net payroll payable -> `Payroll Payable - DML`
-- Social Security payable -> `Payroll Tax Payable - DML`
-- Medicare payable -> `Payroll Tax Payable - DML`
-- Federal withholding payable -> `Payroll Withholding Payable - DML`
-- Colorado withholding payable -> `Payroll Withholding Payable - DML`
-
-### Important JE implementation note
-A first draft JE attempt failed because `Journal Entry Account.reference_type` does not allow `"Salary Slip"` in this ERPNext environment.
-
-The working fix:
-- do not set `reference_type`
-- do not set `reference_name`
-- keep the Salary Slip linkage in JE and row `user_remark`
-
-A draft Journal Entry was successfully created after this change.
+### Operational status
+The payroll logic itself is now working. The remaining work should move out of ad-hoc bench-console testing and into ERPNext UI / automation flow design so the operator can review and run payroll from the application rather than living in bench console.
 
 ## What scripts now exist
 
@@ -293,3 +242,22 @@ Use the documented fourth-employee checklist in `erpnext/README.md` and `erpnext
 3. process auto attendance
 4. run `run_batched_hourly_payroll(...)` for employees 1 through 4
 5. confirm all four salary slips show nonzero gross and net and the consolidated JE preview is balanced
+
+## Recommended next phase after this handoff
+
+### Phase 5 — UI and automation-hook integration
+Primary goal: stop depending on bench-console execution for normal payroll operations.
+
+Recommended work items:
+- expose the current payroll flow behind ERPNext UI actions or server hooks
+- decide what the operator should do in the UI each pay period and what should happen automatically
+- make payroll results visible from ERPNext forms the operator already uses
+- add explicit review / approval points before creating accounting entries or payments
+- add payment-entry / reserve-transfer helpers after payroll accrual review
+
+Recommended ERPNext integration points to evaluate in the next session:
+- a custom button on `Salary Slip`, `Payroll Entry`, or a custom DocType for weekly payroll runs
+- a server-side whitelisted method that wraps `run_batched_hourly_payroll(...)`
+- optional scheduled / hook-based attendance preprocessing before payroll
+- a custom DocType or page to store payroll-run metadata, consolidated JE references, review status, and operator notes
+- clear UI links from the payroll run to Salary Slips, Journal Entry draft, and liability totals

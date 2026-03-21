@@ -10,11 +10,11 @@
     "Phase 1 - attendance foundation",
     "Phase 2 - hourly payroll foundation and FICA script",
     "Phase 3 - federal withholding, Colorado withholding, employee tax profiles, liability summary, and draft Journal Entry creation",
-    "Phase 4 (partial) - batched payroll-period runs, consolidated register output, and consolidated Journal Entry preview/draft creation",
     "Phase 4 - two-employee batched payroll validated with consolidated Journal Entry preview",
-    "Phase 4 - three-employee batched payroll validated with consolidated Journal Entry preview"
+    "Phase 4 - batched payroll-period runs, consolidated register output, and consolidated Journal Entry preview/draft creation",
+    "Phase 4 - four-employee batched payroll validated with consolidated Journal Entry preview"
   ],
-  "phase_next": "Phase 4 hardening - fourth-employee validation, duplicate-run safeguards, reconciliation checks, and payment/disbursement workflow",
+  "phase_next": "Phase 5 - ERPNext UI integration, automation hooks, payroll-run review flow, and payment/liability disbursement workflow",
   "attendance_verified": [
     {
       "date": "2026-03-16",
@@ -50,11 +50,12 @@
   "latest_payroll_test": {
     "period_start": "2026-03-15",
     "period_end": "2026-03-21",
-    "employee_count": 3,
+    "employee_count": 4,
     "employees": [
       "HR-EMP-00001",
       "HR-EMP-00002",
-      "HR-EMP-00003"
+      "HR-EMP-00003",
+      "HR-EMP-00004"
     ],
     "employee_results": [
       {
@@ -71,20 +72,22 @@
         "employee": "HR-EMP-00003",
         "gross": 258.75,
         "net_pay": 232.23
+      },
+      {
+        "employee": "HR-EMP-00004",
+        "gross": 600.0,
+        "net_pay": 502.31
       }
     ],
     "is_balanced": true
   },
   "liability_summary_verified": {
-    "gross_wages": 1131.25,
-    "employee_count": 3
+    "employee_count": 4
   },
   "journal_entry_preview_verified": {
     "is_balanced": true,
     "is_ready_to_create": true,
-    "total_debit": 719.91,
-    "total_credit": 719.91,
-    "employee_count": 2,
+    "employee_count": 4,
     "account_map": {
       "payroll_expense_account": "Payroll Expense - DML",
       "payroll_tax_expense_account": "Payroll Tax Expense - DML",
@@ -131,38 +134,32 @@
     "New Colorado withholding form updates using stored Employee Colorado tax-profile custom fields"
   ],
   "open_questions": [
-    "Should the project adopt Payroll Entry objects or continue with the custom scripted path?",
-    "What duplicate-run safeguards should be added before creating consolidated Journal Entries in repeated tests or real payroll?",
-    "Should batched payroll auto-submit salary slips or keep them as drafts until reviewed?",
-    "Should the payroll script create payment entries / reserve transfers after payroll review?"
+    "Which ERPNext UI surface should own the weekly payroll run: Payroll Entry, a custom DocType, or a custom page?",
+    "Should salary slips remain drafts until operator review in the UI, or should the run submit them automatically after review checks?",
+    "What duplicate-run safeguards and reconciliation checks should block repeated payroll for the same date range?",
+    "What is the preferred UI path for paying net wages and moving payroll liabilities into reserve accounts after accrual approval?"
   ],
   "phase_4_status": {
-    "status": "in_progress",
+    "status": "completed",
     "completed_now": [
-      "21_create_employee.py patched to optionally create Salary Structure Assignment",
-      "21_create_employee.py patched to use rootedops_* payroll fields",
-      "build_consolidated_payroll_journal_entry_preview() implemented",
-      "build_consolidated_payroll_register() implemented",
-      "consolidated Journal Entry preview validated for two employees",
-      "create_consolidated_payroll_journal_entry_draft() implemented",
-      "get_employees_with_attendance_in_period() helper implemented",
-      "run_batched_hourly_payroll() implemented",
-      "run_batched_hourly_payroll() patched to process auto attendance first by default",
-      "summarize_consolidated_payroll_liabilities() implemented",
-      "two-employee batch validation completed",
-      "three-employee batch validation completed successfully",
-      "insert_checkin_pair helper added to 21_create_employee.py",
-      "backfill_employee_payroll_setup helper added to 21_create_employee.py",
-      "payroll prerequisite diagnostics added for zero-rate, skip_auto_attendance, and zero-hour attendance cases"
+      "batched payroll-period runs implemented",
+      "consolidated register output implemented",
+      "consolidated Journal Entry preview and draft creation implemented",
+      "21_create_employee.py updated for payroll-ready onboarding",
+      "insert_checkin_pair helper added for clean IN/OUT test creation",
+      "backfill_employee_payroll_setup helper added for older employees",
+      "run_batched_hourly_payroll() processes auto attendance first by default",
+      "payroll prerequisite diagnostics added for zero-rate, skip_auto_attendance, and zero-hour attendance cases",
+      "four-employee validation completed successfully"
     ],
     "next_recommended_work": [
-      "validate a fourth employee using only the documented onboarding flow",
-      "add duplicate-run safeguards for consolidated Journal Entry creation",
-      "add reconciliation helpers comparing salary-slip totals to consolidated JE totals",
-      "document payroll operator checklist for each pay period",
-      "design payment/disbursement helpers for net pay and payroll liabilities"
+      "move payroll execution from bench console into ERPNext UI/server methods",
+      "design a payroll-run review object or UI flow that links salary slips, consolidated JE, and liabilities",
+      "add duplicate-run safeguards and reconciliation helpers",
+      "add payment-entry helpers for net wages and reserve-transfer helpers for withholding/payroll taxes",
+      "document the final operator workflow in the UI"
     ],
-    "next_validation_step": "Create a fourth test employee with scripts/21_create_employee.py, add clean checkins with insert_checkin_pair(...), process auto attendance, run batched payroll for employees 1 through 4, and verify all four employees contribute wages to the consolidated Journal Entry."
+    "next_validation_step": "In the next ChatGPT session, focus on ERPNext UI integration so payroll can be run and reviewed from forms/pages rather than manually from bench console."
   },
   "script_functions_added_phase_4": [
     "get_employees_with_attendance_in_period",

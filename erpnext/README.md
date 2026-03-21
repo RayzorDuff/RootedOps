@@ -80,7 +80,7 @@ Result:
 
 
 ## Phase 4 — Batch payroll-period runs and consolidated Journal Entry foundation
-Working and validated through a three-employee payroll batch.
+Completed and validated through a clean four-employee payroll batch.
 
 Accomplished so far:
 - added batched payroll-period helpers to `scripts/50_hourly_payroll_automation.py`
@@ -90,6 +90,7 @@ Accomplished so far:
 - added draft consolidated Journal Entry creation support
 - preserved the existing single-slip workflow for isolated testing
 - validated a clean three-employee payroll run after fixing attendance preprocessing and stored payroll profile values
+- validated a clean four-employee payroll run with nonzero gross/net pay for all four employees
 - hardened payroll diagnostics so zero-hour attendance and `skip_auto_attendance = 1` checkins are surfaced immediately
 
 # Latest Verified Working State
@@ -133,6 +134,12 @@ Validated company field:
 - `Company("Dank Mushrooms, LLC").default_payroll_payable_account = "Payroll Payable - DML"`
 
 ## Verified Journal Entry preview / draft creation
+Four-employee validation summary:
+- `HR-EMP-00001` gross/net: `400.00 / 347.45`
+- `HR-EMP-00002` gross/net: `472.50 / 403.96`
+- `HR-EMP-00003` gross/net: `258.75 / 232.23`
+- `HR-EMP-00004` gross/net: `600.00 / 502.31`
+
 Resolved mapping:
 - `Payroll Expense - DML` → gross wages expense
 - `Payroll Tax Expense - DML` → employer payroll tax expense
@@ -250,14 +257,14 @@ This page is script-managed rather than CSV-managed.
 
 # Immediate Next Phase
 
-## Phase 4 — Payroll batching and operationalization
+## Phase 5 — Move payroll operations back into the ERPNext UI
 Recommended next work:
-1. batch multiple salary slips into one payroll-period run
-2. create consolidated payroll register output
-3. create one consolidated Journal Entry for a payroll period
-4. decide whether to introduce Payroll Entry objects or stay on the custom scripted path
-5. add stronger validation and reconciliation helpers
-6. document a first real employee onboarding procedure using actual W-4 and Colorado inputs
+1. stop relying on bench console for normal payroll operation
+2. expose the scripted payroll run through an ERPNext UI action or server method
+3. decide whether the UI surface should be `Payroll Entry`, a custom DocType, or a custom page for weekly payroll runs
+4. show salary slips, consolidated Journal Entry draft, and liability totals together in one operator review flow
+5. add duplicate-run safeguards and reconciliation helpers before approvals
+6. add payment-entry and reserve-transfer helpers after accrual review
 
 ---
 
@@ -385,3 +392,8 @@ for slip_name in batch["salary_slip_names"]:
     print("Gross:", slip.gross_pay)
     print("Net:", slip.net_pay)
 ```
+
+
+# Important operating note
+
+Bench-console execution was appropriate for building and validating the payroll engine, but it is not the intended long-term operator workflow. The next session should focus on ERPNext UI integration so the operator can run, review, and trace payroll directly from the application with automation hooks in place.
