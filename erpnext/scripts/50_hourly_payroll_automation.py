@@ -822,6 +822,7 @@ def ensure_draft_salary_slip(employee, start_date, end_date, payroll_frequency="
 
     payroll_context = get_employee_payroll_context(employee, company=company)
     assignment = get_active_salary_structure_assignment(employee, start_date)
+    summary = attendance_summary(employee, start_date, end_date)
 
     slip = frappe.get_doc(
         {
@@ -833,6 +834,8 @@ def ensure_draft_salary_slip(employee, start_date, end_date, payroll_frequency="
             "payroll_frequency": payroll_frequency,
             "currency": payroll_context["currency"],
             "salary_structure": assignment.salary_structure,
+            "payment_days": summary["payment_days"],
+            "total_working_days": summary["total_working_days"],
         }
     )
 
