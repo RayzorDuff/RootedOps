@@ -773,6 +773,7 @@ def custom_salary_slip_save_mode():
         "calculate_net_pay": SalarySlip.calculate_net_pay,
         "get_working_days_details": SalarySlip.get_working_days_details,
         "compute_year_to_date": SalarySlip.compute_year_to_date,
+        "compute_month_to_date": getattr(SalarySlip, "compute_month_to_date", None),
         "calculate_component_amounts": getattr(SalarySlip, "calculate_component_amounts", None),
         "pull_sal_struct": getattr(SalarySlip, "pull_sal_struct", None),
     }
@@ -786,6 +787,8 @@ def custom_salary_slip_save_mode():
         SalarySlip.get_working_days_details = _noop
         SalarySlip.compute_year_to_date = _noop
 
+        if originals["compute_month_to_date"]:
+            SalarySlip.compute_month_to_date = _noop
         if originals["calculate_component_amounts"]:
             SalarySlip.calculate_component_amounts = _noop
         if originals["pull_sal_struct"]:
@@ -798,6 +801,8 @@ def custom_salary_slip_save_mode():
         SalarySlip.get_working_days_details = originals["get_working_days_details"]
         SalarySlip.compute_year_to_date = originals["compute_year_to_date"]
 
+        if originals["compute_month_to_date"]:
+            SalarySlip.compute_month_to_date = originals["compute_month_to_date"]
         if originals["calculate_component_amounts"]:
             SalarySlip.calculate_component_amounts = originals["calculate_component_amounts"]
         if originals["pull_sal_struct"]:
