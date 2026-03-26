@@ -323,12 +323,12 @@ def update_employee_tax_profile(
     hourly_rate=None,
     federal_profile=None,
     colorado_profile=None,
+    
+    if pay_model is not None:
+        updates["rootedops_pay_model"] = pay_model
 
-	if pay_model is not None:
-		updates["rootedops_pay_model"] = pay_model
-
-	if overnight_flat_amount is not None:
-		updates["rootedops_overnight_flat_amount"] = overnight_flat_amount
+    if overnight_flat_amount is not None:
+        updates["rootedops_overnight_flat_amount"] = overnight_flat_amount
 ):
     ensure_employee_tax_profile_custom_fields()
 
@@ -361,7 +361,6 @@ def update_employee_tax_profile(
 
     if "filing_status" in colorado_profile:
         updates["rootedops_colorado_filing_status"] = colorado_profile.get("filing_status")
-
     if "dr0004_line2" in colorado_profile:
         value = colorado_profile.get("dr0004_line2")
         if value in (None, ""):
@@ -370,13 +369,10 @@ def update_employee_tax_profile(
         else:
             updates["rootedops_colorado_dr0004_line2_override"] = 1
             updates["rootedops_colorado_dr0004_line2"] = flt(value, 2)
-
     if "dr0004_line2_override" in colorado_profile:
         updates["rootedops_colorado_dr0004_line2_override"] = cint(colorado_profile.get("dr0004_line2_override") or 0)
-
     if "dr0004_line3" in colorado_profile:
         updates["rootedops_colorado_dr0004_line3"] = flt(colorado_profile.get("dr0004_line3") or 0.0, 2)
-
     if "exempt" in colorado_profile:
         updates["rootedops_colorado_exempt"] = cint(colorado_profile.get("exempt") or 0)
 
@@ -388,7 +384,6 @@ def update_employee_tax_profile(
 
     frappe.db.commit()
     return get_employee_tax_profile(employee)
-
 
 def seed_test_employee_tax_profile():
     return update_employee_tax_profile(
@@ -2080,18 +2075,18 @@ def rebuild_hourly_salary_slip(
         overnight_flat_amount=overnight_flat_amount,
     )
     
-	stored_profile = get_employee_tax_profile(employee) if use_employee_tax_profile else {}
-	pay_model = (stored_profile or {}).get("pay_model") or "standard_hourly"
+    stored_profile = get_employee_tax_profile(employee) if use_employee_tax_profile else {}
+    effective_pay_model = pay_model or (stored_profile or {}).get("pay_model") or PAY_MODEL_STANDARD_HOURLY
 
-	blocking_issues = []
-	for issue in prerequisite_diagnostics["issues"]:
-		if "skip_auto_attendance=1" in issue:
-			blocking_issues.append(issue)
-		elif pay_model != "hybrid_overnight" and "attendance resolved to 0.0 hours" in issue:
-			blocking_issues.append(issue)
+    blocking_issues = []
+    for issue in prerequisite_diagnostics["issues"]:
+        if "skip_auto_attendance=1" in issue:
+            blocking_issues.append(issue)
+        elif effective_pay_model != PAY_MODEL_HYBRID_OVERNIGHT and "attendance resolved to 0.0 hours" in issue:
+            blocking_issues.append(issue)
 
-	if blocking_issues:
-		frappe.throw("; ".join(blocking_issues))
+    if blocking_issues:
+        frappe.throw("; ".join(blocking_issues))
 
     slip = ensure_draft_salary_slip(
         employee=employee,
