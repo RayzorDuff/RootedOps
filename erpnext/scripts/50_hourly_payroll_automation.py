@@ -323,8 +323,12 @@ def update_employee_tax_profile(
     hourly_rate=None,
     federal_profile=None,
     colorado_profile=None,
-    pay_model=None,
-    overnight_flat_amount=None,
+
+	if pay_model is not None:
+		updates["rootedops_pay_model"] = pay_model
+
+	if overnight_flat_amount is not None:
+		updates["rootedops_overnight_flat_amount"] = overnight_flat_amount
 ):
     ensure_employee_tax_profile_custom_fields()
 
@@ -2075,12 +2079,19 @@ def rebuild_hourly_salary_slip(
         pay_model=pay_model,
         overnight_flat_amount=overnight_flat_amount,
     )
-    blocking_issues = [
-        issue for issue in prerequisite_diagnostics["issues"]
-        if "skip_auto_attendance=1" in issue or "attendance resolved to 0.0 hours" in issue
-    ]
-    if blocking_issues:
-        frappe.throw("; ".join(blocking_issues))
+    
+	stored_profile = get_employee_tax_profile(employee) if use_employee_tax_profile else {}
+	pay_model = (stored_profile or {}).get("pay_model") or "standard_hourly"
+
+	blocking_issues = []
+	for issue in prerequisite_diagnostics["issues"]:
+		if "skip_auto_attendance=1" in issue:
+			blocking_issues.append(issue)
+		elif pay_model != "hybrid_overnight" and "attendance resolved to 0.0 hours" in issue:
+			blocking_issues.append(issue)
+
+	if blocking_issues:
+		frappe.throw("; ".join(blocking_issues))
 
     slip = ensure_draft_salary_slip(
         employee=employee,
