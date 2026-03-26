@@ -1,6 +1,6 @@
 """RootedOps ERPNext hourly payroll automation.
 
-Phase 3 currently implemented:
+Currently implemented:
 - Attendance-based hourly payroll
 - Gross pay from submitted Attendance working hours
 - Employee Social Security
@@ -323,12 +323,8 @@ def update_employee_tax_profile(
     hourly_rate=None,
     federal_profile=None,
     colorado_profile=None,
-
-	if pay_model is not None:
-		updates["rootedops_pay_model"] = pay_model
-
-	if overnight_flat_amount is not None:
-		updates["rootedops_overnight_flat_amount"] = overnight_flat_amount
+    pay_model=None,
+    overnight_flat_amount=None,
 ):
     ensure_employee_tax_profile_custom_fields()
 
@@ -388,7 +384,6 @@ def update_employee_tax_profile(
 
     frappe.db.commit()
     return get_employee_tax_profile(employee)
-
 
 def seed_test_employee_tax_profile():
     return update_employee_tax_profile(
@@ -2079,19 +2074,19 @@ def rebuild_hourly_salary_slip(
         pay_model=pay_model,
         overnight_flat_amount=overnight_flat_amount,
     )
-    
-	stored_profile = get_employee_tax_profile(employee) if use_employee_tax_profile else {}
-	pay_model = (stored_profile or {}).get("pay_model") or "standard_hourly"
 
-	blocking_issues = []
-	for issue in prerequisite_diagnostics["issues"]:
-		if "skip_auto_attendance=1" in issue:
-			blocking_issues.append(issue)
-		elif pay_model != "hybrid_overnight" and "attendance resolved to 0.0 hours" in issue:
-			blocking_issues.append(issue)
+    stored_profile = get_employee_tax_profile(employee) if use_employee_tax_profile else {}
+    effective_pay_model = pay_model or (stored_profile or {}).get("pay_model") or PAY_MODEL_STANDARD_HOURLY
 
-	if blocking_issues:
-		frappe.throw("; ".join(blocking_issues))
+    blocking_issues = []
+    for issue in prerequisite_diagnostics["issues"]:
+        if "skip_auto_attendance=1" in issue:
+            blocking_issues.append(issue)
+        elif effective_pay_model != PAY_MODEL_HYBRID_OVERNIGHT and "attendance resolved to 0.0 hours" in issue:
+            blocking_issues.append(issue)
+
+    if blocking_issues:
+        frappe.throw("; ".join(blocking_issues))
 
     slip = ensure_draft_salary_slip(
         employee=employee,

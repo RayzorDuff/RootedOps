@@ -323,12 +323,8 @@ def update_employee_tax_profile(
     hourly_rate=None,
     federal_profile=None,
     colorado_profile=None,
-    
-    if pay_model is not None:
-        updates["rootedops_pay_model"] = pay_model
-
-    if overnight_flat_amount is not None:
-        updates["rootedops_overnight_flat_amount"] = overnight_flat_amount
+    pay_model=None,
+    overnight_flat_amount=None,
 ):
     ensure_employee_tax_profile_custom_fields()
 
@@ -361,6 +357,7 @@ def update_employee_tax_profile(
 
     if "filing_status" in colorado_profile:
         updates["rootedops_colorado_filing_status"] = colorado_profile.get("filing_status")
+
     if "dr0004_line2" in colorado_profile:
         value = colorado_profile.get("dr0004_line2")
         if value in (None, ""):
@@ -369,10 +366,13 @@ def update_employee_tax_profile(
         else:
             updates["rootedops_colorado_dr0004_line2_override"] = 1
             updates["rootedops_colorado_dr0004_line2"] = flt(value, 2)
+
     if "dr0004_line2_override" in colorado_profile:
         updates["rootedops_colorado_dr0004_line2_override"] = cint(colorado_profile.get("dr0004_line2_override") or 0)
+
     if "dr0004_line3" in colorado_profile:
         updates["rootedops_colorado_dr0004_line3"] = flt(colorado_profile.get("dr0004_line3") or 0.0, 2)
+
     if "exempt" in colorado_profile:
         updates["rootedops_colorado_exempt"] = cint(colorado_profile.get("exempt") or 0)
 
@@ -2074,7 +2074,7 @@ def rebuild_hourly_salary_slip(
         pay_model=pay_model,
         overnight_flat_amount=overnight_flat_amount,
     )
-    
+
     stored_profile = get_employee_tax_profile(employee) if use_employee_tax_profile else {}
     effective_pay_model = pay_model or (stored_profile or {}).get("pay_model") or PAY_MODEL_STANDARD_HOURLY
 
