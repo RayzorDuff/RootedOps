@@ -49,6 +49,7 @@ Typical usage:
 """
 
 import frappe
+from frappe.utils import cint
 
 DEFAULT_COMPANY = "Dank Mushrooms, LLC"
 DEFAULT_DEPARTMENT = "Operations - DML"
@@ -75,6 +76,8 @@ COLORADO_FIELD_MAP = {
 }
 
 HOURLY_RATE_FIELDNAME = "rootedops_hourly_rate"
+PAY_MODEL_FIELDNAME = "rootedops_pay_model"
+OVERNIGHT_FLAT_AMOUNT_FIELDNAME = "rootedops_overnight_flat_amount"
 
 
 def insert_checkin_pair(employee, in_time, out_time, skip_auto_attendance=0):
@@ -107,6 +110,8 @@ def backfill_employee_payroll_setup(
     hourly_rate=None,
     federal_profile=None,
     colorado_profile=None,
+    pay_model=None,
+    overnight_flat_amount=None,
     salary_structure=None,
     salary_structure_assignment_start_date=None,
     salary_structure_base=0.0,
@@ -120,6 +125,8 @@ def backfill_employee_payroll_setup(
         hourly_rate=hourly_rate,
         federal_profile=federal_profile,
         colorado_profile=colorado_profile,
+        pay_model=pay_model,
+        overnight_flat_amount=overnight_flat_amount,
     )
 
     salary_structure_assignment = None
@@ -380,10 +387,21 @@ def ensure_salary_structure_assignment(
     return doc
 
 
-def apply_payroll_profile(emp, hourly_rate=None, federal_profile=None, colorado_profile=None):
+def apply_payroll_profile(
+    emp,
+    hourly_rate=None,
+    federal_profile=None,
+    colorado_profile=None,
+    pay_model=None,
+    overnight_flat_amount=None,
+):
     updated_fields = []
     if hourly_rate is not None and _set_if_field_exists(emp, HOURLY_RATE_FIELDNAME, hourly_rate):
         updated_fields.append(HOURLY_RATE_FIELDNAME)
+    if pay_model is not None and _set_if_field_exists(emp, PAY_MODEL_FIELDNAME, pay_model):
+        updated_fields.append(PAY_MODEL_FIELDNAME)
+    if overnight_flat_amount is not None and _set_if_field_exists(emp, OVERNIGHT_FLAT_AMOUNT_FIELDNAME, overnight_flat_amount):
+        updated_fields.append(OVERNIGHT_FLAT_AMOUNT_FIELDNAME)
 
     for source, field_map in [
         (federal_profile or {}, FEDERAL_FIELD_MAP),
@@ -415,6 +433,8 @@ def create_or_update_employee(
     hourly_rate=None,
     federal_profile=None,
     colorado_profile=None,
+    pay_model=None,
+    overnight_flat_amount=None,
     gender=None,
     date_of_birth=None,
     date_of_joining=None,
@@ -446,6 +466,8 @@ def create_or_update_employee(
         hourly_rate=hourly_rate,
         federal_profile=federal_profile,
         colorado_profile=colorado_profile,
+        pay_model=pay_model,
+        overnight_flat_amount=overnight_flat_amount,
     )
 
     shift_assignment = None

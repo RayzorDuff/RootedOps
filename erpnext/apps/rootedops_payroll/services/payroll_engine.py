@@ -1,6 +1,6 @@
 """RootedOps ERPNext hourly payroll automation.
 
-Phase 3 currently implemented:
+Currently implemented:
 - Attendance-based hourly payroll
 - Gross pay from submitted Attendance working hours
 - Employee Social Security
@@ -37,6 +37,10 @@ SS_WAGE_BASE_2026 = 184500.0
 SS_RATE = 0.062
 MEDICARE_RATE = 0.0145
 COLORADO_RATE_2026 = 0.044
+
+PAY_MODEL_STANDARD_HOURLY = "standard_hourly"
+PAY_MODEL_HYBRID_OVERNIGHT = "hybrid_overnight"
+DEFAULT_OVERNIGHT_FLAT_AMOUNT = 100.0
 
 PAY_PERIODS_PER_YEAR = {
     "Weekly": 52,
@@ -224,6 +228,21 @@ EMPLOYEE_TAX_CUSTOM_FIELDS = {
             "fieldtype": "Currency",
             "insert_after": "rootedops_colorado_exempt",
         },
+        {
+            "fieldname": "rootedops_pay_model",
+            "label": "RootedOps Pay Model",
+            "fieldtype": "Select",
+            "options": "\nstandard_hourly\nhybrid_overnight",
+            "insert_after": "rootedops_hourly_rate",
+            "default": "standard_hourly",
+        },
+        {
+            "fieldname": "rootedops_overnight_flat_amount",
+            "label": "RootedOps Overnight Flat Amount",
+            "fieldtype": "Currency",
+            "insert_after": "rootedops_pay_model",
+            "default": "100",
+        },
     ]
 }
 
@@ -249,6 +268,8 @@ def employee_tax_custom_fieldnames():
         "rootedops_colorado_dr0004_line3",
         "rootedops_colorado_exempt",
         "rootedops_hourly_rate",
+        "rootedops_pay_model",
+        "rootedops_overnight_flat_amount",
     ]
 
 
@@ -289,6 +310,8 @@ def get_employee_tax_profile(employee):
     return {
         "employee": employee,
         "hourly_rate": hourly_rate,
+        "pay_model": values.get("rootedops_pay_model") or PAY_MODEL_STANDARD_HOURLY,
+        "overnight_flat_amount": flt(values.get("rootedops_overnight_flat_amount") or DEFAULT_OVERNIGHT_FLAT_AMOUNT, 2),
         "federal_profile": federal_profile,
         "colorado_profile": colorado_profile,
         "raw": values,
@@ -300,6 +323,8 @@ def update_employee_tax_profile(
     hourly_rate=None,
     federal_profile=None,
     colorado_profile=None,
+    pay_model=None,
+    overnight_flat_amount=None,
 ):
     ensure_employee_tax_profile_custom_fields()
 
@@ -307,6 +332,10 @@ def update_employee_tax_profile(
 
     if hourly_rate is not None:
         updates["rootedops_hourly_rate"] = flt(hourly_rate, 2)
+    if pay_model is not None:
+        updates["rootedops_pay_model"] = pay_model
+    if overnight_flat_amount is not None:
+        updates["rootedops_overnight_flat_amount"] = flt(overnight_flat_amount, 2)
 
     federal_profile = federal_profile or {}
     colorado_profile = colorado_profile or {}
@@ -449,6 +478,81 @@ def checkin_diagnostics(employee, start_date, end_date):
         "count": len(rows),
         "rows": rows,
         "skip_auto_attendance_count": sum(cint(row.skip_auto_attendance or 0) for row in rows),
+    }
+
+
+def get_checkin_sessions(employee, start_date, end_date):
+    rows = checkin_diagnostics(employee, start_date, end_date)["rows"]
+    sessions = []
+    open_in = None
+
+    for row in rows:
+        log_type = (row.log_type or "").upper()
+        when = frappe.utils.get_datetime(row.time)
+        if log_type == "IN":
+            open_in = row
+            continue
+        if log_type == "OUT" and open_in:
+            start_dt = frappe.utils.get_datetime(open_in.time)
+            end_dt = when
+            duration_hours = max(0.0, (end_dt - start_dt).total_seconds() / 3600.0)
+            sessions.append({
+                "in_name": open_in.name,
+                "out_name": row.name,
+                "start": start_dt,
+                "end": end_dt,
+                "hours": flt(duration_hours, 2),
+            })
+            open_in = None
+
+    return sessions
+
+
+def is_full_overnight_session(session):
+    start = frappe.utils.get_datetime(session["start"])
+    end = frappe.utils.get_datetime(session["end"])
+    return (
+        start.hour == 22 and start.minute == 0 and
+        end.hour == 6 and end.minute == 0 and
+        end.date() == frappe.utils.add_days(start.date(), 1) and
+        abs(flt(session["hours"], 2) - 8.0) < 0.01
+    )
+
+
+def hybrid_overnight_summary(employee, start_date, end_date, hourly_rate, overnight_flat_amount=None):
+    sessions = get_checkin_sessions(employee, start_date, end_date)
+    overnight_flat_amount = flt(overnight_flat_amount or DEFAULT_OVERNIGHT_FLAT_AMOUNT, 2)
+
+    hourly_hours = 0.0
+    overnight_shift_count = 0
+    overnight_flat_pay = 0.0
+    compensated_dates = set()
+
+    for session in sessions:
+        compensated_dates.add(str(getdate(session["start"])))
+        if is_full_overnight_session(session):
+            overnight_shift_count += 1
+            overnight_flat_pay += overnight_flat_amount
+        else:
+            hourly_hours += flt(session["hours"], 2)
+
+    total_working_days = date_diff(getdate(end_date), getdate(start_date)) + 1
+    payment_days = len(compensated_dates)
+    absent_days = max(0, total_working_days - payment_days)
+    hourly_gross = flt(hourly_hours * flt(hourly_rate), 2)
+    gross = flt(hourly_gross + overnight_flat_pay, 2)
+
+    return {
+        "rows": sessions,
+        "hours": flt(hourly_hours, 2),
+        "payment_days": flt(payment_days, 2),
+        "total_working_days": flt(total_working_days, 2),
+        "absent_days": flt(absent_days, 2),
+        "overnight_shift_count": overnight_shift_count,
+        "overnight_flat_amount": overnight_flat_amount,
+        "overnight_flat_pay": flt(overnight_flat_pay, 2),
+        "hourly_gross": hourly_gross,
+        "gross": gross,
     }
 
 
@@ -965,16 +1069,25 @@ def replace_child_table(doc, table_fieldname, rows):
         doc.append(table_fieldname, row)
 
 
-def build_earnings_rows(gross):
-    return [
-        {
+def build_earnings_rows(hourly_gross, overnight_flat_pay=0.0):
+    rows = []
+    if flt(hourly_gross, 2) or not flt(overnight_flat_pay, 2):
+        rows.append({
             "salary_component": "Hourly Wage",
             "abbr": "HOUR",
-            "amount": flt(gross, 2),
-            "default_amount": flt(gross, 2),
+            "amount": flt(hourly_gross, 2),
+            "default_amount": flt(hourly_gross, 2),
             "depends_on_payment_days": 0,
-        }
-    ]
+        })
+    if flt(overnight_flat_pay, 2):
+        rows.append({
+            "salary_component": "Overnight Shift Pay",
+            "abbr": "ONFLT",
+            "amount": flt(overnight_flat_pay, 2),
+            "default_amount": flt(overnight_flat_pay, 2),
+            "depends_on_payment_days": 0,
+        })
+    return rows
 
 
 def build_deduction_rows(ss_employee, medicare_employee, federal_withholding=0.0, colorado_withholding=0.0):
@@ -1636,6 +1749,8 @@ def run_batched_hourly_payroll(
             colorado_profile=employee_config.get("colorado_profile"),
             use_employee_tax_profile=employee_config.get("use_employee_tax_profile", use_employee_tax_profile),
             account_overrides=employee_config.get("account_overrides") or account_overrides,
+            pay_model=employee_config.get("pay_model"),
+            overnight_flat_amount=employee_config.get("overnight_flat_amount"),
         )
         payroll_results.append(result)
         employees_processed.append(employee)
@@ -1844,7 +1959,17 @@ def payroll_register_row(payroll_result):
     }
 
 
-def payroll_prerequisite_issues(employee, start_date, end_date, hourly_rate, stored_profile=None, federal_profile=None, colorado_profile=None):
+def payroll_prerequisite_issues(
+    employee,
+    start_date,
+    end_date,
+    hourly_rate,
+    stored_profile=None,
+    federal_profile=None,
+    colorado_profile=None,
+    pay_model=PAY_MODEL_STANDARD_HOURLY,
+    overnight_flat_amount=None,
+):
     summary = attendance_summary(employee, start_date, end_date)
     checkins = checkin_diagnostics(employee, start_date, end_date)
     issues = []
@@ -1857,19 +1982,30 @@ def payroll_prerequisite_issues(employee, start_date, end_date, hourly_rate, sto
             f"Employee {employee} has {checkins['skip_auto_attendance_count']} checkins with skip_auto_attendance=1."
         )
 
-    if checkins["count"] and summary["hours"] <= 0:
-        issues.append(
-            f"Employee {employee} has {checkins['count']} checkins in the pay period but attendance resolved to 0.0 hours."
-        )
-
     effective_federal = federal_profile or (stored_profile or {}).get("federal_profile") or {}
-    if summary["hours"] > 0 and not effective_federal.get("filing_status"):
+    effective_colorado = colorado_profile or (stored_profile or {}).get("colorado_profile") or {}
+
+    if pay_model == PAY_MODEL_HYBRID_OVERNIGHT:
+        hybrid = hybrid_overnight_summary(employee, start_date, end_date, hourly_rate, overnight_flat_amount)
+        if checkins["count"] and hybrid["gross"] <= 0:
+            issues.append(
+                f"Employee {employee} has {checkins['count']} checkins in the pay period but hybrid session pay resolved to 0.0 gross."
+            )
+        taxable_base = hybrid["gross"]
+    else:
+        if checkins["count"] and summary["hours"] <= 0:
+            issues.append(
+                f"Employee {employee} has {checkins['count']} checkins in the pay period but attendance resolved to 0.0 hours."
+            )
+        taxable_base = summary["hours"] * flt(hourly_rate or 0.0)
+        hybrid = None
+
+    if taxable_base > 0 and not effective_federal.get("filing_status"):
         issues.append(
             f"Employee {employee} is missing a stored or explicit federal filing status; federal withholding will default to 0.0."
         )
 
-    effective_colorado = colorado_profile or (stored_profile or {}).get("colorado_profile") or {}
-    if summary["hours"] > 0 and not effective_colorado.get("filing_status"):
+    if taxable_base > 0 and not effective_colorado.get("filing_status"):
         issues.append(
             f"Employee {employee} is missing a stored or explicit Colorado filing status; Colorado withholding will default to 0.0."
         )
@@ -1877,6 +2013,7 @@ def payroll_prerequisite_issues(employee, start_date, end_date, hourly_rate, sto
     return {
         "attendance_summary": summary,
         "checkins": checkins,
+        "hybrid_summary": hybrid,
         "issues": issues,
     }
 
@@ -1894,8 +2031,15 @@ def rebuild_hourly_salary_slip(
     colorado_profile=None,
     use_employee_tax_profile=True,
     account_overrides=None,
+    pay_model=None,
+    overnight_flat_amount=None,
 ):
     stored_profile = get_employee_tax_profile(employee) if use_employee_tax_profile else None
+
+    if pay_model is None:
+        pay_model = (stored_profile or {}).get("pay_model") or PAY_MODEL_STANDARD_HOURLY
+    if overnight_flat_amount is None:
+        overnight_flat_amount = (stored_profile or {}).get("overnight_flat_amount") or DEFAULT_OVERNIGHT_FLAT_AMOUNT
 
     if hourly_rate is None:
         if stored_profile and stored_profile.get("hourly_rate") is not None:
@@ -1928,6 +2072,8 @@ def rebuild_hourly_salary_slip(
         stored_profile=stored_profile,
         federal_profile=federal_profile,
         colorado_profile=colorado_profile,
+        pay_model=pay_model,
+        overnight_flat_amount=overnight_flat_amount,
     )
     blocking_issues = [
         issue for issue in prerequisite_diagnostics["issues"]
@@ -1953,7 +2099,23 @@ def rebuild_hourly_salary_slip(
         company=company,
     )
 
-    gross = flt(summary["hours"] * flt(hourly_rate), 2)
+    hybrid_summary = None
+    if pay_model == PAY_MODEL_HYBRID_OVERNIGHT:
+        hybrid_summary = prerequisite_diagnostics.get("hybrid_summary") or hybrid_overnight_summary(
+            employee, start_date, end_date, hourly_rate, overnight_flat_amount
+        )
+        summary["hours"] = hybrid_summary["hours"]
+        summary["payment_days"] = hybrid_summary["payment_days"]
+        summary["total_working_days"] = hybrid_summary["total_working_days"]
+        summary["absent_days"] = hybrid_summary["absent_days"]
+        hourly_gross = hybrid_summary["hourly_gross"]
+        overnight_flat_pay = hybrid_summary["overnight_flat_pay"]
+        gross = hybrid_summary["gross"]
+    else:
+        hourly_gross = flt(summary["hours"] * flt(hourly_rate), 2)
+        overnight_flat_pay = 0.0
+        gross = hourly_gross
+
     ytd_before = ytd_gross_before_period(employee, start_date, exclude_slip_name=slip.name)
 
     ss_employee = ss_employee_amount(gross, ytd_before)
@@ -1992,7 +2154,7 @@ def rebuild_hourly_salary_slip(
     else:
         colorado_withholding = flt(colorado_withholding, 2)
 
-    earnings_rows = build_earnings_rows(gross)
+    earnings_rows = build_earnings_rows(hourly_gross, overnight_flat_pay)
     deduction_rows = build_deduction_rows(
         ss_employee=ss_employee,
         medicare_employee=medicare_employee,
@@ -2020,6 +2182,11 @@ def rebuild_hourly_salary_slip(
         "total_working_days": summary["total_working_days"],
         "absent_days": summary["absent_days"],
         "hourly_rate": flt(hourly_rate, 2),
+        "pay_model": pay_model,
+        "overnight_flat_amount": flt(overnight_flat_amount, 2),
+        "overnight_shift_count": (hybrid_summary or {}).get("overnight_shift_count", 0),
+        "overnight_flat_pay": (hybrid_summary or {}).get("overnight_flat_pay", 0.0),
+        "hourly_gross": hourly_gross,
         "gross": gross,
         "ss_employee": ss_employee,
         "medicare_employee": medicare_employee,
@@ -2066,6 +2233,9 @@ __all__ = [
     "process_auto_attendance_for_employees",
     "attendance_summary",
     "checkin_diagnostics",
+    "get_checkin_sessions",
+    "is_full_overnight_session",
+    "hybrid_overnight_summary",
     "get_employee_tax_profile",
     "get_employee_payroll_context",
 ]
