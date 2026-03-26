@@ -3,12 +3,29 @@ import json
 import frappe
 from frappe import _
 from frappe.utils import getdate
+from frappe.utils import now_datetime
 
 from rootedops_payroll.services.payroll_engine import (
     run_batched_hourly_payroll,
     create_consolidated_payroll_journal_entry_draft,
     get_employees_with_attendance_in_period,
 )
+
+def _build_summary_text(result):
+    liability = result.get("consolidated_liability_summary") or {}
+    je_preview = result.get("consolidated_journal_entry_preview") or {}
+
+    lines = [
+        f"Employees: {result.get('employee_count', 0)}",
+        f"Gross Wages: {liability.get('gross_wages', 0)}",
+        f"Net Pay: {liability.get('net_pay', 0)}",
+        f"Employee Taxes: {liability.get('employee_tax_total', 0)}",
+        f"Employer Taxes: {liability.get('employer_tax_total', 0)}",
+        f"Total Payroll Expense: {liability.get('total_payroll_expense', 0)}",
+        f"JE Balanced: {'Yes' if je_preview.get('is_balanced') else 'No'}",
+        f"Salary Slips: {len(result.get('salary_slip_names', []))}",
+    ]
+    return "\n".join(lines)
 
 def _get_employees_for_payroll_entry(ctx):
     employees = get_employees_with_attendance_in_period(
@@ -44,6 +61,18 @@ def _get_payroll_entry_context(payroll_entry_name: str):
         "end_date": getdate(pe.end_date),
     }
 
+def _write_payroll_entry_summary(pe, result, journal_entry_name=None):
+    updates = {
+        "rootedops_salary_slip_count": len(result.get("salary_slip_names", [])),
+        "rootedops_payroll_summary": _build_summary_text(result),
+        "rootedops_last_processed_on": now_datetime(),
+    }
+
+    if journal_entry_name:
+        updates["rootedops_consolidated_journal_entry"] = journal_entry_name
+
+    pe.db_set(updates, update_modified=True)
+
 @frappe.whitelist()
 def preview_attendance_payroll(payroll_entry_name: str):
     pe, ctx = _get_payroll_entry_context(payroll_entry_name)
@@ -55,6 +84,8 @@ def preview_attendance_payroll(payroll_entry_name: str):
         end_date=ctx["end_date"],
         company=ctx["company"],
     )
+
+    _write_payroll_entry_summary(pe, result)
 
     return {
         "payroll_entry": pe.name,
@@ -81,6 +112,8 @@ def create_or_refresh_draft_salary_slips(payroll_entry_name: str):
         end_date=ctx["end_date"],
         company=ctx["company"],
     )
+
+    _write_payroll_entry_summary(pe, result)
 
     return {
         "payroll_entry": pe.name,
@@ -127,6 +160,8 @@ def create_consolidated_draft_journal_entry(payroll_entry_name: str):
         )
     else:
         journal_entry_name = getattr(je, "name", None)
+
+    _write_payroll_entry_summary(pe, result, journal_entry_name=journal_entry_name)
 
     return {
         "payroll_entry": pe.name,
