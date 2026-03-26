@@ -2053,3 +2053,19 @@ def rebuild_hourly_salary_slip(
 
     frappe.db.commit()
     return result
+
+__all__ = [
+    "run_batched_hourly_payroll",
+    "rebuild_hourly_salary_slip",
+    "get_employees_with_attendance_in_period",
+    "build_consolidated_payroll_register",
+    "summarize_consolidated_payroll_liabilities",
+    "build_consolidated_payroll_journal_entry_preview",
+    "create_consolidated_payroll_journal_entry_draft",
+    "payroll_prerequisite_issues",
+    "process_auto_attendance_for_employees",
+    "attendance_summary",
+    "checkin_diagnostics",
+    "get_employee_tax_profile",
+    "get_employee_payroll_context",
+]
