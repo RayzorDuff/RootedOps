@@ -1,47 +1,13 @@
-import json
-
 import frappe
 from frappe import _
-from frappe.utils import getdate
-from frappe.utils import now_datetime
+from frappe.utils import getdate, now_datetime
 
 from rootedops_payroll.services.payroll_engine import (
-    run_batched_hourly_payroll,
     create_consolidated_payroll_journal_entry_draft,
     get_employees_with_attendance_in_period,
+    run_batched_hourly_payroll,
 )
 
-def _build_summary_text(result):
-    liability = result.get("consolidated_liability_summary") or {}
-    je_preview = result.get("consolidated_journal_entry_preview") or {}
-
-    lines = [
-        f"Employees: {result.get('employee_count', 0)}",
-        f"Gross Wages: {liability.get('gross_wages', 0)}",
-        f"Net Pay: {liability.get('net_pay', 0)}",
-        f"Employee Taxes: {liability.get('employee_tax_total', 0)}",
-        f"Employer Taxes: {liability.get('employer_tax_total', 0)}",
-        f"Total Payroll Expense: {liability.get('total_payroll_expense', 0)}",
-        f"JE Balanced: {'Yes' if je_preview.get('is_balanced') else 'No'}",
-        f"Salary Slips: {len(result.get('salary_slip_names', []))}",
-    ]
-    return "\n".join(lines)
-
-def _get_employees_for_payroll_entry(ctx):
-    employees = get_employees_with_attendance_in_period(
-        start_date=ctx["start_date"],
-        end_date=ctx["end_date"],
-        company=ctx["company"],
-    )
-
-    if not employees:
-        frappe.throw(
-            _("No employees with attendance were found for {0} to {1} in {2}.").format(
-                ctx["start_date"], ctx["end_date"], ctx["company"]
-            )
-        )
-
-    return employees
 
 def _get_payroll_entry_context(payroll_entry_name: str):
     if not frappe.db.exists("Payroll Entry", payroll_entry_name):
@@ -61,6 +27,41 @@ def _get_payroll_entry_context(payroll_entry_name: str):
         "end_date": getdate(pe.end_date),
     }
 
+
+def _get_employees_for_payroll_entry(ctx):
+    employees = get_employees_with_attendance_in_period(
+        start_date=ctx["start_date"],
+        end_date=ctx["end_date"],
+        company=ctx["company"],
+    )
+
+    if not employees:
+        frappe.throw(
+            _("No employees with attendance were found for {0} to {1} in {2}.").format(
+                ctx["start_date"], ctx["end_date"], ctx["company"]
+            )
+        )
+
+    return employees
+
+
+def _build_summary_text(result):
+    liability = result.get("consolidated_liability_summary") or {}
+    je_preview = result.get("consolidated_journal_entry_preview") or {}
+
+    lines = [
+        f"Employees: {result.get('employee_count', 0)}",
+        f"Gross Wages: {liability.get('gross_wages', 0)}",
+        f"Net Pay: {liability.get('net_pay', 0)}",
+        f"Employee Taxes: {liability.get('employee_tax_total', 0)}",
+        f"Employer Taxes: {liability.get('employer_tax_total', 0)}",
+        f"Total Payroll Expense: {liability.get('total_payroll_expense', 0)}",
+        f"JE Balanced: {'Yes' if je_preview.get('is_balanced') else 'No'}",
+        f"Salary Slips: {len(result.get('salary_slip_names', []))}",
+    ]
+    return "\n".join(lines)
+
+
 def _write_payroll_entry_summary(pe, result, journal_entry_name=None):
     updates = {
         "rootedops_salary_slip_count": len(result.get("salary_slip_names", [])),
@@ -72,6 +73,7 @@ def _write_payroll_entry_summary(pe, result, journal_entry_name=None):
         updates["rootedops_consolidated_journal_entry"] = journal_entry_name
 
     pe.db_set(updates, update_modified=True)
+
 
 @frappe.whitelist()
 def preview_attendance_payroll(payroll_entry_name: str):
@@ -101,6 +103,7 @@ def preview_attendance_payroll(payroll_entry_name: str):
         },
     }
 
+
 @frappe.whitelist()
 def create_or_refresh_draft_salary_slips(payroll_entry_name: str):
     pe, ctx = _get_payroll_entry_context(payroll_entry_name)
@@ -124,10 +127,17 @@ def create_or_refresh_draft_salary_slips(payroll_entry_name: str):
         "consolidated_liability_summary": result.get("consolidated_liability_summary"),
     }
 
+
 @frappe.whitelist()
 def create_consolidated_draft_journal_entry(payroll_entry_name: str):
     pe, ctx = _get_payroll_entry_context(payroll_entry_name)
     employees = _get_employees_for_payroll_entry(ctx)
+
+    existing_je = pe.get("rootedops_consolidated_journal_entry")
+    if existing_je:
+        frappe.throw(
+            _("This Payroll Entry already has a consolidated Journal Entry: {0}").format(existing_je)
+        )
 
     result = run_batched_hourly_payroll(
         employees=employees,
@@ -150,8 +160,6 @@ def create_consolidated_draft_journal_entry(payroll_entry_name: str):
         company=ctx["company"],
     )
 
-    journal_entry_name = None
-
     if isinstance(je, dict):
         journal_entry_name = (
             je.get("name")
@@ -167,6 +175,5 @@ def create_consolidated_draft_journal_entry(payroll_entry_name: str):
         "payroll_entry": pe.name,
         "employees": employees,
         "journal_entry": journal_entry_name,
-        "journal_entry_result": je,
         "salary_slip_names": result.get("salary_slip_names", []),
     }

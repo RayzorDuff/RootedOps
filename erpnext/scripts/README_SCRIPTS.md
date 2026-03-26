@@ -1,11 +1,12 @@
 # RootedOps ERPNext Scripts
 
-These scripts are intended to be loaded into `bench --site erp.danks.store console`.
+These scripts are intended to be loaded into `bench --site erp.danks.store console` unless otherwise noted.
 
 This README is the script-operations guide. It documents:
 - how to load and run the scripts
 - what each script currently does
 - the verified payroll automation workflow in `50_hourly_payroll_automation.py`
+- the current Payroll Entry UI integration support files
 - annual and employee-change maintenance procedures
 - validation steps before using the process for a real employee
 
@@ -33,7 +34,7 @@ Load the file:
 exec(open("/home/frappe/frappe-bench/sites/<scriptname>.py").read(), globals())
 ```
 
-This pattern is preferred because pasting large Python blocks directly into bench console proved unreliable.
+This pattern is still preferred for large setup / validation scripts because pasting large Python blocks directly into bench console proved unreliable.
 
 ---
 
@@ -87,7 +88,7 @@ Provides:
 - Colorado withholding for 2026
 - employee tax-profile custom fields on Employee
 - stored employee hourly rate
-- draft salary slip rebuilding
+- draft Salary Slip rebuilding
 - payroll liability summary
 - payroll register row output
 - Journal Entry preview generation
@@ -95,6 +96,15 @@ Provides:
 - batched payroll-period runs
 - consolidated payroll register output
 - consolidated Journal Entry preview and draft creation
+
+## `60_setup_payroll_entry_ui_support.py`
+Creates the custom Payroll Entry fields used by the current UI integration:
+- `rootedops_consolidated_journal_entry`
+- `rootedops_salary_slip_count`
+- `rootedops_last_processed_on`
+- `rootedops_payroll_summary`
+
+Use this when rebuilding the Payroll Entry UI workflow in a fresh site.
 
 ---
 
@@ -483,233 +493,27 @@ Then confirm in ERPNext:
 
 ---
 
-# Recommended next phase
+# Current ERPNext UI usage
 
-## Phase 4 — Payroll batching and operationalization
-In progress.
+Once the Payroll Entry custom fields and Client Script are in place, the normal operator flow is:
 
-Completed in this step:
-1. batch multiple salary slips into one payroll-period run
-2. create consolidated payroll register output
-3. create one consolidated Journal Entry preview for a payroll period
-4. create one consolidated draft Journal Entry for a payroll period
-
-Next work:
-1. add duplicate-run safeguards for consolidated JE creation
-2. add stronger validation and reconciliation helpers
-3. decide whether to introduce Payroll Entry objects or continue using the custom scripted path
-4. document first real employee onboarding using actual W-4 and Colorado inputs
-5. document a payroll operator checklist
+1. open or create the weekly `Payroll Entry`
+2. click `Preview Attendance Payroll`
+3. review the writeback fields on Payroll Entry
+4. click `Create / Refresh Draft Salary Slips`
+5. review the draft Salary Slips in standard ERPNext
+6. click `Create Consolidated Draft JE`
+7. review and submit the JE in standard ERPNext
 
 ---
 
-# Suggested opening request for the next ChatGPT session
+# Next hardening work recommended
 
-"""
-Continue RootedOps ERPNext payroll Phase 4. Phase 4 batching basics are now implemented in `erpnext/scripts/50_hourly_payroll_automation.py`, including `run_batched_hourly_payroll()`, consolidated register output, and consolidated Journal Entry preview/draft creation. Review `erpnext/CHATGPT_HANDOFF.md`, `erpnext/CHATGPT_HANDOFF.json`, `erpnext/README.md`, `erpnext/scripts/README_SCRIPTS.md`, and `erpnext/scripts/50_hourly_payroll_automation.py`. Next, harden the payroll-period workflow with reconciliation checks, duplicate-run safeguards, and an operator checklist.
-"""
+## Phase 5D
+- explicitly detect submitted Salary Slips already existing for the same employee + period
+- make draft-slip refresh behavior more explicit in the API wrapper
+- improve Client Script popup responses with direct links to the slips and JE
 
----
-
-# Creating a second payroll test employee
-
-Before testing batched payroll across multiple employees, create the additional employee in a consistent way with `21_create_employee.py`.
-
-Copy the script into the ERPNext container:
-
-```bash
-sudo docker cp erpnext/scripts/21_create_employee.py   erpnext-backend:/home/frappe/frappe-bench/sites/21_create_employee.py
-```
-
-Load it in bench console:
-
-```python
-exec(open("/home/frappe/frappe-bench/sites/21_create_employee.py").read(), globals())
-```
-
-Example call for a second test employee:
-
-```python
-result = create_or_update_employee(
-    employee_name="Payroll Test Employee 2",
-    first_name="Payroll",
-    last_name="Employee 2",
-    user_email="payroll.test2@example.com",
-    company="Dank Mushrooms, LLC",
-    department="Operations - DML",
-    designation="Cultivation Technician",
-    default_shift="Day Shift",
-    shift_assignment_start_date="2026-03-01",
-    hourly_rate=22.50,
-    federal_profile={
-        "filing_status": "Single",
-        "step2_checked": 0,
-        "step3_annual_credits": 0.0,
-        "step4a_other_income": 0.0,
-        "step4b_deductions": 0.0,
-        "step4c_extra_withholding": 0.0,
-        "exempt": 0,
-    },
-    colorado_profile={
-        "filing_status": "Single",
-        "dr0004_line2": None,
-        "dr0004_line2_override": 0,
-        "dr0004_line3": 0.0,
-        "exempt": 0,
-    },
-)
-result
-```
-
-Notes:
-- `user_email` is the safest lookup key. Re-running the helper with the same email updates the same Employee instead of creating another one.
-- `employee_name` is the display name, not the ERPNext employee ID.
-- The actual employee ID will be returned in `result["employee"]`.
-- If the payroll custom fields do not exist in the site yet, the helper skips those fields instead of failing.
-- Use the returned employee ID in attendance/checkin setup and later batch payroll tests.
-
-
-### Recommended payroll-ready employee setup
-
-```python
-exec(open("/home/frappe/frappe-bench/sites/21_create_employee.py").read(), globals())
-
-result = create_or_update_employee(
-    employee_name="Payroll Test Employee 3",
-    first_name="Payroll",
-    last_name="Employee 3",
-    user_email="payroll.test3@example.com",
-    company="Dank Mushrooms, LLC",
-    department="Operations - DML",
-    designation="Cultivation Technician",
-    default_shift="Day Shift",
-    shift_assignment_start_date="2026-03-15",
-    hourly_rate=22.50,
-    salary_structure="Dank Mushrooms Weekly Test",
-    salary_structure_assignment_start_date="2026-03-15",
-    salary_structure_base=800.0,
-    create_salary_structure_assignment=True,
-    federal_profile={"filing_status": "Single", "step2_checked": 0, "step3_annual_credits": 0.0, "step4a_other_income": 0.0, "step4b_deductions": 0.0, "step4c_extra_withholding": 0.0, "exempt": 0},
-    colorado_profile={"filing_status": "Single", "dr0004_line2": None, "dr0004_line2_override": 0, "dr0004_line3": 0.0, "exempt": 0},
-)
-result
-```
-
-After inserting test checkins, `run_batched_hourly_payroll()` now processes auto attendance first by default before rebuilding salary slips.
-
-
-# Multi-employee validation status
-
-Validated payroll batches:
-- 2-employee batch validated successfully for `2026-03-15` through `2026-03-21`
-- 3-employee batch validated successfully for `2026-03-15` through `2026-03-21`
-
-Verified three-employee pay results:
-- `HR-EMP-00001` gross `400.00`, net `347.45`
-- `HR-EMP-00002` gross `472.50`, net `403.96`
-- `HR-EMP-00003` gross `258.75`, net `232.23`
-
-# Hardening now present in `50_hourly_payroll_automation.py`
-
-The payroll script now surfaces these problems earlier:
-- employee hourly rate is missing or `<= 0`
-- checkins in the pay period exist but attendance resolves to `0.0` hours
-- checkins in the pay period have `skip_auto_attendance = 1`
-- federal or Colorado filing status is missing when attendance hours exist
-
-These diagnostics are included in payroll results and can stop a run before a zero-hour employee silently reaches the batch.
-
-# Clean fourth-employee validation procedure
-
-## 1. Create employee 4 with payroll-ready onboarding
-```python
-exec(open("/home/frappe/frappe-bench/sites/21_create_employee.py").read(), globals())
-
-result = create_or_update_employee(
-    employee_name="Payroll Test Employee 4",
-    first_name="Payroll",
-    last_name="Employee 4",
-    user_email="payroll.test4@example.com",
-    company="Dank Mushrooms, LLC",
-    department="Operations - DML",
-    designation="Cultivation Technician",
-    default_shift="Day Shift",
-    shift_assignment_start_date="2026-03-15",
-    hourly_rate=24.00,
-    salary_structure="Dank Mushrooms Weekly Test",
-    salary_structure_assignment_start_date="2026-03-15",
-    salary_structure_base=800.0,
-    create_salary_structure_assignment=True,
-    federal_profile={"filing_status": "Single", "step2_checked": 0, "step3_annual_credits": 0.0, "step4a_other_income": 0.0, "step4b_deductions": 0.0, "step4c_extra_withholding": 0.0, "exempt": 0},
-    colorado_profile={"filing_status": "Single", "dr0004_line2": None, "dr0004_line2_override": 0, "dr0004_line3": 0.0, "exempt": 0},
-)
-result
-```
-
-## 2. Create clean checkins
-```python
-insert_checkin_pair("HR-EMP-00004", "2026-03-16 09:00:00", "2026-03-16 13:00:00")
-insert_checkin_pair("HR-EMP-00004", "2026-03-17 10:00:00", "2026-03-17 15:30:00")
-insert_checkin_pair("HR-EMP-00004", "2026-03-18 08:30:00", "2026-03-18 12:30:00")
-```
-
-## 3. Process auto attendance and confirm hours
-```python
-shift = frappe.get_doc("Shift Type", "Day Shift")
-shift.process_auto_attendance()
-frappe.db.commit()
-
-frappe.get_all(
-    "Attendance",
-    filters={
-        "employee": "HR-EMP-00004",
-        "attendance_date": ["between", ["2026-03-15", "2026-03-21"]],
-    },
-    fields=["attendance_date", "status", "working_hours", "docstatus"],
-    order_by="attendance_date asc",
-)
-```
-
-## 4. Run the four-employee batch
-```python
-exec(open("/home/frappe/frappe-bench/sites/50_hourly_payroll_automation.py").read(), globals())
-
-batch = run_batched_hourly_payroll(
-    employees=["HR-EMP-00001", "HR-EMP-00002", "HR-EMP-00003", "HR-EMP-00004"],
-    start_date="2026-03-15",
-    end_date="2026-03-21",
-    company="Dank Mushrooms, LLC",
-)
-```
-
-## 5. Confirm all four employees contributed wages
-```python
-batch["salary_slip_names"]
-preview = batch["consolidated_journal_entry_preview"]
-preview["employee_count"], preview["is_balanced"]
-preview["liability_summary"]
-
-for slip_name in batch["salary_slip_names"]:
-    slip = frappe.get_doc("Salary Slip", slip_name)
-    print("
-", slip.name, slip.employee)
-    print("Gross:", slip.gross_pay)
-    print("Net:", slip.net_pay)
-```
-
-
-# Clean handoff state after four-employee validation
-
-A clean four-employee payroll batch has now been validated with these per-employee results for pay period `2026-03-15` to `2026-03-21`:
-- `HR-EMP-00001` → Gross `400.00`, Net `347.45`
-- `HR-EMP-00002` → Gross `472.50`, Net `403.96`
-- `HR-EMP-00003` → Gross `258.75`, Net `232.23`
-- `HR-EMP-00004` → Gross `600.00`, Net `502.31`
-
-The current scripts are strong enough to continue validation, but the next session should stop extending bench-console-only operation and instead design the ERPNext UI / automation-hook layer around the now-working payroll engine.
-
-## Recommended next-session objectives
-- decide the UI entry point for weekly payroll runs
-- wrap `run_batched_hourly_payroll(...)` behind a server-side method callable from ERPNext UI
-- decide where operator review, approval, and accounting links should live in the UI
-- add payment and reserve-transfer workflow after payroll accrual review
+## Phase 6
+- document the bank ledger and Bank Account setup for payroll cash disbursement
+- document or script the Payment Entry workflow for wages, payroll taxes, and withholding remittance

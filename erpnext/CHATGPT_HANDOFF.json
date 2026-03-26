@@ -4,17 +4,20 @@
     "frappe": "16.11.0",
     "erpnext": "16.9.1",
     "hrms": "16.4.3",
-    "employee_self_service": "2.2.2"
+    "employee_self_service": "2.2.2",
+    "rootedops_payroll": "0.0.1"
   },
   "phase_completed": [
     "Phase 1 - attendance foundation",
     "Phase 2 - hourly payroll foundation and FICA script",
     "Phase 3 - federal withholding, Colorado withholding, employee tax profiles, liability summary, and draft Journal Entry creation",
-    "Phase 4 - two-employee batched payroll validated with consolidated Journal Entry preview",
     "Phase 4 - batched payroll-period runs, consolidated register output, and consolidated Journal Entry preview/draft creation",
-    "Phase 4 - four-employee batched payroll validated with consolidated Journal Entry preview"
+    "Phase 4 - four-employee batched payroll validated with consolidated Journal Entry preview",
+    "Phase 5A - payroll engine extracted into rootedops_payroll app module in the live environment",
+    "Phase 5B - Payroll Entry UI integration via whitelisted methods and Client Script",
+    "Phase 5C - Payroll Entry writeback fields and duplicate consolidated JE protection"
   ],
-  "phase_next": "Phase 5 - ERPNext UI integration, automation hooks, payroll-run review flow, and payment/liability disbursement workflow",
+  "phase_next": "Phase 5D - Salary Slip duplicate hardening, better Payroll Entry responses, and operator polish",
   "attendance_verified": [
     {
       "date": "2026-03-16",
@@ -25,6 +28,11 @@
       "date": "2026-03-17",
       "status": "Present",
       "working_hours": 8.0
+    },
+    {
+      "date": "2026-03-18",
+      "status": "Present",
+      "working_hours": 4.0
     }
   ],
   "employee_tax_profile_verified": {
@@ -81,9 +89,6 @@
     ],
     "is_balanced": true
   },
-  "liability_summary_verified": {
-    "employee_count": 4
-  },
   "journal_entry_preview_verified": {
     "is_balanced": true,
     "is_ready_to_create": true,
@@ -101,17 +106,9 @@
     }
   },
   "journal_entry_creation_verified": {
-    "status": "draft created successfully",
-    "important_note": "Journal Entry account rows cannot use reference_type='Salary Slip' in this ERPNext environment; Salary Slip linkage is kept in user_remark."
+    "status": "consolidated draft created successfully from Payroll Entry UI",
+    "important_note": "Journal Entry account rows cannot use reference_type='Salary Slip' in this ERPNext environment; Salary Slip linkage is kept in user_remark. Duplicate consolidated JE creation is now blocked if the Payroll Entry already stores a linked JE."
   },
-  "scripts": [
-    "scripts/10_setup_master_data.py",
-    "scripts/20_setup_shift_and_test_employee.py",
-    "scripts/30_create_employee_home_page.py",
-    "scripts/40_setup_payroll_test_foundation.py",
-    "scripts/50_hourly_payroll_automation.py",
-    "scripts/21_create_employee.py"
-  ],
   "erpnext_configuration_verified": {
     "company": "Dank Mushrooms, LLC",
     "default_payroll_payable_account": "Payroll Payable - DML",
@@ -127,47 +124,40 @@
       "consider_unmarked_attendance_as": "Absent"
     }
   },
-  "update_procedures_to_document_and_follow": [
-    "Start-of-year update of IRS Publication 15-T federal weekly tables, Social Security wage base, and Colorado withholding values/logic",
-    "Employee hourly-rate changes using stored Employee custom field",
-    "New W-4 updates using stored Employee federal tax-profile custom fields",
-    "New Colorado withholding form updates using stored Employee Colorado tax-profile custom fields"
+  "ui_integration": {
+    "operator_surface": "Payroll Entry",
+    "buttons": [
+      "Preview Attendance Payroll",
+      "Create / Refresh Draft Salary Slips",
+      "Create Consolidated Draft JE"
+    ],
+    "writeback_fields": [
+      "rootedops_consolidated_journal_entry",
+      "rootedops_salary_slip_count",
+      "rootedops_last_processed_on",
+      "rootedops_payroll_summary"
+    ],
+    "backend_wrapper": "erpnext/apps/rootedops_payroll/rootedops_payroll/api/payroll_entry_actions.py",
+    "client_script_reference": "erpnext/client_scripts/payroll_entry_rootedops_payroll.js"
+  },
+  "scripts": [
+    "scripts/10_setup_master_data.py",
+    "scripts/20_setup_shift_and_test_employee.py",
+    "scripts/21_create_employee.py",
+    "scripts/30_create_employee_home_page.py",
+    "scripts/40_setup_payroll_test_foundation.py",
+    "scripts/50_hourly_payroll_automation.py",
+    "scripts/60_setup_payroll_entry_ui_support.py"
   ],
   "open_questions": [
-    "Which ERPNext UI surface should own the weekly payroll run: Payroll Entry, a custom DocType, or a custom page?",
-    "Should salary slips remain drafts until operator review in the UI, or should the run submit them automatically after review checks?",
-    "What duplicate-run safeguards and reconciliation checks should block repeated payroll for the same date range?",
-    "What is the preferred UI path for paying net wages and moving payroll liabilities into reserve accounts after accrual approval?"
+    "What exact rules should block or refresh duplicate Salary Slips for the same employee and date range?",
+    "Should the current Client Script later move into app assets after Docker/frontend app packaging is cleaned up?",
+    "What is the preferred standard accounting flow for paying net wages and remitting payroll liabilities after the accrual JE is approved?"
   ],
-  "phase_4_status": {
-    "status": "completed",
-    "completed_now": [
-      "batched payroll-period runs implemented",
-      "consolidated register output implemented",
-      "consolidated Journal Entry preview and draft creation implemented",
-      "21_create_employee.py updated for payroll-ready onboarding",
-      "insert_checkin_pair helper added for clean IN/OUT test creation",
-      "backfill_employee_payroll_setup helper added for older employees",
-      "run_batched_hourly_payroll() processes auto attendance first by default",
-      "payroll prerequisite diagnostics added for zero-rate, skip_auto_attendance, and zero-hour attendance cases",
-      "four-employee validation completed successfully"
-    ],
-    "next_recommended_work": [
-      "move payroll execution from bench console into ERPNext UI/server methods",
-      "design a payroll-run review object or UI flow that links salary slips, consolidated JE, and liabilities",
-      "add duplicate-run safeguards and reconciliation helpers",
-      "add payment-entry helpers for net wages and reserve-transfer helpers for withholding/payroll taxes",
-      "document the final operator workflow in the UI"
-    ],
-    "next_validation_step": "In the next ChatGPT session, focus on ERPNext UI integration so payroll can be run and reviewed from forms/pages rather than manually from bench console."
-  },
-  "script_functions_added_phase_4": [
-    "get_employees_with_attendance_in_period",
-    "build_consolidated_payroll_register",
-    "summarize_consolidated_payroll_liabilities",
-    "build_consolidated_payroll_journal_entry_preview",
-    "create_consolidated_payroll_journal_entry_draft",
-    "run_batched_hourly_payroll"
-  ],
-  "single_employee_workflow_still_supported": true
+  "next_recommended_work": [
+    "Add explicit submitted-Salary-Slip duplicate safeguards before regenerating payroll for a period",
+    "Improve Payroll Entry popup responses with direct links to the Salary Slips and Journal Entry",
+    "Document the bank ledger, Bank Account, Payment Entry, and reconciliation workflow",
+    "Include the full rootedops_payroll app tree in the next repo export"
+  ]
 }
