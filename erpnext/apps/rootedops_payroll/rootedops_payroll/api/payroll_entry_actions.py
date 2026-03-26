@@ -27,8 +27,19 @@ def _get_payroll_entry_context(payroll_entry_name: str):
         "end_date": getdate(pe.end_date),
     }
 
+def _get_employees_for_payroll_entry(pe, ctx):
+    selected_employees = []
 
-def _get_employees_for_payroll_entry(ctx):
+    for row in (pe.get("employees") or []):
+        employee = row.get("employee") if isinstance(row, dict) else getattr(row, "employee", None)
+        if employee:
+            selected_employees.append(employee)
+
+    selected_employees = list(dict.fromkeys(selected_employees))
+
+    if selected_employees:
+        return selected_employees
+
     employees = get_employees_with_attendance_in_period(
         start_date=ctx["start_date"],
         end_date=ctx["end_date"],
@@ -37,13 +48,12 @@ def _get_employees_for_payroll_entry(ctx):
 
     if not employees:
         frappe.throw(
-            _("No employees with attendance were found for {0} to {1} in {2}.").format(
+            _("No employees were selected on Payroll Entry, and no employees with attendance were found for {0} to {1} in {2}.").format(
                 ctx["start_date"], ctx["end_date"], ctx["company"]
             )
         )
 
     return employees
-
 
 def _build_summary_text(result):
     liability = result.get("consolidated_liability_summary") or {}
@@ -78,7 +88,7 @@ def _write_payroll_entry_summary(pe, result, journal_entry_name=None):
 @frappe.whitelist()
 def preview_attendance_payroll(payroll_entry_name: str):
     pe, ctx = _get_payroll_entry_context(payroll_entry_name)
-    employees = _get_employees_for_payroll_entry(ctx)
+    employees = _get_employees_for_payroll_entry(pe, ctx)
 
     result = run_batched_hourly_payroll(
         employees=employees,
@@ -107,7 +117,7 @@ def preview_attendance_payroll(payroll_entry_name: str):
 @frappe.whitelist()
 def create_or_refresh_draft_salary_slips(payroll_entry_name: str):
     pe, ctx = _get_payroll_entry_context(payroll_entry_name)
-    employees = _get_employees_for_payroll_entry(ctx)
+    employees = _get_employees_for_payroll_entry(pe, ctx)
 
     result = run_batched_hourly_payroll(
         employees=employees,
@@ -131,7 +141,7 @@ def create_or_refresh_draft_salary_slips(payroll_entry_name: str):
 @frappe.whitelist()
 def create_consolidated_draft_journal_entry(payroll_entry_name: str):
     pe, ctx = _get_payroll_entry_context(payroll_entry_name)
-    employees = _get_employees_for_payroll_entry(ctx)
+    employees = _get_employees_for_payroll_entry(pe, ctx)
 
     existing_je = pe.get("rootedops_consolidated_journal_entry")
     if existing_je:
