@@ -1421,6 +1421,52 @@ def unresolved_payroll_accounts(account_map):
     ]
     return [k for k in required if not account_map.get(k)]
 
+def get_salary_component_account(component_name, company):
+    if not component_name or not company:
+        return None
+
+    rows = frappe.get_all(
+        "Salary Component Account",
+        filters={
+            "parent": component_name,
+            "company": company,
+        },
+        fields=["account"],
+        limit=1,
+    )
+    return rows[0]["account"] if rows else None
+
+
+def build_earning_expense_lines_from_slip(slip, company, fallback_account=None):
+    aggregated = {}
+
+    for row in slip.earnings:
+        amount = flt(getattr(row, "amount", 0.0), 2)
+        if not amount:
+            continue
+
+        if cint(getattr(row, "do_not_include_in_accounts", 0)):
+            continue
+
+        component_name = getattr(row, "salary_component", None)
+        account = get_salary_component_account(component_name, company) or fallback_account
+        if not account:
+            continue
+
+        aggregated.setdefault(
+            account,
+            {
+                "account": account,
+                "amount": 0.0,
+                "components": [],
+            },
+        )
+        aggregated[account]["amount"] = flt(aggregated[account]["amount"] + amount, 2)
+        if component_name:
+            aggregated[account]["components"].append(component_name)
+
+    return list(aggregated.values())
+
 
 def payroll_result_cost_center(payroll_result):
     slip = frappe.get_doc("Salary Slip", payroll_result["slip_name"])
@@ -1575,12 +1621,26 @@ def build_consolidated_payroll_journal_entry_preview(
         liability = summarize_payroll_liabilities(payroll_result)
         cost_center = getattr(slip, "cost_center", None)
 
-        add_line(
-            account_map["payroll_expense_account"],
-            debit=liability["gross_wages"],
-            cost_center=cost_center,
-            remark=f"Gross wages expense for {slip.name}",
+        earning_expense_lines = build_earning_expense_lines_from_slip(
+            slip,
+            company=slip.company,
+            fallback_account=account_map["payroll_expense_account"],
         )
+
+        for expense_line in earning_expense_lines:
+            add_line(
+                expense_line["account"],
+                debit=expense_line["amount"],
+                cost_center=cost_center,
+                remark=(
+                    f"Earnings expense for {slip.name}"
+                    + (
+                        f" ({', '.join(sorted(set(expense_line['components'])) )})"
+                        if expense_line.get("components")
+                        else ""
+                    )
+                ),
+            )
 
         if liability["employer_tax_total"]:
             add_line(
@@ -1851,11 +1911,25 @@ def build_payroll_journal_entry_preview(payroll_result, account_overrides=None):
             line["user_remark"] = remark
         lines.append(line)
 
-    add_line(
-        account_map["payroll_expense_account"],
-        debit=liability["gross_wages"],
-        remark=f"Gross wages expense for {slip.name}",
+    earning_expense_lines = build_earning_expense_lines_from_slip(
+        slip,
+        company=slip.company,
+        fallback_account=account_map["payroll_expense_account"],
     )
+
+    for expense_line in earning_expense_lines:
+        add_line(
+            expense_line["account"],
+            debit=expense_line["amount"],
+            remark=(
+                f"Earnings expense for {slip.name}"
+                + (
+                    f" ({', '.join(sorted(set(expense_line['components'])) )})"
+                    if expense_line.get("components")
+                    else ""
+                )
+            ),
+        )
 
     if liability["employer_tax_total"]:
         add_line(
