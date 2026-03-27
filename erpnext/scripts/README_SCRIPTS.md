@@ -517,3 +517,42 @@ Once the Payroll Entry custom fields and Client Script are in place, the normal 
 ## Phase 6
 - document the bank ledger and Bank Account setup for payroll cash disbursement
 - document or script the Payment Entry workflow for wages, payroll taxes, and withholding remittance
+
+
+---
+
+# Newer operational notes
+
+## `21_create_employee.py` current role
+This script is now the preferred **bench-assisted onboarding helper** for payroll employees.
+
+It should be used whenever you want to avoid missing one of the required setup steps:
+- Employee
+- Shift Assignment
+- Salary Structure Assignment
+- hourly rate
+- tax profile fields
+
+### Current limitation for hybrid employees
+The helper does **not yet fully own** hybrid overnight field persistence in every environment. For hybrid employees, create the employee with the helper, then explicitly verify or set:
+- `rootedops_pay_model`
+- `rootedops_overnight_flat_amount`
+
+## `50_hourly_payroll_automation.py` and the extracted app engine
+The repo script remains the readable source of truth for the payroll logic, but the live ERPNext UI path now depends on the extracted app module:
+- `rootedops_payroll.services.payroll_engine`
+
+When debugging UI behavior, always remember:
+- editing only the repo script is **not enough**
+- the app code inside the container / bench app must also be updated and reloaded
+
+## Account mapping learning
+A major payroll-accounting bug was identified:
+- wage expense was previously guessed by keyword
+- in the Raymond Danks company this caused wages to post to `Payroll Tax Expense - RD`
+
+The correct long-term approach is:
+- derive earnings expense accounts from the **Salary Component Account** mappings on the Salary Slip
+- keep employer payroll taxes on the payroll tax expense account
+
+This should remain the design standard for future payroll hardening.

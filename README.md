@@ -56,3 +56,18 @@ Recommended use: keep Rooted Psyche and Dank Mushrooms as separate ERPNext Compa
 This repository is licensed under **GNU GPL v3.0** (see `LICENSE`).
 
 Rationale: MushroomProcess and SignatureGate are GPL; choosing GPLv3 here keeps license compatibility to allow for shared code or common modules between projects.
+
+
+## ERPNext operational note
+The `erpnext/` directory now contains a living implementation and documentation set for:
+- attendance-driven hourly payroll
+- batched payroll processing
+- Payroll Entry UI integration
+- multi-company payroll support
+- hybrid overnight compensation support
+
+When continuing ERPNext work in a new session, start with:
+- `erpnext/README.md`
+- `erpnext/CHATGPT_HANDOFF.md`
+- `erpnext/CHATGPT_HANDOFF.json`
+- `erpnext/scripts/README_SCRIPTS.md`

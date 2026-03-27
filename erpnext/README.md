@@ -317,3 +317,319 @@ These scripts now handle the active ERPNext configuration and payroll workflow:
 ## Packaging / repo hygiene
 - include the full `rootedops_payroll` app tree in the next repo export so the UI/server integration changes are versioned in the same place as the ERPNext scripts
 - reconcile Docker/frontend app packaging so app JS can eventually live in the app rather than only in a database Client Script
+
+
+---
+
+# Phase 6 — Hybrid Shift / Multi-Company Payroll Hardening
+Completed and documented.
+
+Accomplished:
+- added a second payroll business, `Raymond Danks`, alongside `Dank Mushrooms, LLC`
+- configured payroll account expectations for a nanny / care-provider reimbursement business
+- validated a second payroll model: `hybrid_overnight`
+- added Employee-level fields for hybrid shift compensation:
+  - `rootedops_pay_model`
+  - `rootedops_overnight_flat_amount`
+- implemented hybrid shift pay logic for an employee who is paid:
+  - normal hourly wages for standard hours
+  - a flat overnight amount for a complete `10:00 PM` to `6:00 AM` block
+  - normal hourly wages if only part of that overnight window is worked
+- confirmed that a same-session overnight block such as `22:00 → 06:00` can be paid as a flat amount when it matches the full overnight rule
+- documented the current limitation / future enhancement:
+  - **Potential enhancement:** extract overnight sub-blocks from longer sessions (for example `06:00 day 1 → 06:00 day 2`) so the overnight middle segment can be paid flat while the surrounding hours remain hourly
+- hardened payroll diagnostics around checkins and attendance
+- identified and documented the account-mapping bug where wage expense could be posted to payroll tax expense when keyword guessing was used
+- documented the correct long-term accounting fix:
+  - derive wage expense lines from the **Salary Component Account** mappings on the Salary Slip
+  - keep employer payroll taxes on the payroll tax expense account
+
+Result:
+- the payroll engine now supports multi-company payroll patterns and a second compensation model beyond simple hourly labor
+- the documentation now supports onboarding a real employee in either business without repeating the earlier trial-and-error setup steps
+
+---
+
+# Employee Onboarding Runbooks (UI-first, bench-supported)
+
+These are the **authoritative** setup steps for creating a new payroll employee.
+
+## Business types currently covered
+- `Dank Mushrooms, LLC` — standard hourly payroll
+- `Raymond Danks` — hybrid nanny / caregiver payroll with optional overnight flat block
+- `Rooted Psyche` — not yet fully payroll-tested, but should follow the same general pattern once accounts and salary components are mapped
+
+## Golden rule before creating employees
+Before creating a real employee, confirm these items **for that company**:
+
+1. Company exists and is active.
+2. Payroll accounts exist and are mapped.
+3. Salary Components exist and have **Salary Component Account** rows for the company.
+4. Salary Structure exists and is **Submitted**.
+5. Shift Type exists and is configured for auto attendance if you are using checkins.
+6. You know whether the employee is:
+   - standard hourly (`Dank Mushrooms`)
+   - hybrid overnight (`Raymond Danks`)
+
+If any of the above are missing, employee creation will appear to work, but payroll generation will fail later.
+
+---
+
+## A. Create a new hourly employee in ERPNext UI (recommended default path)
+
+### Step 1 — Create the Employee
+ERPNext UI:
+- **HR > Employee > New**
+
+Populate at minimum:
+- Employee Name
+- First Name / Last Name
+- Company
+- Department
+- Designation
+- Status = `Active`
+- Default Shift = `Day Shift` (or your intended shift)
+
+Save the Employee.
+
+### Step 2 — Create a submitted Shift Assignment
+ERPNext UI:
+- **Shift & Attendance > Shift Assignment > New**
+
+Populate:
+- Employee
+- Shift Type = `Day Shift` (or another intended shift)
+- Start Date
+
+Then **Submit** the Shift Assignment.
+
+Important:
+- If the employee has checkins but **no submitted Shift Assignment**, auto attendance will not behave correctly.
+
+### Step 3 — Create a Salary Structure Assignment
+ERPNext UI:
+- **Payroll > Salary Structure Assignment > New**
+
+Populate:
+- Employee
+- Salary Structure
+- From Date
+- Base
+
+Then **Submit** it.
+
+Important:
+- If this is missing, payroll engine calls such as `rebuild_hourly_salary_slip(...)` will fail with:
+  - `No submitted Salary Structure Assignment found ...`
+
+### Step 4 — Populate payroll/tax custom fields
+If your custom Employee fields are exposed in the UI, populate:
+- `rootedops_hourly_rate`
+- federal withholding fields
+- Colorado withholding fields
+
+If they are **not yet visible in the UI**, use either:
+- Customize Form / Custom Field visibility work later, or
+- the bench helper script in the next section
+
+### Step 5 — Create checkins from the UI
+ERPNext UI:
+- **Shift & Attendance > Employee Checkin > Add Employee Checkin**
+
+Rules:
+- Use explicit `IN` and `OUT`
+- make sure the correct Employee is selected
+- make sure `skip_auto_attendance = 0`
+- if the row shows `Off-Shift`, that means the time does not align to the assigned shift logic
+
+Then process attendance.
+
+### Step 6 — Verify Attendance before payroll
+Bench console or reports:
+- confirm `Attendance` rows exist
+- confirm `working_hours > 0` where expected
+
+Do **not** proceed to payroll if the employee has:
+- checkins but no Attendance rows
+- Attendance rows with `0.0` hours for days that should have paid time
+- `skip_auto_attendance = 1` on the relevant checkins
+
+---
+
+## B. Create a payroll-ready employee from bench (recommended when you need reliability)
+
+This is the **least error-prone** method if you want the employee fully payroll-ready in one pass.
+
+### 1. Copy the helper script into the container
+```bash
+sudo docker cp erpnext/scripts/21_create_employee.py   erpnext-backend:/home/frappe/frappe-bench/sites/21_create_employee.py
+```
+
+### 2. Open bench console
+```bash
+sudo docker compose --env-file ./.env -f docker/docker-compose.yml exec erpnext-backend   bash -lc "bench --site erp.danks.store console"
+```
+
+### 3. Load the helper
+```python
+exec(open("/home/frappe/frappe-bench/sites/21_create_employee.py").read(), globals())
+```
+
+### 4. Example — Dank Mushrooms hourly employee
+```python
+result = create_or_update_employee(
+    employee_name="Example Dank Employee",
+    first_name="Example",
+    last_name="Employee",
+    user_email="example.dank@example.com",
+    company="Dank Mushrooms, LLC",
+    department="Operations - DML",
+    designation="Cultivation Technician",
+    default_shift="Day Shift",
+    shift_assignment_start_date="2026-03-29",
+    hourly_rate=22.50,
+    salary_structure="Dank Mushrooms Weekly Test",
+    salary_structure_assignment_start_date="2026-03-29",
+    salary_structure_base=800.0,
+    create_salary_structure_assignment=True,
+    federal_profile={
+        "filing_status": "Single",
+        "step2_checked": 0,
+        "step3_annual_credits": 0.0,
+        "step4a_other_income": 0.0,
+        "step4b_deductions": 0.0,
+        "step4c_extra_withholding": 0.0,
+        "exempt": 0,
+    },
+    colorado_profile={
+        "filing_status": "Single",
+        "dr0004_line2": None,
+        "dr0004_line2_override": 0,
+        "dr0004_line3": 0.0,
+        "exempt": 0,
+    },
+)
+result
+```
+
+### 5. Example — Raymond Danks nanny / caregiver employee
+Use the same helper for the base employee creation, then set the hybrid fields after creation.
+
+```python
+result = create_or_update_employee(
+    employee_name="Example Nanny",
+    first_name="Example",
+    last_name="Nanny",
+    user_email="example.nanny@example.com",
+    company="Raymond Danks",
+    department="Childcare - RD",
+    designation="Nanny",
+    default_shift="Day Shift",
+    shift_assignment_start_date="2026-03-29",
+    hourly_rate=27.00,
+    salary_structure="Raymond Danks Hybrid Shift Payroll",
+    salary_structure_assignment_start_date="2026-03-29",
+    salary_structure_base=800.0,
+    create_salary_structure_assignment=True,
+    federal_profile={
+        "filing_status": "Single",
+        "step2_checked": 0,
+        "step3_annual_credits": 0.0,
+        "step4a_other_income": 0.0,
+        "step4b_deductions": 0.0,
+        "step4c_extra_withholding": 0.0,
+        "exempt": 0,
+    },
+    colorado_profile={
+        "filing_status": "Single",
+        "dr0004_line2": None,
+        "dr0004_line2_override": 0,
+        "dr0004_line3": 0.0,
+        "exempt": 0,
+    },
+)
+result
+```
+
+Then set the hybrid fields:
+
+```python
+emp = frappe.get_doc("Employee", result["employee"])
+emp.rootedops_pay_model = "hybrid_overnight"
+emp.rootedops_overnight_flat_amount = 100.0
+emp.save(ignore_permissions=True)
+frappe.db.commit()
+```
+
+If the fields do not persist through the normal doc save, fallback:
+
+```python
+frappe.db.set_value("Employee", result["employee"], "rootedops_pay_model", "hybrid_overnight", update_modified=False)
+frappe.db.set_value("Employee", result["employee"], "rootedops_overnight_flat_amount", 100.0, update_modified=False)
+frappe.db.commit()
+```
+
+---
+
+## C. Clean checkin creation for testing
+Use this helper from `21_create_employee.py`:
+
+```python
+insert_checkin_pair("HR-EMP-00006", "2026-03-29 09:00:00", "2026-03-29 17:00:00")
+```
+
+For hybrid overnight tests:
+
+```python
+insert_checkin_pair("HR-EMP-00006", "2026-03-29 22:00:00", "2026-03-30 06:00:00")
+insert_checkin_pair("HR-EMP-00006", "2026-03-30 13:00:00", "2026-03-30 17:00:00")
+```
+
+Then process attendance:
+
+```python
+shift = frappe.get_doc("Shift Type", "Day Shift")
+shift.process_auto_attendance()
+frappe.db.commit()
+```
+
+Then verify:
+
+```python
+frappe.get_all(
+    "Attendance",
+    filters={
+        "employee": "HR-EMP-00006",
+        "attendance_date": ["between", ["2026-03-29", "2026-04-04"]],
+    },
+    fields=["name", "attendance_date", "status", "working_hours", "docstatus"],
+    order_by="attendance_date asc",
+)
+```
+
+---
+
+## D. Known employee-creation failure modes
+
+### 1. Employee has checkins but payroll says attendance resolved to 0.0 hours
+Usually caused by one of:
+- `skip_auto_attendance = 1`
+- no submitted Shift Assignment
+- stale / bad Attendance rows that need to be canceled and regenerated
+- overnight / off-shift logic that did not match the assigned shift
+
+### 2. Employee shows checkins in the UI but bench query returns nothing
+Usually caused by one of:
+- wrong site / stale console session
+- cache / session mismatch
+- not querying the right employee or date range
+
+### 3. Salary slip rebuild fails because no Salary Structure Assignment exists
+Fix by creating and **submitting** a Salary Structure Assignment.
+
+### 4. Hybrid pay fields save to DB but do not persist via normal doc save
+This happened during testing. Current safe fallback is:
+- `frappe.db.set_value(...)`
+
+Longer-term improvement:
+- ensure the Employee custom fields are correctly surfaced and not being overwritten by another customization layer.

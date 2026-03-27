@@ -157,3 +157,43 @@ After Phase 5D:
 - document the bank ledger and Bank Account mapping for payroll cash disbursement
 - document or script the Payment Entry workflow for wages, payroll taxes, and withholding remittance
 - add reserve-transfer helpers only if they still look useful after the standard accounting workflow is exercised
+
+
+## New work completed after prior handoff
+
+### Multi-company payroll expansion
+A second payroll company, `Raymond Danks`, was configured to support nanny / caregiver payroll and child-related reimbursements.
+
+### Hybrid overnight compensation model
+A new employee compensation model was added for the Raymond Danks business:
+- standard hourly wages for regular hours
+- flat overnight pay for a full `10 PM → 6 AM` block
+- fallback to normal hourly if only part of the overnight window is worked
+
+Current tested employee fields:
+- `rootedops_pay_model`
+- `rootedops_overnight_flat_amount`
+
+### Important payroll/accounting learning
+The original payroll engine guessed wage expense accounts by keyword, which caused `Nanny Wages - RD` to be bypassed in favor of `Payroll Tax Expense - RD`.
+
+**Correct design direction:**
+- use Salary Component Account mappings for earnings expense lines
+- keep employer payroll taxes on payroll tax expense
+
+### Real-world onboarding lesson
+For a new employee to work cleanly, you must have all of the following in place:
+1. Employee
+2. Submitted Shift Assignment
+3. Submitted Salary Structure Assignment
+4. Employee tax / hourly fields
+5. clean checkins with `skip_auto_attendance = 0`
+6. valid Attendance rows before payroll generation
+
+### Immediate next likely user action
+The user plans to create a **real employee for the Raymond Danks business** from the UI if possible, with bench fallback if needed.
+
+The next assistant should prioritize:
+- checking the employee creation steps against the documented runbook
+- verifying the hybrid fields and salary structure assignment exist before payroll testing
+- helping the user operate from the ERPNext UI instead of the bench console whenever practical

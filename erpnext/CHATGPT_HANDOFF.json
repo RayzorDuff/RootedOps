@@ -159,5 +159,16 @@
     "Improve Payroll Entry popup responses with direct links to the Salary Slips and Journal Entry",
     "Document the bank ledger, Bank Account, Payment Entry, and reconciliation workflow",
     "Include the full rootedops_payroll app tree in the next repo export"
-  ]
+  ],
+  "latest_phase": "Phase 6 \u2014 Hybrid Shift / Multi-Company Payroll Hardening",
+  "next_priority": "Create a real Raymond Danks employee from UI if possible, using documented runbook and verifying hybrid fields, salary structure assignment, attendance, and account mapping.",
+  "hybrid_shift_notes": {
+    "company": "Raymond Danks",
+    "pay_model_field": "rootedops_pay_model",
+    "overnight_amount_field": "rootedops_overnight_flat_amount",
+    "supported_rule": "full 10PM-6AM block pays flat overnight amount; partial overnight work falls back to hourly",
+    "future_enhancement": "extract overnight sub-blocks from longer sessions and pay only the overnight sub-block at flat rate"
+  },
+  "employee_creation_runbook_added": true,
+  "account_mapping_learning": "Use Salary Component Account mappings for earning expense lines instead of keyword-guessing wage expense accounts."
 }
