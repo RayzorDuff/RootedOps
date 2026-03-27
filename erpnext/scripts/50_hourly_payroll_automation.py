@@ -1320,14 +1320,31 @@ def get_payroll_account_map(company, payroll_payable_account=None, overrides=Non
     expense_accounts = find_accounts(company, root_type="Expense")
     liability_accounts = find_accounts(company, root_type="Liability")
 
+    # Wage/labor expense should NOT default to payroll tax expense
     payroll_expense_account = (
         overrides.get("payroll_expense_account")
-        or match_account_by_keywords(expense_accounts, [["payroll", "expense"], ["salary"], ["wage"]])
+        or match_account_by_keywords(
+            expense_accounts,
+            [
+                ["nanny", "wages"],
+                ["wages"],
+                ["salary"],
+                ["labor"],
+                ["payroll", "expense"],
+            ],
+        )
     )
 
     payroll_tax_expense_account = (
         overrides.get("payroll_tax_expense_account")
-        or match_account_by_keywords(expense_accounts, [["payroll", "tax", "expense"], ["payroll", "tax"]])
+        or match_account_by_keywords(
+            expense_accounts,
+            [
+                ["payroll", "tax", "expense"],
+                ["employer", "tax"],
+                ["payroll", "tax"],
+            ],
+        )
         or payroll_expense_account
     )
 
@@ -1335,17 +1352,26 @@ def get_payroll_account_map(company, payroll_payable_account=None, overrides=Non
         overrides.get("payroll_payable_account")
         or payroll_payable_account
         or getattr(company_doc, "default_payroll_payable_account", None)
-        or match_account_by_keywords(liability_accounts, [["payroll", "payable"], ["salary", "payable"], ["wages", "payable"]])
+        or match_account_by_keywords(
+            liability_accounts,
+            [["payroll", "payable"], ["salary", "payable"], ["wages", "payable"]],
+        )
     )
 
     tax_payable = (
         overrides.get("payroll_tax_payable_account")
-        or match_account_by_keywords(liability_accounts, [["payroll", "tax", "payable"], ["payroll", "tax"]])
+        or match_account_by_keywords(
+            liability_accounts,
+            [["payroll", "tax", "payable"], ["payroll", "tax"]],
+        )
     )
 
     withholding_payable = (
         overrides.get("payroll_withholding_payable_account")
-        or match_account_by_keywords(liability_accounts, [["payroll", "withholding", "payable"], ["withholding", "payable"]])
+        or match_account_by_keywords(
+            liability_accounts,
+            [["payroll", "withholding", "payable"], ["withholding", "payable"]],
+        )
         or tax_payable
     )
 
