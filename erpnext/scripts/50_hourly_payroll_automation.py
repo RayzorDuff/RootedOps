@@ -523,6 +523,7 @@ def hybrid_overnight_summary(employee, start_date, end_date, hourly_rate, overni
     overnight_flat_amount = flt(overnight_flat_amount or DEFAULT_OVERNIGHT_FLAT_AMOUNT, 2)
 
     hourly_hours = 0.0
+    reported_total_hours = 0.0
     overnight_shift_count = 0
     overnight_flat_pay = 0.0
     compensated_dates = set()
@@ -532,8 +533,11 @@ def hybrid_overnight_summary(employee, start_date, end_date, hourly_rate, overni
         if is_full_overnight_session(session):
             overnight_shift_count += 1
             overnight_flat_pay += overnight_flat_amount
+            reported_total_hours += 8.0
         else:
-            hourly_hours += flt(session["hours"], 2)
+            session_hours = flt(session["hours"], 2)
+            hourly_hours += session_hours
+            reported_total_hours += session_hours
 
     total_working_days = date_diff(getdate(end_date), getdate(start_date)) + 1
     payment_days = len(compensated_dates)
@@ -543,7 +547,8 @@ def hybrid_overnight_summary(employee, start_date, end_date, hourly_rate, overni
 
     return {
         "rows": sessions,
-        "hours": flt(hourly_hours, 2),
+        "hours": flt(reported_total_hours, 2),
+        "hourly_hours": flt(hourly_hours, 2),
         "payment_days": flt(payment_days, 2),
         "total_working_days": flt(total_working_days, 2),
         "absent_days": flt(absent_days, 2),
@@ -2136,6 +2141,12 @@ def rebuild_hourly_salary_slip(
 
     if pay_model is None:
         pay_model = (stored_profile or {}).get("pay_model") or PAY_MODEL_STANDARD_HOURLY
+
+    if isinstance(pay_model, str):
+        normalized = pay_model.strip().lower().replace(" ", "_")
+        if normalized == "hybrid_overnight":
+            pay_model = "hybrid_overnight"
+
     if overnight_flat_amount is None:
         overnight_flat_amount = (stored_profile or {}).get("overnight_flat_amount") or DEFAULT_OVERNIGHT_FLAT_AMOUNT
 
