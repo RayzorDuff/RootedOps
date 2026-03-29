@@ -1206,6 +1206,24 @@ def save_custom_salary_slip(slip, employee, start_date):
     return slip
 
 
+def apply_summary_fields_to_slip(slip, summary):
+    """Persist the final resolved summary back onto the Salary Slip.
+
+    This is especially important for hybrid overnight payroll, because
+    set_context_fields_on_slip() initially writes attendance_summary values
+    before rebuild_hourly_salary_slip() replaces them with hybrid values.
+    """
+    if hasattr(slip, "payment_days"):
+        slip.payment_days = flt(summary.get("payment_days", 0.0), 2)
+    if hasattr(slip, "total_working_days"):
+        slip.total_working_days = flt(summary.get("total_working_days", 0.0), 2)
+    if hasattr(slip, "absent_days"):
+        slip.absent_days = flt(summary.get("absent_days", 0.0), 2)
+    if hasattr(slip, "total_working_hours"):
+        slip.total_working_hours = flt(summary.get("hours", 0.0), 2)
+    return slip
+
+
 def validate_custom_math(slip, expected_gross, expected_net):
     actual_gross = flt(getattr(slip, "gross_pay", 0.0), 2)
     actual_net = flt(getattr(slip, "net_pay", 0.0), 2)
@@ -2141,11 +2159,10 @@ def rebuild_hourly_salary_slip(
 
     if pay_model is None:
         pay_model = (stored_profile or {}).get("pay_model") or PAY_MODEL_STANDARD_HOURLY
-
+    
     if isinstance(pay_model, str):
         normalized = pay_model.strip().lower().replace(" ", "_")
-        if normalized == "hybrid_overnight":
-            pay_model = "hybrid_overnight"
+        pay_model = normalized
 
     if overnight_flat_amount is None:
         overnight_flat_amount = (stored_profile or {}).get("overnight_flat_amount") or DEFAULT_OVERNIGHT_FLAT_AMOUNT
@@ -2221,6 +2238,7 @@ def rebuild_hourly_salary_slip(
             employee, start_date, end_date, hourly_rate, overnight_flat_amount
         )
         summary["hours"] = hybrid_summary["hours"]
+        summary["hourly_hours"] = hybrid_summary.get("hourly_hours", 0.0)
         summary["payment_days"] = hybrid_summary["payment_days"]
         summary["total_working_days"] = hybrid_summary["total_working_days"]
         summary["absent_days"] = hybrid_summary["absent_days"]
@@ -2281,8 +2299,13 @@ def rebuild_hourly_salary_slip(
     replace_child_table(slip, "earnings", earnings_rows)
     replace_child_table(slip, "deductions", deduction_rows)
 
+    apply_summary_fields_to_slip(slip, summary)
     manual_totals = set_manual_totals(slip)
     slip = save_custom_salary_slip(slip, employee, start_date)
+    apply_summary_fields_to_slip(slip, summary)
+    with custom_salary_slip_save_mode():
+        slip.save(ignore_permissions=True)
+    slip.reload()
 
     issues = list(prerequisite_diagnostics["issues"])
     issues.extend(validate_custom_math(
