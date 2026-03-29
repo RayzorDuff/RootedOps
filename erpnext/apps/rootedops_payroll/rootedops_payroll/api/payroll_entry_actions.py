@@ -6,6 +6,7 @@ from rootedops_payroll.services.payroll_engine import (
     create_consolidated_payroll_journal_entry_draft,
     get_employees_with_attendance_in_period,
     run_batched_hourly_payroll,
+    build_consolidated_payroll_cash_flow_preview,
 )
 
 
@@ -187,3 +188,18 @@ def create_consolidated_draft_journal_entry(payroll_entry_name: str):
         "journal_entry": journal_entry_name,
         "salary_slip_names": result.get("salary_slip_names", []),
     }
+
+
+@frappe.whitelist()
+def preview_payroll_cash_flow(payroll_entry_name):
+    data = preview_attendance_payroll(payroll_entry_name)
+    summary = (data or {}).get("summary") or {}
+    payroll_results = summary.get("payroll_results") or []
+
+    cash_flow_preview = build_consolidated_payroll_cash_flow_preview(
+        payroll_results=payroll_results,
+        company=summary.get("company"),
+    )
+
+    summary["consolidated_cash_flow_preview"] = cash_flow_preview
+    return data

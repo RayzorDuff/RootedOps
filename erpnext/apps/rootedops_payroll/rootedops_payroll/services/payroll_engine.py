@@ -1758,6 +1758,380 @@ def build_consolidated_payroll_journal_entry_preview(
     }
 
 
+def get_default_checking_bank_gl_account(company):
+    default_bank_account = frappe.db.get_value("Company", company, "default_bank_account")
+    if default_bank_account and frappe.db.exists("Bank Account", default_bank_account):
+        return frappe.db.get_value("Bank Account", default_bank_account, "account")
+
+    rows = frappe.get_all(
+        "Bank Account",
+        filters={"company": company, "is_company_account": 1, "is_default": 1},
+        fields=["name", "account"],
+        limit=1,
+    )
+    if rows:
+        return rows[0]["account"]
+
+    rows = frappe.get_all(
+        "Account",
+        filters={
+            "company": company,
+            "root_type": "Asset",
+            "account_type": "Bank",
+            "is_group": 0,
+        },
+        fields=["name"],
+        order_by="name asc",
+    )
+    for row in rows:
+        name = row["name"] or ""
+        if "checking" in name.lower():
+            return name
+
+    return rows[0]["name"] if rows else None
+
+
+def get_withholding_bank_gl_account(company):
+    bank_rows = frappe.get_all(
+        "Bank Account",
+        filters={"company": company, "is_company_account": 1},
+        fields=["name", "account"],
+        order_by="name asc",
+    )
+    for row in bank_rows:
+        haystack = f"{row.get('name') or ''} {row.get('account') or ''}".lower()
+        if "withholding" in haystack or "savings" in haystack:
+            return row.get("account")
+
+    acct_rows = frappe.get_all(
+        "Account",
+        filters={
+            "company": company,
+            "root_type": "Asset",
+            "account_type": "Bank",
+            "is_group": 0,
+        },
+        fields=["name"],
+        order_by="name asc",
+    )
+    for row in acct_rows:
+        name = (row.get("name") or "").lower()
+        if "withholding" in name or "savings" in name:
+            return row["name"]
+
+    return None
+
+
+def build_simple_journal_preview(company, posting_date, user_remark, lines):
+    normalized = []
+    for line in lines:
+        debit = flt(line.get("debit_in_account_currency", 0.0), 2)
+        credit = flt(line.get("credit_in_account_currency", 0.0), 2)
+        if not debit and not credit:
+            continue
+        normalized.append({
+            "account": line["account"],
+            "debit_in_account_currency": debit,
+            "credit_in_account_currency": credit,
+            **({"cost_center": line["cost_center"]} if line.get("cost_center") else {}),
+            **({"user_remark": line["user_remark"]} if line.get("user_remark") else {}),
+        })
+
+    total_debit = flt(sum(flt(d.get("debit_in_account_currency", 0.0)) for d in normalized), 2)
+    total_credit = flt(sum(flt(d.get("credit_in_account_currency", 0.0)) for d in normalized), 2)
+
+    return {
+        "voucher_type": "Journal Entry",
+        "company": company,
+        "posting_date": posting_date,
+        "user_remark": user_remark,
+        "accounts": normalized,
+        "total_debit": total_debit,
+        "total_credit": total_credit,
+        "is_balanced": total_debit == total_credit,
+        "is_ready_to_create": total_debit == total_credit and len(normalized) > 0,
+    }
+
+
+def build_payroll_cash_flow_preview(
+    payroll_result,
+    checking_bank_account=None,
+    withholding_bank_account=None,
+):
+    slip = frappe.get_doc("Salary Slip", payroll_result["slip_name"])
+    company = slip.company
+    posting_date = slip.end_date
+    cost_center = getattr(slip, "cost_center", None)
+
+    liability = summarize_payroll_liabilities(payroll_result)
+    account_map = get_payroll_account_map(
+        company,
+        payroll_payable_account=getattr(slip, "payroll_payable_account", None),
+        overrides=None,
+    )
+
+    checking_bank_account = checking_bank_account or get_default_checking_bank_gl_account(company)
+    withholding_bank_account = withholding_bank_account or get_withholding_bank_gl_account(company)
+
+    ss_total = flt(
+        liability["employee_taxes"]["social_security_employee"]
+        + liability["employer_taxes"]["social_security_employer"],
+        2,
+    )
+    medicare_total = flt(
+        liability["employee_taxes"]["medicare_employee"]
+        + liability["employer_taxes"]["medicare_employer"],
+        2,
+    )
+    withholding_total = flt(
+        liability["employee_taxes"]["federal_withholding"]
+        + liability["employee_taxes"]["colorado_withholding"],
+        2,
+    )
+    total_tax_reserve = flt(ss_total + medicare_total + withholding_total, 2)
+
+    employee_payment_preview = build_simple_journal_preview(
+        company=company,
+        posting_date=posting_date,
+        user_remark=f"Employee payroll payment for {slip.name}",
+        lines=[
+            {
+                "account": account_map["payroll_payable_account"],
+                "debit_in_account_currency": liability["net_pay"],
+                "credit_in_account_currency": 0.0,
+                "cost_center": cost_center,
+                "user_remark": f"Clear payroll payable for {slip.name}",
+            },
+            {
+                "account": checking_bank_account,
+                "debit_in_account_currency": 0.0,
+                "credit_in_account_currency": liability["net_pay"],
+                "cost_center": cost_center,
+                "user_remark": f"Pay employee from checking for {slip.name}",
+            },
+        ],
+    )
+
+    tax_reserve_transfer_preview = build_simple_journal_preview(
+        company=company,
+        posting_date=posting_date,
+        user_remark=f"Transfer payroll tax reserve for {slip.name}",
+        lines=[
+            {
+                "account": withholding_bank_account,
+                "debit_in_account_currency": total_tax_reserve,
+                "credit_in_account_currency": 0.0,
+                "cost_center": cost_center,
+                "user_remark": f"Move payroll tax reserve to withholding bank for {slip.name}",
+            },
+            {
+                "account": checking_bank_account,
+                "debit_in_account_currency": 0.0,
+                "credit_in_account_currency": total_tax_reserve,
+                "cost_center": cost_center,
+                "user_remark": f"Fund payroll tax reserve from checking for {slip.name}",
+            },
+        ],
+    )
+
+    tax_remittance_preview = build_simple_journal_preview(
+        company=company,
+        posting_date=posting_date,
+        user_remark=f"Payroll tax remittance preview for {slip.name}",
+        lines=[
+            {
+                "account": account_map["social_security_payable_account"],
+                "debit_in_account_currency": ss_total,
+                "credit_in_account_currency": 0.0,
+                "cost_center": cost_center,
+                "user_remark": f"Clear Social Security payable for {slip.name}",
+            },
+            {
+                "account": account_map["medicare_payable_account"],
+                "debit_in_account_currency": medicare_total,
+                "credit_in_account_currency": 0.0,
+                "cost_center": cost_center,
+                "user_remark": f"Clear Medicare payable for {slip.name}",
+            },
+            {
+                "account": account_map["federal_withholding_payable_account"],
+                "debit_in_account_currency": liability["employee_taxes"]["federal_withholding"],
+                "credit_in_account_currency": 0.0,
+                "cost_center": cost_center,
+                "user_remark": f"Clear federal withholding payable for {slip.name}",
+            },
+            {
+                "account": account_map["colorado_withholding_payable_account"],
+                "debit_in_account_currency": liability["employee_taxes"]["colorado_withholding"],
+                "credit_in_account_currency": 0.0,
+                "cost_center": cost_center,
+                "user_remark": f"Clear Colorado withholding payable for {slip.name}",
+            },
+            {
+                "account": withholding_bank_account,
+                "debit_in_account_currency": 0.0,
+                "credit_in_account_currency": total_tax_reserve,
+                "cost_center": cost_center,
+                "user_remark": f"Pay payroll taxes from withholding bank for {slip.name}",
+            },
+        ],
+    )
+
+    return {
+        "company": company,
+        "slip_name": slip.name,
+        "posting_date": posting_date,
+        "recommended_bank_accounts": {
+            "checking_bank_account": checking_bank_account,
+            "withholding_bank_account": withholding_bank_account,
+        },
+        "liability_summary": liability,
+        "employee_payment_preview": employee_payment_preview,
+        "tax_reserve_transfer_preview": tax_reserve_transfer_preview,
+        "tax_remittance_preview": tax_remittance_preview,
+    }
+
+
+def build_consolidated_payroll_cash_flow_preview(
+    payroll_results,
+    company=None,
+    checking_bank_account=None,
+    withholding_bank_account=None,
+    posting_date=None,
+):
+    if not payroll_results:
+        frappe.throw("No payroll_results provided for consolidated cash flow preview.")
+
+    slips = [frappe.get_doc("Salary Slip", result["slip_name"]) for result in payroll_results]
+    companies = sorted({slip.company for slip in slips})
+    if company is None:
+        if len(companies) != 1:
+            frappe.throw("Consolidated cash flow preview requires a single company.")
+        company = companies[0]
+
+    liability = summarize_consolidated_payroll_liabilities(payroll_results)
+    posting_date = posting_date or max(slip.end_date for slip in slips)
+
+    account_map = get_payroll_account_map(
+        company,
+        payroll_payable_account=frappe.db.get_value("Company", company, "default_payroll_payable_account"),
+        overrides=None,
+    )
+
+    checking_bank_account = checking_bank_account or get_default_checking_bank_gl_account(company)
+    withholding_bank_account = withholding_bank_account or get_withholding_bank_gl_account(company)
+
+    ss_total = flt(
+        liability["employee_taxes"]["social_security_employee"]
+        + liability["employer_taxes"]["social_security_employer"],
+        2,
+    )
+    medicare_total = flt(
+        liability["employee_taxes"]["medicare_employee"]
+        + liability["employer_taxes"]["medicare_employer"],
+        2,
+    )
+    withholding_total = flt(
+        liability["employee_taxes"]["federal_withholding"]
+        + liability["employee_taxes"]["colorado_withholding"],
+        2,
+    )
+    total_tax_reserve = flt(ss_total + medicare_total + withholding_total, 2)
+
+    employee_payment_preview = build_simple_journal_preview(
+        company=company,
+        posting_date=posting_date,
+        user_remark=f"Consolidated employee payroll payment for {company}",
+        lines=[
+            {
+                "account": account_map["payroll_payable_account"],
+                "debit_in_account_currency": liability["net_pay"],
+                "credit_in_account_currency": 0.0,
+                "user_remark": f"Clear consolidated payroll payable for {company}",
+            },
+            {
+                "account": checking_bank_account,
+                "debit_in_account_currency": 0.0,
+                "credit_in_account_currency": liability["net_pay"],
+                "user_remark": f"Pay employees from checking for {company}",
+            },
+        ],
+    )
+
+    tax_reserve_transfer_preview = build_simple_journal_preview(
+        company=company,
+        posting_date=posting_date,
+        user_remark=f"Consolidated payroll tax reserve transfer for {company}",
+        lines=[
+            {
+                "account": withholding_bank_account,
+                "debit_in_account_currency": total_tax_reserve,
+                "credit_in_account_currency": 0.0,
+                "user_remark": f"Move payroll tax reserve to withholding bank for {company}",
+            },
+            {
+                "account": checking_bank_account,
+                "debit_in_account_currency": 0.0,
+                "credit_in_account_currency": total_tax_reserve,
+                "user_remark": f"Fund payroll tax reserve from checking for {company}",
+            },
+        ],
+    )
+
+    tax_remittance_preview = build_simple_journal_preview(
+        company=company,
+        posting_date=posting_date,
+        user_remark=f"Consolidated payroll tax remittance preview for {company}",
+        lines=[
+            {
+                "account": account_map["social_security_payable_account"],
+                "debit_in_account_currency": ss_total,
+                "credit_in_account_currency": 0.0,
+                "user_remark": f"Clear consolidated Social Security payable for {company}",
+            },
+            {
+                "account": account_map["medicare_payable_account"],
+                "debit_in_account_currency": medicare_total,
+                "credit_in_account_currency": 0.0,
+                "user_remark": f"Clear consolidated Medicare payable for {company}",
+            },
+            {
+                "account": account_map["federal_withholding_payable_account"],
+                "debit_in_account_currency": liability["employee_taxes"]["federal_withholding"],
+                "credit_in_account_currency": 0.0,
+                "user_remark": f"Clear consolidated federal withholding payable for {company}",
+            },
+            {
+                "account": account_map["colorado_withholding_payable_account"],
+                "debit_in_account_currency": liability["employee_taxes"]["colorado_withholding"],
+                "credit_in_account_currency": 0.0,
+                "user_remark": f"Clear consolidated Colorado withholding payable for {company}",
+            },
+            {
+                "account": withholding_bank_account,
+                "debit_in_account_currency": 0.0,
+                "credit_in_account_currency": total_tax_reserve,
+                "user_remark": f"Pay consolidated payroll taxes from withholding bank for {company}",
+            },
+        ],
+    )
+
+    return {
+        "company": company,
+        "posting_date": posting_date,
+        "recommended_bank_accounts": {
+            "checking_bank_account": checking_bank_account,
+            "withholding_bank_account": withholding_bank_account,
+        },
+        "liability_summary": liability,
+        "employee_payment_preview": employee_payment_preview,
+        "tax_reserve_transfer_preview": tax_reserve_transfer_preview,
+        "tax_remittance_preview": tax_remittance_preview,
+        "salary_slip_names": [result["slip_name"] for result in payroll_results],
+        "employee_count": len(payroll_results),
+    }
+
+
 def create_consolidated_payroll_journal_entry_draft(
     payroll_results,
     posting_date=None,
@@ -2367,6 +2741,10 @@ __all__ = [
     "build_consolidated_payroll_register",
     "summarize_consolidated_payroll_liabilities",
     "build_consolidated_payroll_journal_entry_preview",
+    "build_payroll_cash_flow_preview",
+    "build_consolidated_payroll_cash_flow_preview",
+    "get_default_checking_bank_gl_account",
+    "get_withholding_bank_gl_account",
     "create_consolidated_payroll_journal_entry_draft",
     "payroll_prerequisite_issues",
     "process_auto_attendance_for_employees",
