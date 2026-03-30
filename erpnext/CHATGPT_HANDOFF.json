@@ -12,163 +12,66 @@
     "Phase 2 - hourly payroll foundation and FICA script",
     "Phase 3 - federal withholding, Colorado withholding, employee tax profiles, liability summary, and draft Journal Entry creation",
     "Phase 4 - batched payroll-period runs, consolidated register output, and consolidated Journal Entry preview/draft creation",
-    "Phase 4 - four-employee batched payroll validated with consolidated Journal Entry preview",
-    "Phase 5A - payroll engine extracted into rootedops_payroll app module in the live environment",
-    "Phase 5B - Payroll Entry UI integration via whitelisted methods and Client Script",
-    "Phase 5C - Payroll Entry writeback fields and duplicate consolidated JE protection"
+    "Phase 5 - Payroll Entry UI integration and hybrid-overnight hardening",
+    "Phase 6 - bank setup, payroll account audit, and Payroll Cash Flow Preview"
   ],
-  "phase_next": "Phase 5D - Salary Slip duplicate hardening, better Payroll Entry responses, and operator polish",
-  "attendance_verified": [
-    {
-      "date": "2026-03-16",
-      "status": "Present",
-      "working_hours": 8.0
-    },
-    {
-      "date": "2026-03-17",
-      "status": "Present",
-      "working_hours": 8.0
-    },
-    {
-      "date": "2026-03-18",
-      "status": "Present",
-      "working_hours": 4.0
-    }
+  "phase_next": "Phase 6B - create employee-payment and tax-reserve-transfer draft Journal Entry actions from Payroll Entry UI",
+  "ui_buttons_verified": [
+    "Preview Attendance Payroll",
+    "Create / Refresh Draft Salary Slips",
+    "Create Consolidated Draft JE",
+    "Preview Payroll Cash Flow"
   ],
-  "employee_tax_profile_verified": {
-    "employee": "HR-EMP-00001",
-    "hourly_rate": 20.0,
-    "federal_profile": {
-      "filing_status": "Single",
-      "step2_checked": 0,
-      "step3_annual_credits": 0.0,
-      "step4a_other_income": 0.0,
-      "step4b_deductions": 0.0,
-      "step4c_extra_withholding": 0.0,
-      "exempt": 0
+  "bank_setup_verified": {
+    "Dank Mushrooms, LLC": {
+      "default_bank_account": "Dank Mushrooms Checking - High Plains Bank",
+      "checking_gl_account": "Dank Mushrooms Checking - DML",
+      "withholding_gl_account": "Dank Mushrooms Withholding - DML"
     },
-    "colorado_profile": {
-      "filing_status": "Single",
-      "dr0004_line2": null,
-      "dr0004_line2_override": 0,
-      "dr0004_line3": 0.0,
-      "exempt": 0
+    "Raymond Danks": {
+      "default_bank_account": "Raymond Danks Elevations Checking - Elevations Credit Union",
+      "checking_gl_account": "Elevations Checking - RD",
+      "withholding_gl_account": "Elevations Withholding Savings - RD"
     }
   },
-  "latest_payroll_test": {
-    "period_start": "2026-03-15",
-    "period_end": "2026-03-21",
-    "employee_count": 4,
-    "employees": [
-      "HR-EMP-00001",
-      "HR-EMP-00002",
-      "HR-EMP-00003",
-      "HR-EMP-00004"
-    ],
-    "employee_results": [
-      {
-        "employee": "HR-EMP-00001",
-        "gross": 400.0,
-        "net_pay": 347.45
-      },
-      {
-        "employee": "HR-EMP-00002",
-        "gross": 472.5,
-        "net_pay": 403.96
-      },
-      {
-        "employee": "HR-EMP-00003",
-        "gross": 258.75,
-        "net_pay": 232.23
-      },
-      {
-        "employee": "HR-EMP-00004",
-        "gross": 600.0,
-        "net_pay": 502.31
-      }
-    ],
-    "is_balanced": true
-  },
-  "journal_entry_preview_verified": {
-    "is_balanced": true,
-    "is_ready_to_create": true,
-    "employee_count": 4,
-    "account_map": {
+  "payroll_account_map_verified": {
+    "Dank Mushrooms, LLC": {
       "payroll_expense_account": "Payroll Expense - DML",
       "payroll_tax_expense_account": "Payroll Tax Expense - DML",
       "payroll_payable_account": "Payroll Payable - DML",
       "payroll_tax_payable_account": "Payroll Tax Payable - DML",
-      "payroll_withholding_payable_account": "Payroll Withholding Payable - DML",
-      "federal_withholding_payable_account": "Payroll Withholding Payable - DML",
-      "colorado_withholding_payable_account": "Payroll Withholding Payable - DML",
-      "social_security_payable_account": "Payroll Tax Payable - DML",
-      "medicare_payable_account": "Payroll Tax Payable - DML"
+      "payroll_withholding_payable_account": "Payroll Withholding Payable - DML"
+    },
+    "Raymond Danks": {
+      "payroll_expense_account": "Nanny Wages - RD",
+      "payroll_tax_expense_account": "Payroll Tax Expense - RD",
+      "payroll_payable_account": "Payroll Payable - RD",
+      "payroll_tax_payable_account": "Payroll Tax Payable - RD",
+      "payroll_withholding_payable_account": "Payroll Withholding Payable - RD"
     }
   },
-  "journal_entry_creation_verified": {
-    "status": "consolidated draft created successfully from Payroll Entry UI",
-    "important_note": "Journal Entry account rows cannot use reference_type='Salary Slip' in this ERPNext environment; Salary Slip linkage is kept in user_remark. Duplicate consolidated JE creation is now blocked if the Payroll Entry already stores a linked JE."
+  "cash_flow_preview_verified": {
+    "status": "working in UI after website reload",
+    "preview_steps": [
+      "employee payment from checking",
+      "tax reserve transfer from checking to withholding bank",
+      "tax remittance from withholding bank"
+    ]
   },
-  "erpnext_configuration_verified": {
-    "company": "Dank Mushrooms, LLC",
-    "default_payroll_payable_account": "Payroll Payable - DML",
-    "accounts": [
-      "Payroll Expense - DML",
-      "Payroll Tax Expense - DML",
-      "Payroll Payable - DML",
-      "Payroll Tax Payable - DML",
-      "Payroll Withholding Payable - DML"
-    ],
-    "payroll_settings": {
-      "payroll_based_on": "Attendance",
-      "consider_unmarked_attendance_as": "Absent"
-    }
-  },
-  "ui_integration": {
-    "operator_surface": "Payroll Entry",
-    "buttons": [
-      "Preview Attendance Payroll",
-      "Create / Refresh Draft Salary Slips",
-      "Create Consolidated Draft JE"
-    ],
-    "writeback_fields": [
-      "rootedops_consolidated_journal_entry",
-      "rootedops_salary_slip_count",
-      "rootedops_last_processed_on",
-      "rootedops_payroll_summary"
-    ],
-    "backend_wrapper": "erpnext/apps/rootedops_payroll/rootedops_payroll/api/payroll_entry_actions.py",
-    "client_script_reference": "erpnext/client_scripts/payroll_entry_rootedops_payroll.js"
-  },
-  "scripts": [
-    "scripts/10_setup_master_data.py",
-    "scripts/20_setup_shift_and_test_employee.py",
-    "scripts/21_create_employee.py",
-    "scripts/30_create_employee_home_page.py",
-    "scripts/40_setup_payroll_test_foundation.py",
-    "scripts/50_hourly_payroll_automation.py",
-    "scripts/60_setup_payroll_entry_ui_support.py"
+  "important_notes": [
+    "Reload the website after updating client script or app code before assuming the Payroll Entry form is broken.",
+    "Salary Slips create payroll liabilities first; actual bank movement should be created later through downstream cash-flow entries.",
+    "Documentation in erpnext/README.md and erpnext/scripts/README_SCRIPTS.md intentionally preserves prior phase steps rather than truncating them."
   ],
-  "open_questions": [
-    "What exact rules should block or refresh duplicate Salary Slips for the same employee and date range?",
-    "Should the current Client Script later move into app assets after Docker/frontend app packaging is cleaned up?",
-    "What is the preferred standard accounting flow for paying net wages and remitting payroll liabilities after the accrual JE is approved?"
+  "files_to_open_first": [
+    "erpnext/apps/rootedops_payroll/rootedops_payroll/services/payroll_engine.py",
+    "erpnext/apps/rootedops_payroll/rootedops_payroll/api/payroll_entry_actions.py",
+    "erpnext/client_scripts/payroll_entry_rootedops_payroll.js",
+    "erpnext/README.md",
+    "erpnext/scripts/README_SCRIPTS.md"
   ],
-  "next_recommended_work": [
-    "Add explicit submitted-Salary-Slip duplicate safeguards before regenerating payroll for a period",
-    "Improve Payroll Entry popup responses with direct links to the Salary Slips and Journal Entry",
-    "Document the bank ledger, Bank Account, Payment Entry, and reconciliation workflow",
-    "Include the full rootedops_payroll app tree in the next repo export"
-  ],
-  "latest_phase": "Phase 6 \u2014 Hybrid Shift / Multi-Company Payroll Hardening",
-  "next_priority": "Create a real Raymond Danks employee from UI if possible, using documented runbook and verifying hybrid fields, salary structure assignment, attendance, and account mapping.",
-  "hybrid_shift_notes": {
-    "company": "Raymond Danks",
-    "pay_model_field": "rootedops_pay_model",
-    "overnight_amount_field": "rootedops_overnight_flat_amount",
-    "supported_rule": "full 10PM-6AM block pays flat overnight amount; partial overnight work falls back to hourly",
-    "future_enhancement": "extract overnight sub-blocks from longer sessions and pay only the overnight sub-block at flat rate"
-  },
-  "employee_creation_runbook_added": true,
-  "account_mapping_learning": "Use Salary Component Account mappings for earning expense lines instead of keyword-guessing wage expense accounts."
+  "next_step": [
+    "create_employee_payment_draft_journal_entry",
+    "create_tax_reserve_transfer_draft_journal_entry"
+  ]
 }

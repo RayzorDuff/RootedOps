@@ -4,11 +4,11 @@ This directory contains the ERPNext-specific configuration assets for RootedOps.
 
 Primary focus:
 - Dank Mushrooms, LLC payroll and accounting
-- Rooted Psyche accounting and future payroll
+- Raymond Danks nanny / household payroll
 - employee attendance and hourly payroll support
-- ERPNext configuration assets that combine CSV imports, bench-console scripts, and the new Payroll Entry UI integration layer
+- ERPNext configuration assets that combine CSV imports, bench-console scripts, app code, and Payroll Entry UI integration
 
-This README is the high-level configuration guide. Script-level operating details now live in `scripts/README_SCRIPTS.md`. The active session handoff lives in `CHATGPT_HANDOFF.md` and `CHATGPT_HANDOFF.json`.
+This README is the high-level guide. Detailed script operation notes live in `scripts/README_SCRIPTS.md`. The active handoff lives in `CHATGPT_HANDOFF.md` and `CHATGPT_HANDOFF.json`.
 
 ---
 
@@ -39,7 +39,7 @@ Accomplished:
 - created and validated `Day Shift`
 - enabled auto attendance
 - changed check-in/out interpretation to use explicit log type
-- created and submitted a `Shift Assignment`
+- created and submitted `Shift Assignment` rows
 - confirmed clean `Employee Checkin` rows convert into `Attendance`
 - confirmed `working_hours` is populated from check-in/check-out data
 
@@ -51,10 +51,10 @@ Completed.
 
 Accomplished:
 - switched Payroll Settings from leave-based payroll to attendance-based payroll
-- verified the stock ERPNext payment-days model is not a good fit for this ad-hoc hourly employee
+- verified the stock ERPNext payment-days model is not a good fit for this ad-hoc hourly employee use case
 - created a custom Python payroll automation approach
 - confirmed attendance-derived hours can be turned into gross pay plus employee/employer FICA
-- confirmed custom draft salary slip generation works from a script loaded into bench console
+- confirmed custom draft Salary Slip generation works from a script loaded into bench console
 
 Result:
 - The system has a working scripted baseline for hourly payroll.
@@ -63,7 +63,7 @@ Result:
 Completed.
 
 Accomplished:
-- resolved the original `204.09` net-pay issue caused by ERPNext salary-structure recalculation
+- resolved the original net-pay mismatch caused by ERPNext salary-structure recalculation
 - added federal withholding for 2026 weekly payroll
 - added Colorado withholding for 2026
 - added persistent employee tax-profile storage on Employee custom fields
@@ -89,123 +89,60 @@ Accomplished:
 - updated `scripts/21_create_employee.py` so new payroll-test employees are payroll-ready on creation
 - added helpers for backfilling payroll setup on older employees and creating clean IN/OUT checkin pairs
 - hardened payroll diagnostics so zero-hour attendance and `skip_auto_attendance = 1` checkins are surfaced immediately
-- validated a clean four-employee payroll run with nonzero gross/net pay for all four employees and a balanced consolidated JE preview
+- validated clean multi-employee payroll runs with nonzero gross/net pay and a balanced consolidated JE preview
 
 Result:
 - One pay period can now be processed in batch with one Salary Slip per employee and one consolidated accrual JE preview or draft.
 
-## Phase 5 — Payroll Entry UI integration and first hardening pass
-In progress, with the first working operator flow completed.
+## Phase 5 — Payroll Entry UI integration and hardening
+Completed for the current operator flow.
 
 Accomplished:
-- extracted the payroll engine into an importable Frappe app module in `rootedops_payroll.services.payroll_engine` in the live environment
-- added a thin API layer in `rootedops_payroll.api.payroll_entry_actions`
-- confirmed the API can:
-  - read a saved `Payroll Entry`
-  - discover employees with attendance in the period
-  - preview attendance-driven payroll for the period
-  - create or refresh draft Salary Slips from the Payroll Entry context
-  - create a consolidated draft Journal Entry from the Payroll Entry context
-- added a Payroll Entry client-script workflow with three buttons:
+- extracted payroll engine logic into importable app code under `erpnext/apps/rootedops_payroll/rootedops_payroll/services/payroll_engine.py`
+- added whitelisted Payroll Entry API methods under `erpnext/apps/rootedops_payroll/rootedops_payroll/api/payroll_entry_actions.py`
+- added Payroll Entry client script under `erpnext/client_scripts/payroll_entry_rootedops_payroll.js`
+- validated the following buttons in the UI:
   - `Preview Attendance Payroll`
   - `Create / Refresh Draft Salary Slips`
   - `Create Consolidated Draft JE`
-- added Payroll Entry custom fields for writeback:
-  - `rootedops_consolidated_journal_entry`
-  - `rootedops_salary_slip_count`
-  - `rootedops_last_processed_on`
-  - `rootedops_payroll_summary`
-- added writeback so Payroll Entry now stores the JE link, slip count, processing timestamp, and a summary snapshot
-- added the first duplicate-JE safeguard so the same Payroll Entry cannot create another consolidated JE once one is already linked
+- fixed hybrid overnight reporting so overnight sessions count toward displayed hours
+- fixed persistence of final `total_working_hours`, `payment_days`, `total_working_days`, and `absent_days` on Salary Slip for the hybrid path
+- confirmed the Payroll Entry form may require a browser reload after client script updates before the new buttons appear or behave correctly
 
 Result:
-- normal weekly payroll operation no longer depends on bench console
-- the operator can now work from standard ERPNext forms: `Payroll Entry`, `Salary Slip`, and `Journal Entry`
+- Payroll Entry is now a working operator-facing entry point for payroll preview, draft Salary Slip generation, and consolidated accrual JE creation.
 
----
+## Phase 6 — Bank setup, payroll account map audit, and payroll cash flow preview
+Completed for preview mode.
 
-# Higher-Level Project State
+Accomplished:
+- configured Dank Mushrooms bank defaults to use:
+  - checking: `Dank Mushrooms Checking - High Plains Bank`
+  - withholding: `Dank Mushrooms Withholding - High Plains Bank`
+- created Raymond Danks bank infrastructure:
+  - bank: `Elevations Credit Union`
+  - checking bank account master and GL link
+  - withholding savings bank account master and GL link
+  - default bank account set to Raymond Danks checking
+- audited both companies for:
+  - payroll expense account
+  - payroll tax expense account
+  - payroll payable
+  - payroll tax payable
+  - payroll withholding payable
+  - default bank account
+  - checking and withholding bank GL accounts
+- confirmed missing account map keys are empty for both companies
+- extended `payroll_engine.py` with payroll cash-flow preview helpers for:
+  - employee payment from checking
+  - tax reserve transfer from checking to withholding bank
+  - payroll tax remittance from withholding bank
+- added `preview_payroll_cash_flow` server action in `payroll_entry_actions.py`
+- added `Preview Payroll Cash Flow` button to the Payroll Entry client script
+- validated the new modal preview in the UI after reloading the website
 
-## What is working now
-The core payroll stack is now split into three layers:
-
-1. **Attendance / HR layer**
-   - Employee Checkin
-   - Shift Assignment
-   - Attendance auto-generation
-
-2. **Payroll engine layer**
-   - `scripts/50_hourly_payroll_automation.py` remains the source script in this repo
-   - the same logic has been extracted into the live `rootedops_payroll.services.payroll_engine` module for UI/server use
-
-3. **ERPNext operator workflow layer**
-   - `Payroll Entry` is now the operator launch point
-   - draft Salary Slips are reviewed in standard ERPNext
-   - the consolidated payroll accrual JE is reviewed in standard ERPNext
-
-## What is still not fully hardened
-These are the main items left before treating the flow as "production-routine" rather than "working and validated":
-
-- stronger duplicate Salary Slip protections for the same employee and date range
-- clearer operator warnings when submitted Salary Slips already exist for the period
-- better popup responses with direct links to slips and the JE
-- final documented payment / disbursement workflow using `Payment Entry`, bank ledgers, and reconciliation
-- deciding whether the temporary database `Client Script` should later be moved into the app asset pipeline once the Docker/frontend app packaging is cleaned up
-
-## Recommended next phase naming
-For future sessions, use this phase breakdown:
-
-- **Phase 5A** — payroll engine extraction into importable app code
-- **Phase 5B** — Payroll Entry UI integration through whitelisted methods and client script
-- **Phase 5C** — Payroll Entry writeback fields and duplicate consolidated JE protection
-- **Phase 5D** — Salary Slip duplicate hardening, better UI responses, and operator polish
-- **Phase 6** — payment workflow, bank ledger usage, reconciliation, and reserve-transfer helpers
-
----
-
-# Latest Verified Working State
-
-## Test employee baseline
-- Employee: `HR-EMP-00001`
-- Company: `Dank Mushrooms, LLC`
-- Hourly rate stored on Employee: `20.00`
-
-## Verified single-employee payroll calculation for period `2026-03-15` to `2026-03-21`
-- Hours: `20.0`
-- Gross: `400.00`
-- Employee Social Security: `24.80`
-- Employee Medicare: `5.80`
-- Federal withholding: `9.00`
-- Colorado withholding: `12.95`
-- Employer Social Security: `24.80`
-- Employer Medicare: `5.80`
-- Net pay: `347.45`
-
-## Verified four-employee payroll batch for period `2026-03-15` to `2026-03-21`
-- `HR-EMP-00001` gross/net: `400.00 / 347.45`
-- `HR-EMP-00002` gross/net: `472.50 / 403.96`
-- `HR-EMP-00003` gross/net: `258.75 / 232.23`
-- `HR-EMP-00004` gross/net: `600.00 / 502.31`
-
-## Verified liability summary
-- consolidated JE preview remained balanced
-- payroll account mapping remained:
-  - `Payroll Expense - DML` → gross wages expense
-  - `Payroll Tax Expense - DML` → employer payroll tax expense
-  - `Payroll Payable - DML` → net payroll payable
-  - `Payroll Tax Payable - DML` → Social Security and Medicare payable
-  - `Payroll Withholding Payable - DML` → federal and Colorado withholding payable
-
-## Verified UI-integrated operator flow
-Using a saved `Payroll Entry` for `2026-03-15` to `2026-03-21`, the following were successfully executed from ERPNext UI:
-- `Preview Attendance Payroll`
-- `Create / Refresh Draft Salary Slips`
-- `Create Consolidated Draft JE`
-
-Confirmed outcomes:
-- draft Salary Slips were created / refreshed from the Payroll Entry context
-- a consolidated draft Journal Entry was created from the Payroll Entry context
-- Payroll Entry writeback fields populated in the form UI
+Result:
+- The system can now preview the accounting cash flow that follows payroll accrual, using real configured checking and withholding bank accounts.
 
 ---
 
@@ -242,6 +179,8 @@ These scripts now handle the active ERPNext configuration and payroll workflow:
 | `scripts/50_hourly_payroll_automation.py` | Attendance-driven hourly payroll with FICA, withholding, employee tax profiles, single-slip and batched payroll runs, consolidated register output, JE preview, and draft JE creation |
 | `scripts/60_setup_payroll_entry_ui_support.py` | Creates the custom Payroll Entry fields used by the UI integration layer |
 | `scripts/README_SCRIPTS.md` | Script usage notes, payroll automation details, maintenance procedures, and validation steps |
+| `scripts/70_phase6_bank_setup.py` | if bank accounts are missing or defaults are blank.
+| `scripts/71_phase6_payroll_account_audit.py` | to confirm account mapping is complete.
 
 ## UI integration reference files
 | File | Purpose |
@@ -285,68 +224,52 @@ These scripts now handle the active ERPNext configuration and payroll workflow:
 
 ---
 
-# Current recommended operator workflow
+# Current operator workflow
 
-1. employee logs IN / OUT through ERPNext
-2. auto attendance resolves hours worked
-3. operator opens or creates the weekly `Payroll Entry`
-4. operator clicks `Preview Attendance Payroll`
-5. operator reviews `RootedOps Payroll Summary`
-6. operator clicks `Create / Refresh Draft Salary Slips`
-7. operator reviews draft `Salary Slip` records
-8. operator clicks `Create Consolidated Draft JE`
-9. operator reviews and submits the draft `Journal Entry`
-10. operator later uses `Payment Entry` against the real bank ledger to disburse wages and remit liabilities
+For a saved Payroll Entry in the ERPNext UI:
 
----
+1. Open Payroll Entry.
+2. Use `Preview Attendance Payroll` to verify consolidated gross / net / taxes.
+3. Use `Create / Refresh Draft Salary Slips` to generate or rebuild the Salary Slips.
+4. Use `Create Consolidated Draft JE` to create the payroll accrual JE draft.
+5. Use `Preview Payroll Cash Flow` to inspect the next downstream accounting steps:
+   - employee payment from checking
+   - tax reserve transfer to withholding bank
+   - later tax remittance from withholding bank
 
-# Recommended next work
-
-## Immediate hardening
-- block or warn if submitted Salary Slips already exist for the same employee and period
-- make Salary Slip duplicate handling more explicit in the API wrapper
-- improve popup messages with direct links to the created Salary Slips and Journal Entry
-
-## Accounting / disbursement layer
-- document the bank ledger and `Bank Account` setup clearly
-- document or script the `Payment Entry` workflow for:
-  - net wages
-  - payroll taxes
-  - withholding remittance
-
-## Packaging / repo hygiene
-- include the full `rootedops_payroll` app tree in the next repo export so the UI/server integration changes are versioned in the same place as the ERPNext scripts
-- reconcile Docker/frontend app packaging so app JS can eventually live in the app rather than only in a database Client Script
-
+Important note:
+- After changing client script or app code, reload the website before assuming the new UI is broken. In this session, the new Payroll Cash Flow Preview worked after reload.
 
 ---
 
-# Phase 6 — Hybrid Shift / Multi-Company Payroll Hardening
-Completed and documented.
+# Verified accounting model
 
-Accomplished:
-- added a second payroll business, `Raymond Danks`, alongside `Dank Mushrooms, LLC`
-- configured payroll account expectations for a nanny / care-provider reimbursement business
-- validated a second payroll model: `hybrid_overnight`
-- added Employee-level fields for hybrid shift compensation:
-  - `rootedops_pay_model`
-  - `rootedops_overnight_flat_amount`
-- implemented hybrid shift pay logic for an employee who is paid:
-  - normal hourly wages for standard hours
-  - a flat overnight amount for a complete `10:00 PM` to `6:00 AM` block
-  - normal hourly wages if only part of that overnight window is worked
-- confirmed that a same-session overnight block such as `22:00 → 06:00` can be paid as a flat amount when it matches the full overnight rule
-- documented the current limitation / future enhancement:
-  - **Potential enhancement:** extract overnight sub-blocks from longer sessions (for example `06:00 day 1 → 06:00 day 2`) so the overnight middle segment can be paid flat while the surrounding hours remain hourly
-- hardened payroll diagnostics around checkins and attendance
-- identified and documented the account-mapping bug where wage expense could be posted to payroll tax expense when keyword guessing was used
-- documented the correct long-term accounting fix:
-  - derive wage expense lines from the **Salary Component Account** mappings on the Salary Slip
-  - keep employer payroll taxes on the payroll tax expense account
+## Payroll accrual
+Salary Slips do not directly create bank transactions. First create the payroll accrual JE.
 
-Result:
-- the payroll engine now supports multi-company payroll patterns and a second compensation model beyond simple hourly labor
-- the documentation now supports onboarding a real employee in either business without repeating the earlier trial-and-error setup steps
+Conceptual JE shape:
+- Debit payroll expense
+- Debit employer payroll tax expense
+- Credit payroll payable
+- Credit payroll tax payable / payroll withholding payable
+
+## Employee payment
+When the employee is actually paid:
+- Debit payroll payable
+- Credit checking bank GL account
+
+## Tax reserve transfer
+When payroll tax cash is moved into the withholding savings account:
+- Debit withholding bank GL account
+- Credit checking bank GL account
+
+## Tax remittance
+When taxes are actually paid to IRS / Colorado:
+- Debit payroll tax payable / payroll withholding payable
+- Credit withholding bank GL account
+
+This separation is intentional and should be preserved. Salary Slips create liabilities; bank transactions clear those liabilities later.
+
 
 ---
 
@@ -633,3 +556,60 @@ This happened during testing. Current safe fallback is:
 
 Longer-term improvement:
 - ensure the Employee custom fields are correctly surfaced and not being overwritten by another customization layer.
+
+# Company-specific verified configuration
+
+## Dank Mushrooms, LLC
+Verified defaults:
+- default bank account: `Dank Mushrooms Checking - High Plains Bank`
+- default payroll payable: `Payroll Payable - DML`
+- checking GL account: `Dank Mushrooms Checking - DML`
+- withholding GL account: `Dank Mushrooms Withholding - DML`
+
+Resolved payroll account map:
+- payroll expense: `Payroll Expense - DML`
+- payroll tax expense: `Payroll Tax Expense - DML`
+- payroll payable: `Payroll Payable - DML`
+- payroll tax payable: `Payroll Tax Payable - DML`
+- payroll withholding payable: `Payroll Withholding Payable - DML`
+
+## Raymond Danks
+Verified defaults:
+- default bank account: `Raymond Danks Elevations Checking - Elevations Credit Union`
+- default payroll payable: `Payroll Payable - RD`
+- checking GL account: `Elevations Checking - RD`
+- withholding GL account: `Elevations Withholding Savings - RD`
+
+Resolved payroll account map:
+- payroll expense: `Nanny Wages - RD`
+- payroll tax expense: `Payroll Tax Expense - RD`
+- payroll payable: `Payroll Payable - RD`
+- payroll tax payable: `Payroll Tax Payable - RD`
+- payroll withholding payable: `Payroll Withholding Payable - RD`
+
+---
+
+# Files most relevant to the current workflow
+
+## App code
+- `erpnext/apps/rootedops_payroll/rootedops_payroll/services/payroll_engine.py`
+- `erpnext/apps/rootedops_payroll/rootedops_payroll/api/payroll_entry_actions.py`
+
+## UI
+- `erpnext/client_scripts/payroll_entry_rootedops_payroll.js`
+
+## Setup and validation scripts
+- `erpnext/scripts/50_hourly_payroll_automation.py`
+- `erpnext/scripts/60_setup_payroll_entry_ui_support.py`
+- `erpnext/scripts/70_phase6_bank_setup.py`
+- `erpnext/scripts/71_phase6_payroll_account_audit.py`
+
+---
+
+# Next recommended work
+
+The next step should be two more server actions, not just one preview:
+- `create_employee_payment_draft_journal_entry`
+- `create_tax_reserve_transfer_draft_journal_entry`
+
+That will let the UI move from preview to actual downstream cash-flow draft documents in the same pattern already used for the consolidated payroll accrual JE.

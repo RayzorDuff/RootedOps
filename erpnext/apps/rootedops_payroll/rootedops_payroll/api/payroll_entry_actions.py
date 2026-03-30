@@ -3,10 +3,10 @@ from frappe import _
 from frappe.utils import getdate, now_datetime
 
 from rootedops_payroll.services.payroll_engine import (
+    build_consolidated_payroll_cash_flow_preview,
     create_consolidated_payroll_journal_entry_draft,
     get_employees_with_attendance_in_period,
     run_batched_hourly_payroll,
-    build_consolidated_payroll_cash_flow_preview,
 )
 
 
@@ -115,6 +115,40 @@ def preview_attendance_payroll(payroll_entry_name: str):
     }
 
 
+
+
+@frappe.whitelist()
+def preview_payroll_cash_flow(payroll_entry_name: str):
+    pe, ctx = _get_payroll_entry_context(payroll_entry_name)
+    employees = _get_employees_for_payroll_entry(pe, ctx)
+
+    result = run_batched_hourly_payroll(
+        employees=employees,
+        start_date=ctx["start_date"],
+        end_date=ctx["end_date"],
+        company=ctx["company"],
+    )
+
+    cash_flow_preview = build_consolidated_payroll_cash_flow_preview(
+        payroll_results=result.get("payroll_results", []),
+        company=ctx["company"],
+        posting_date=ctx["end_date"],
+    )
+
+    _write_payroll_entry_summary(pe, result)
+
+    return {
+        "payroll_entry": pe.name,
+        "employees": employees,
+        "summary": {
+            "employee_count": result.get("employee_count", 0),
+            "salary_slip_names": result.get("salary_slip_names", []),
+            "consolidated_liability_summary": result.get("consolidated_liability_summary"),
+            "consolidated_journal_entry_preview": result.get("consolidated_journal_entry_preview"),
+            "consolidated_cash_flow_preview": cash_flow_preview,
+            "payroll_results": result.get("payroll_results", []),
+        },
+    }
 @frappe.whitelist()
 def create_or_refresh_draft_salary_slips(payroll_entry_name: str):
     pe, ctx = _get_payroll_entry_context(payroll_entry_name)
@@ -188,18 +222,3 @@ def create_consolidated_draft_journal_entry(payroll_entry_name: str):
         "journal_entry": journal_entry_name,
         "salary_slip_names": result.get("salary_slip_names", []),
     }
-
-
-@frappe.whitelist()
-def preview_payroll_cash_flow(payroll_entry_name):
-    data = preview_attendance_payroll(payroll_entry_name)
-    summary = (data or {}).get("summary") or {}
-    payroll_results = summary.get("payroll_results") or []
-
-    cash_flow_preview = build_consolidated_payroll_cash_flow_preview(
-        payroll_results=payroll_results,
-        company=summary.get("company"),
-    )
-
-    summary["consolidated_cash_flow_preview"] = cash_flow_preview
-    return data

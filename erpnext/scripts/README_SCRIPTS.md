@@ -2,11 +2,12 @@
 
 These scripts are intended to be loaded into `bench --site erp.danks.store console` unless otherwise noted.
 
-This README is the script-operations guide. It documents:
+This README documents:
 - how to load and run the scripts
 - what each script currently does
-- the verified payroll automation workflow in `50_hourly_payroll_automation.py`
-- the current Payroll Entry UI integration support files
+- the verified payroll automation workflow
+- the Payroll Entry UI integration support files
+- the Phase 6 bank setup and account-audit scripts
 - annual and employee-change maintenance procedures
 - validation steps before using the process for a real employee
 
@@ -17,15 +18,13 @@ This README is the script-operations guide. It documents:
 Copy the script into the ERPNext container:
 
 ```bash
-sudo docker cp erpnext/scripts/<scriptname>.py \
-  erpnext-backend:/home/frappe/frappe-bench/sites/<scriptname>.py
+sudo docker cp erpnext/scripts/<scriptname>.py   erpnext-backend:/home/frappe/frappe-bench/sites/<scriptname>.py
 ```
 
 Open bench console:
 
 ```bash
-sudo docker compose --env-file ./.env -f docker/docker-compose.yml exec erpnext-backend \
-  bash -lc "bench --site erp.danks.store console"
+sudo docker compose --env-file ./.env -f docker/docker-compose.yml exec erpnext-backend   bash -lc "bench --site erp.danks.store console"
 ```
 
 Load the file:
@@ -34,7 +33,7 @@ Load the file:
 exec(open("/home/frappe/frappe-bench/sites/<scriptname>.py").read(), globals())
 ```
 
-This pattern is still preferred for large setup / validation scripts because pasting large Python blocks directly into bench console proved unreliable.
+This remains the preferred pattern for larger setup / validation scripts because pasting long Python blocks directly into bench console proved unreliable.
 
 ---
 
@@ -88,6 +87,7 @@ Provides:
 - Colorado withholding for 2026
 - employee tax-profile custom fields on Employee
 - stored employee hourly rate
+- hybrid overnight pay model support
 - draft Salary Slip rebuilding
 - payroll liability summary
 - payroll register row output
@@ -105,6 +105,35 @@ Creates the custom Payroll Entry fields used by the current UI integration:
 - `rootedops_payroll_summary`
 
 Use this when rebuilding the Payroll Entry UI workflow in a fresh site.
+
+## `70_phase6_bank_setup.py`
+Verifies and creates the company bank setup needed for payroll cash flow.
+
+Current verified result:
+- Dank Mushrooms existing High Plains bank setup is reused
+- Raymond Danks Elevations checking and withholding bank setup is created if missing
+- company default bank account is set correctly
+
+Important implementation notes learned in this session:
+- avoid double-appending company abbreviations when creating GL accounts
+- on this site, `Bank Account` autoname requires `account_name`
+- when creating bank account masters, a partial create may leave bank and GL account records but not the bank account master if payload fields are wrong
+
+## `71_phase6_payroll_account_audit.py`
+Read-only audit script that verifies for each company:
+- default bank account
+- default payroll payable account
+- checking bank GL account
+- withholding bank GL account
+- likely payroll expense account
+- likely payroll tax expense account
+- likely payroll payable account
+- likely payroll tax payable account
+- likely withholding payable account
+- resolved `rootedops_payroll` account map
+- missing account map keys
+
+Use this before relying on Payroll Cash Flow Preview.
 
 ---
 
@@ -507,20 +536,6 @@ Once the Payroll Entry custom fields and Client Script are in place, the normal 
 
 ---
 
-# Next hardening work recommended
-
-## Phase 5D
-- explicitly detect submitted Salary Slips already existing for the same employee + period
-- make draft-slip refresh behavior more explicit in the API wrapper
-- improve Client Script popup responses with direct links to the slips and JE
-
-## Phase 6
-- document the bank ledger and Bank Account setup for payroll cash disbursement
-- document or script the Payment Entry workflow for wages, payroll taxes, and withholding remittance
-
-
----
-
 # Newer operational notes
 
 ## `21_create_employee.py` current role
@@ -556,3 +571,57 @@ The correct long-term approach is:
 - keep employer payroll taxes on the payroll tax expense account
 
 This should remain the design standard for future payroll hardening.
+
+---
+
+# Verified end-to-end operator workflow
+
+## Initial or rebuild setup
+1. Run the Phase 0 import files if rebuilding from scratch.
+2. Run the attendance / shift setup scripts.
+3. Run the payroll foundation scripts.
+4. Run `60_setup_payroll_entry_ui_support.py` if the Payroll Entry custom fields are missing.
+5. Ensure the rootedops payroll app code and client script are updated.
+6. Reload the website after client-script updates.
+7. Run `70_phase6_bank_setup.py` if bank accounts are missing or defaults are blank.
+8. Run `71_phase6_payroll_account_audit.py` to confirm account mapping is complete.
+
+## Payroll Entry UI workflow
+For a saved Payroll Entry:
+1. `Preview Attendance Payroll`
+2. `Create / Refresh Draft Salary Slips`
+3. `Create Consolidated Draft JE`
+4. `Preview Payroll Cash Flow`
+
+What the cash-flow preview shows:
+- checking bank used for employee payment
+- withholding bank used for tax reserve transfer and remittance
+- net pay to employees
+- total tax reserve transfer
+- employee taxes
+- employer taxes
+- whether each downstream JE preview is balanced
+
+---
+
+# Known operational notes
+
+## Browser reload after UI changes
+After updating client script or app JS / Python, reload the website before assuming the form is broken. In this session the Payroll Cash Flow Preview button worked after reload.
+
+## Hybrid overnight payroll
+The hybrid overnight path required fixes so that:
+- overnight sessions count toward displayed total working hours
+- final summary fields persist to Salary Slip after rebuild
+
+## Salary Slip field note
+`total_working_hours` exists in DocType metadata on this site. Earlier attempts to create it as a new Custom Field failed because it already existed.
+
+---
+
+# Current next step
+
+The next implementation target is not more previewing. It is adding two more server actions so Payroll Entry can create downstream cash-flow drafts directly:
+- `create_employee_payment_draft_journal_entry`
+- `create_tax_reserve_transfer_draft_journal_entry`
+
