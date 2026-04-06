@@ -15,7 +15,7 @@
     "Phase 5 - Payroll Entry UI integration and hybrid-overnight hardening",
     "Phase 6 - bank setup, payroll account audit, and Payroll Cash Flow Preview"
   ],
-  "phase_next": "Phase 6B - create employee-payment and tax-reserve-transfer draft Journal Entry actions from Payroll Entry UI",
+  "phase_next": "Phase 6C - run the first live payroll cycle and decide whether to add a tax-remittance draft Journal Entry action from Payroll Entry UI",
   "ui_buttons_verified": [
     "Preview Attendance Payroll",
     "Create / Refresh Draft Salary Slips",
@@ -71,7 +71,8 @@
     "erpnext/scripts/README_SCRIPTS.md"
   ],
   "next_step": [
-    "create_employee_payment_draft_journal_entry",
-    "create_tax_reserve_transfer_draft_journal_entry"
+    "install the new 6B Payroll Entry actions in the live site",
+    "run the first live payroll cycle for Raymond Danks and Dank Mushrooms, LLC",
+    "decide whether to add create_tax_remittance_draft_journal_entry as Phase 6C"
   ]
 }

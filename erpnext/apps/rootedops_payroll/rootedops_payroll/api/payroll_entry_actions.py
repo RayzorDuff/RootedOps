@@ -4,7 +4,9 @@ from frappe.utils import getdate, now_datetime
 
 from rootedops_payroll.services.payroll_engine import (
     build_consolidated_payroll_cash_flow_preview,
+    create_consolidated_employee_payment_journal_entry_draft,
     create_consolidated_payroll_journal_entry_draft,
+    create_consolidated_tax_reserve_transfer_journal_entry_draft,
     get_employees_with_attendance_in_period,
     run_batched_hourly_payroll,
 )
@@ -86,17 +88,39 @@ def _write_payroll_entry_summary(pe, result, journal_entry_name=None):
     pe.db_set(updates, update_modified=True)
 
 
-@frappe.whitelist()
-def preview_attendance_payroll(payroll_entry_name: str):
-    pe, ctx = _get_payroll_entry_context(payroll_entry_name)
-    employees = _get_employees_for_payroll_entry(pe, ctx)
+def _get_existing_link(pe, fieldname, label):
+    existing = pe.get(fieldname)
+    if existing:
+        frappe.throw(_("This Payroll Entry already has a {0}: {1}").format(label, existing))
 
+
+def _write_payroll_entry_links(pe, **updates):
+    filtered = {k: v for k, v in updates.items() if v}
+    if filtered:
+        pe.db_set(filtered, update_modified=True)
+
+
+def _extract_journal_entry_name(result):
+    if isinstance(result, dict):
+        return result.get("journal_entry_name") or result.get("journal_entry") or result.get("name")
+    return getattr(result, "name", None)
+
+
+def _run_payroll_for_entry(pe, ctx):
+    employees = _get_employees_for_payroll_entry(pe, ctx)
     result = run_batched_hourly_payroll(
         employees=employees,
         start_date=ctx["start_date"],
         end_date=ctx["end_date"],
         company=ctx["company"],
     )
+    return employees, result
+
+
+@frappe.whitelist()
+def preview_attendance_payroll(payroll_entry_name: str):
+    pe, ctx = _get_payroll_entry_context(payroll_entry_name)
+    employees, result = _run_payroll_for_entry(pe, ctx)
 
     _write_payroll_entry_summary(pe, result)
 
@@ -120,14 +144,7 @@ def preview_attendance_payroll(payroll_entry_name: str):
 @frappe.whitelist()
 def preview_payroll_cash_flow(payroll_entry_name: str):
     pe, ctx = _get_payroll_entry_context(payroll_entry_name)
-    employees = _get_employees_for_payroll_entry(pe, ctx)
-
-    result = run_batched_hourly_payroll(
-        employees=employees,
-        start_date=ctx["start_date"],
-        end_date=ctx["end_date"],
-        company=ctx["company"],
-    )
+    employees, result = _run_payroll_for_entry(pe, ctx)
 
     cash_flow_preview = build_consolidated_payroll_cash_flow_preview(
         payroll_results=result.get("payroll_results", []),
@@ -152,14 +169,7 @@ def preview_payroll_cash_flow(payroll_entry_name: str):
 @frappe.whitelist()
 def create_or_refresh_draft_salary_slips(payroll_entry_name: str):
     pe, ctx = _get_payroll_entry_context(payroll_entry_name)
-    employees = _get_employees_for_payroll_entry(pe, ctx)
-
-    result = run_batched_hourly_payroll(
-        employees=employees,
-        start_date=ctx["start_date"],
-        end_date=ctx["end_date"],
-        company=ctx["company"],
-    )
+    employees, result = _run_payroll_for_entry(pe, ctx)
 
     _write_payroll_entry_summary(pe, result)
 
@@ -221,4 +231,69 @@ def create_consolidated_draft_journal_entry(payroll_entry_name: str):
         "employees": employees,
         "journal_entry": journal_entry_name,
         "salary_slip_names": result.get("salary_slip_names", []),
+    }
+
+@frappe.whitelist()
+def create_employee_payment_draft_journal_entry(payroll_entry_name: str):
+    pe, ctx = _get_payroll_entry_context(payroll_entry_name)
+    _get_existing_link(pe, "rootedops_employee_payment_journal_entry", "employee payment Journal Entry")
+
+    if not pe.get("rootedops_consolidated_journal_entry"):
+        frappe.throw(_("Create the consolidated payroll accrual Journal Entry first."))
+
+    employees, result = _run_payroll_for_entry(pe, ctx)
+    payroll_results = result.get("payroll_results", [])
+    if not payroll_results:
+        frappe.throw(_("No payroll results were generated for this Payroll Entry."))
+
+    je_result = create_consolidated_employee_payment_journal_entry_draft(
+        payroll_results=payroll_results,
+        posting_date=ctx["end_date"],
+        company=ctx["company"],
+    )
+    journal_entry_name = _extract_journal_entry_name(je_result)
+
+    _write_payroll_entry_summary(pe, result)
+    _write_payroll_entry_links(pe, rootedops_employee_payment_journal_entry=journal_entry_name)
+
+    return {
+        "payroll_entry": pe.name,
+        "employees": employees,
+        "journal_entry": journal_entry_name,
+        "salary_slip_names": result.get("salary_slip_names", []),
+        "recommended_bank_accounts": je_result.get("recommended_bank_accounts"),
+        "liability_summary": je_result.get("liability_summary"),
+    }
+
+
+@frappe.whitelist()
+def create_tax_reserve_transfer_draft_journal_entry(payroll_entry_name: str):
+    pe, ctx = _get_payroll_entry_context(payroll_entry_name)
+    _get_existing_link(pe, "rootedops_tax_reserve_journal_entry", "tax reserve transfer Journal Entry")
+
+    if not pe.get("rootedops_consolidated_journal_entry"):
+        frappe.throw(_("Create the consolidated payroll accrual Journal Entry first."))
+
+    employees, result = _run_payroll_for_entry(pe, ctx)
+    payroll_results = result.get("payroll_results", [])
+    if not payroll_results:
+        frappe.throw(_("No payroll results were generated for this Payroll Entry."))
+
+    je_result = create_consolidated_tax_reserve_transfer_journal_entry_draft(
+        payroll_results=payroll_results,
+        posting_date=ctx["end_date"],
+        company=ctx["company"],
+    )
+    journal_entry_name = _extract_journal_entry_name(je_result)
+
+    _write_payroll_entry_summary(pe, result)
+    _write_payroll_entry_links(pe, rootedops_tax_reserve_journal_entry=journal_entry_name)
+
+    return {
+        "payroll_entry": pe.name,
+        "employees": employees,
+        "journal_entry": journal_entry_name,
+        "salary_slip_names": result.get("salary_slip_names", []),
+        "recommended_bank_accounts": je_result.get("recommended_bank_accounts"),
+        "liability_summary": je_result.get("liability_summary"),
     }

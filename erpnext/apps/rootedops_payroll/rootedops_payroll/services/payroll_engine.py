@@ -385,7 +385,6 @@ def update_employee_tax_profile(
     frappe.db.commit()
     return get_employee_tax_profile(employee)
 
-
 def seed_test_employee_tax_profile():
     return update_employee_tax_profile(
         employee="HR-EMP-00001",
@@ -2305,31 +2304,20 @@ def build_consolidated_payroll_cash_flow_preview(
     }
 
 
-def create_consolidated_payroll_journal_entry_draft(
-    payroll_results,
-    posting_date=None,
-    company=None,
-    account_overrides=None,
-    user_remark=None,
-):
-    preview = build_consolidated_payroll_journal_entry_preview(
-        payroll_results=payroll_results,
-        posting_date=posting_date,
-        company=company,
-        account_overrides=account_overrides,
-        user_remark=user_remark,
-    )
-
+def create_journal_entry_draft_from_preview(preview, label="Journal Entry"):
     if preview["missing_accounts"]:
         frappe.throw(
-            "Cannot create consolidated Journal Entry draft. Missing required account mappings: "
+            f"Cannot create {label} draft. Missing required account mappings: "
             + ", ".join(preview["missing_accounts"])
         )
 
     if not preview["is_balanced"]:
         frappe.throw(
-            f"Consolidated Journal Entry preview is not balanced: debit={preview['total_debit']} credit={preview['total_credit']}"
+            f"{label} preview is not balanced: debit={preview['total_debit']} credit={preview['total_credit']}"
         )
+
+    if not preview.get("accounts"):
+        frappe.throw(f"{label} preview has no account rows to create.")
 
     je = frappe.get_doc(
         {
@@ -2352,11 +2340,75 @@ def create_consolidated_payroll_journal_entry_draft(
         "total_credit": preview["total_credit"],
         "is_balanced": preview["is_balanced"],
         "missing_accounts": preview["missing_accounts"],
-        "account_map": preview["account_map"],
-        "liability_summary": preview["liability_summary"],
-        "salary_slip_names": preview["salary_slip_names"],
-        "employee_count": preview["employee_count"],
+        "account_map": preview.get("account_map"),
+        "liability_summary": preview.get("liability_summary"),
+        "salary_slip_names": preview.get("salary_slip_names"),
+        "employee_count": preview.get("employee_count"),
+        "recommended_bank_accounts": preview.get("recommended_bank_accounts"),
+        "user_remark": preview.get("user_remark"),
     }
+
+
+def create_consolidated_payroll_journal_entry_draft(
+    payroll_results,
+    posting_date=None,
+    company=None,
+    account_overrides=None,
+    user_remark=None,
+):
+    preview = build_consolidated_payroll_journal_entry_preview(
+        payroll_results=payroll_results,
+        posting_date=posting_date,
+        company=company,
+        account_overrides=account_overrides,
+        user_remark=user_remark,
+    )
+
+    return create_journal_entry_draft_from_preview(preview, label="Consolidated Journal Entry")
+
+
+def create_consolidated_employee_payment_journal_entry_draft(
+    payroll_results,
+    company=None,
+    checking_bank_account=None,
+    withholding_bank_account=None,
+    posting_date=None,
+):
+    cash_flow = build_consolidated_payroll_cash_flow_preview(
+        payroll_results=payroll_results,
+        company=company,
+        checking_bank_account=checking_bank_account,
+        withholding_bank_account=withholding_bank_account,
+        posting_date=posting_date,
+    )
+    preview = cash_flow["employee_payment_preview"]
+    preview["recommended_bank_accounts"] = cash_flow.get("recommended_bank_accounts")
+    preview["liability_summary"] = cash_flow.get("liability_summary")
+    preview["salary_slip_names"] = cash_flow.get("salary_slip_names")
+    preview["employee_count"] = cash_flow.get("employee_count")
+    return create_journal_entry_draft_from_preview(preview, label="Employee Payment Journal Entry")
+
+
+def create_consolidated_tax_reserve_transfer_journal_entry_draft(
+    payroll_results,
+    company=None,
+    checking_bank_account=None,
+    withholding_bank_account=None,
+    posting_date=None,
+):
+    cash_flow = build_consolidated_payroll_cash_flow_preview(
+        payroll_results=payroll_results,
+        company=company,
+        checking_bank_account=checking_bank_account,
+        withholding_bank_account=withholding_bank_account,
+        posting_date=posting_date,
+    )
+    preview = cash_flow["tax_reserve_transfer_preview"]
+    preview["recommended_bank_accounts"] = cash_flow.get("recommended_bank_accounts")
+    preview["liability_summary"] = cash_flow.get("liability_summary")
+    preview["salary_slip_names"] = cash_flow.get("salary_slip_names")
+    preview["employee_count"] = cash_flow.get("employee_count")
+    return create_journal_entry_draft_from_preview(preview, label="Tax Reserve Transfer Journal Entry")
 
 
 def run_batched_hourly_payroll(

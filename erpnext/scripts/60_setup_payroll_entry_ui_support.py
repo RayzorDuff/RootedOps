@@ -15,6 +15,20 @@ def ensure_payroll_entry_rootedops_fields():
             "options": "Journal Entry",
         },
         {
+            "fieldname": "rootedops_employee_payment_journal_entry",
+            "label": "RootedOps Employee Payment Journal Entry",
+            "fieldtype": "Link",
+            "options": "Journal Entry",
+            "read_only": 1,
+        },
+        {
+            "fieldname": "rootedops_tax_reserve_journal_entry",
+            "label": "RootedOps Tax Reserve Transfer Journal Entry",
+            "fieldtype": "Link",
+            "options": "Journal Entry",
+            "read_only": 1,
+        },
+        {
             "fieldname": "rootedops_salary_slip_count",
             "label": "RootedOps Salary Slip Count",
             "fieldtype": "Int",

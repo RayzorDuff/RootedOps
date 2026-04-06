@@ -136,8 +136,8 @@ For a saved Payroll Entry:
 - `erpnext/README.md`
 
 ## Next starting point
-Once this preview is working, the next step should be two more server actions, not just one:
+Phase 6B is now implemented in repo code with two more Payroll Entry actions:
 - `create_employee_payment_draft_journal_entry`
 - `create_tax_reserve_transfer_draft_journal_entry`
 
-That way the UI can move from preview to actual cash-flow documents in the same pattern as the existing consolidated accrual JE button.
+The next step is to install those changes into the live site, run the first live payroll cycle for Raymond Danks and Dank Mushrooms, LLC, and then decide whether Phase 6C should add a final `create_tax_remittance_draft_journal_entry` action as well.
