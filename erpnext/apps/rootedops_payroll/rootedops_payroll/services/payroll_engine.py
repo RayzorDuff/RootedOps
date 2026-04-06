@@ -589,6 +589,11 @@ def session_contains_full_overnight_block(session):
     return len(overnight_windows_covered_by_session(session)) > 0
 
 
+def get_hybrid_period_cutoff(end_date):
+    end_date = getdate(end_date)
+    return frappe.utils.get_datetime(f"{frappe.utils.add_days(end_date, 1)} 06:00:00")
+
+
 def split_session_into_hybrid_segments(session):
     """
     Split a session into hourly and overnight-flat segments.
@@ -677,6 +682,9 @@ def hybrid_overnight_summary(employee, start_date, end_date, hourly_rate, overni
     sessions = get_checkin_sessions(employee, start_date, end_date)
     overnight_flat_amount = flt(overnight_flat_amount or DEFAULT_OVERNIGHT_FLAT_AMOUNT, 2)
 
+    period_start = frappe.utils.get_datetime(f"{getdate(start_date)} 00:00:00")
+    hybrid_cutoff = frappe.utils.get_datetime(f"{frappe.utils.add_days(getdate(end_date), 1)} 06:00:00")
+
     hourly_hours = 0.0
     reported_total_hours = 0.0
     overnight_shift_count = 0
@@ -686,27 +694,54 @@ def hybrid_overnight_summary(employee, start_date, end_date, hourly_rate, overni
 
     for session in sessions:
         compensated_dates.add(str(getdate(session["start"])))
-
         split = split_session_into_hybrid_segments(session)
 
-        session_hourly_hours = flt(split["hourly_hours"], 2)
-        session_overnight_hours = flt(split["overnight_hours"], 2)
+        kept_segments = []
+        session_hourly_hours = 0.0
+        session_overnight_hours = 0.0
+        overnight_block_count = 0
 
-        hourly_hours += session_hourly_hours
+        for seg in split["segments"]:
+            seg_start = frappe.utils.get_datetime(seg["start"])
+            seg_end = frappe.utils.get_datetime(seg["end"])
+
+            # Ignore anything entirely beyond the hybrid payroll cutoff
+            if seg_start >= hybrid_cutoff:
+                continue
+
+            # Clip hourly segments to the cutoff
+            if seg["type"] == "hourly":
+                clipped_end = min(seg_end, hybrid_cutoff)
+                if clipped_end > seg_start:
+                    hours = flt((clipped_end - seg_start).total_seconds() / 3600.0, 2)
+                    session_hourly_hours += hours
+                    kept_segments.append({
+                        **seg,
+                        "end": clipped_end,
+                        "hours": hours,
+                    })
+
+            # Keep overnight flat blocks only if fully covered and their start is in-period
+            elif seg["type"] == "overnight_flat":
+                if seg_start >= period_start and seg_start <= frappe.utils.get_datetime(f"{getdate(end_date)} 23:59:59"):
+                    session_overnight_hours += 8.0
+                    overnight_block_count += 1
+                    kept_segments.append(seg)
+
+        hourly_hours += flt(session_hourly_hours, 2)
         reported_total_hours += flt(session_hourly_hours + session_overnight_hours, 2)
 
-        overnight_block_count = cint(split.get("overnight_block_count") or 0)
         if overnight_block_count:
             overnight_shift_count += overnight_block_count
             overnight_flat_pay += flt(overnight_block_count * overnight_flat_amount, 2)
 
         resolved_rows.append({
             **session,
-            "resolved_hourly_hours": session_hourly_hours,
-            "resolved_overnight_hours": session_overnight_hours,
+            "resolved_hourly_hours": flt(session_hourly_hours, 2),
+            "resolved_overnight_hours": flt(session_overnight_hours, 2),
             "resolved_overnight_block_count": overnight_block_count,
-            "resolved_has_full_overnight_block": split["has_full_overnight_block"],
-            "resolved_segments": split["segments"],
+            "resolved_has_full_overnight_block": overnight_block_count > 0,
+            "resolved_segments": kept_segments,
         })
 
     total_working_days = date_diff(getdate(end_date), getdate(start_date)) + 1
