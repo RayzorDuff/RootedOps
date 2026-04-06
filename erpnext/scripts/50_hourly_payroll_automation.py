@@ -385,6 +385,7 @@ def update_employee_tax_profile(
     frappe.db.commit()
     return get_employee_tax_profile(employee)
 
+
 def seed_test_employee_tax_profile():
     return update_employee_tax_profile(
         employee="HR-EMP-00001",
@@ -480,31 +481,62 @@ def checkin_diagnostics(employee, start_date, end_date):
     }
 
 
-def get_checkin_sessions(employee, start_date, end_date):
-    rows = checkin_diagnostics(employee, start_date, end_date)["rows"]
+def get_checkin_sessions_assigned_by_start_date(employee, start_date, end_date):
+    """Build paired IN/OUT sessions and assign them to a payroll period by IN date.
+
+    This lets an overnight session like 2026-04-05 22:00 -> 2026-04-06 06:00
+    belong to the payroll period that includes 2026-04-05.
+    """
+    start_date = getdate(start_date)
+    end_date = getdate(end_date)
+
+    query_start = f"{start_date} 00:00:00"
+    # Look ahead far enough to capture long sessions that started in-period
+    # but end multiple days later.
+    query_end = f"{frappe.utils.add_days(end_date, 3)} 23:59:59"
+
+    rows = frappe.get_all(
+        "Employee Checkin",
+        filters={
+            "employee": employee,
+            "time": ["between", [query_start, query_end]],
+        },
+        fields=["name", "time", "log_type", "skip_auto_attendance", "shift"],
+        order_by="time asc",
+    )
+
     sessions = []
     open_in = None
 
     for row in rows:
-        log_type = (row.log_type or "").upper()
-        when = frappe.utils.get_datetime(row.time)
+        log_type = (row.get("log_type") or "").upper()
+        when = frappe.utils.get_datetime(row.get("time"))
         if log_type == "IN":
             open_in = row
             continue
         if log_type == "OUT" and open_in:
-            start_dt = frappe.utils.get_datetime(open_in.time)
+            start_dt = frappe.utils.get_datetime(open_in.get("time"))
             end_dt = when
-            duration_hours = max(0.0, (end_dt - start_dt).total_seconds() / 3600.0)
-            sessions.append({
-                "in_name": open_in.name,
-                "out_name": row.name,
-                "start": start_dt,
-                "end": end_dt,
-                "hours": flt(duration_hours, 2),
-            })
+            if end_dt > start_dt:
+                start_day = getdate(start_dt)
+                if start_date <= start_day <= end_date:
+                    duration_hours = max(0.0, (end_dt - start_dt).total_seconds() / 3600.0)
+                    sessions.append({
+                        "in_name": open_in.get("name"),
+                        "out_name": row.get("name"),
+                        "start": start_dt,
+                        "end": end_dt,
+                        "hours": flt(duration_hours, 2),
+                        "shift": open_in.get("shift") or row.get("shift"),
+                        "skip_auto_attendance": cint(open_in.get("skip_auto_attendance") or 0) or cint(row.get("skip_auto_attendance") or 0),
+                    })
             open_in = None
 
     return sessions
+
+
+def get_checkin_sessions(employee, start_date, end_date):
+    return get_checkin_sessions_assigned_by_start_date(employee, start_date, end_date)
 
 
 def is_full_overnight_session(session):
@@ -518,6 +550,130 @@ def is_full_overnight_session(session):
     )
 
 
+def overnight_windows_covered_by_session(session):
+    """
+    Return every canonical overnight window (22:00 -> 06:00 next day)
+    fully covered by this session.
+
+    Important policy:
+    - The entire session is still assigned to the payroll period containing
+      the session IN timestamp.
+    - Multiple overnight blocks inside the same long session are all paid
+      in that same payroll period.
+    """
+    start = frappe.utils.get_datetime(session["start"])
+    end = frappe.utils.get_datetime(session["end"])
+
+    windows = []
+    cursor_day = getdate(start)
+
+    # Walk day-by-day from session start date through session end date
+    while cursor_day <= getdate(end):
+        overnight_start = frappe.utils.get_datetime(f"{cursor_day} 22:00:00")
+        overnight_end = frappe.utils.get_datetime(
+            f"{frappe.utils.add_days(cursor_day, 1)} 06:00:00"
+        )
+
+        if start <= overnight_start and end >= overnight_end:
+            windows.append({
+                "start": overnight_start,
+                "end": overnight_end,
+                "hours": 8.0,
+            })
+
+        cursor_day = frappe.utils.add_days(cursor_day, 1)
+
+    return windows
+
+
+def session_contains_full_overnight_block(session):
+    return len(overnight_windows_covered_by_session(session)) > 0
+
+
+def split_session_into_hybrid_segments(session):
+    """
+    Split a session into hourly and overnight-flat segments.
+
+    Supports multiple full overnight blocks inside one long session.
+    Example:
+      2026-05-18 06:00 -> 2026-05-20 07:30
+    becomes:
+      hourly: 05/18 06:00 -> 05/18 22:00
+      flat:   05/18 22:00 -> 05/19 06:00
+      hourly: 05/19 06:00 -> 05/19 22:00
+      flat:   05/19 22:00 -> 05/20 06:00
+      hourly: 05/20 06:00 -> 05/20 07:30
+    """
+    start = frappe.utils.get_datetime(session["start"])
+    end = frappe.utils.get_datetime(session["end"])
+
+    windows = overnight_windows_covered_by_session(session)
+    windows = sorted(windows, key=lambda w: w["start"])
+
+    segments = []
+    hourly_hours = 0.0
+    overnight_hours = 0.0
+
+    cursor = start
+
+    for window in windows:
+        overnight_start = window["start"]
+        overnight_end = window["end"]
+
+        # Hourly segment before overnight block
+        if cursor < overnight_start:
+            pre_hours = max(0.0, (overnight_start - cursor).total_seconds() / 3600.0)
+            if pre_hours > 0:
+                hourly_hours += pre_hours
+                segments.append({
+                    "type": "hourly",
+                    "start": cursor,
+                    "end": overnight_start,
+                    "hours": flt(pre_hours, 2),
+                })
+
+        # Overnight flat block
+        segments.append({
+            "type": "overnight_flat",
+            "start": overnight_start,
+            "end": overnight_end,
+            "hours": 8.0,
+        })
+        overnight_hours += 8.0
+        cursor = overnight_end
+
+    # Hourly segment after final overnight block
+    if cursor < end:
+        post_hours = max(0.0, (end - cursor).total_seconds() / 3600.0)
+        if post_hours > 0:
+            hourly_hours += post_hours
+            segments.append({
+                "type": "hourly",
+                "start": cursor,
+                "end": end,
+                "hours": flt(post_hours, 2),
+            })
+
+    # No overnight windows at all -> whole session hourly
+    if not windows and start < end:
+        total_hours = max(0.0, (end - start).total_seconds() / 3600.0)
+        hourly_hours = total_hours
+        segments = [{
+            "type": "hourly",
+            "start": start,
+            "end": end,
+            "hours": flt(total_hours, 2),
+        }]
+
+    return {
+        "has_full_overnight_block": len(windows) > 0,
+        "overnight_block_count": len(windows),
+        "hourly_hours": flt(hourly_hours, 2),
+        "overnight_hours": flt(overnight_hours, 2),
+        "segments": segments,
+    }
+
+
 def hybrid_overnight_summary(employee, start_date, end_date, hourly_rate, overnight_flat_amount=None):
     sessions = get_checkin_sessions(employee, start_date, end_date)
     overnight_flat_amount = flt(overnight_flat_amount or DEFAULT_OVERNIGHT_FLAT_AMOUNT, 2)
@@ -527,17 +683,32 @@ def hybrid_overnight_summary(employee, start_date, end_date, hourly_rate, overni
     overnight_shift_count = 0
     overnight_flat_pay = 0.0
     compensated_dates = set()
+    resolved_rows = []
 
     for session in sessions:
         compensated_dates.add(str(getdate(session["start"])))
-        if is_full_overnight_session(session):
-            overnight_shift_count += 1
-            overnight_flat_pay += overnight_flat_amount
-            reported_total_hours += 8.0
-        else:
-            session_hours = flt(session["hours"], 2)
-            hourly_hours += session_hours
-            reported_total_hours += session_hours
+
+        split = split_session_into_hybrid_segments(session)
+
+        session_hourly_hours = flt(split["hourly_hours"], 2)
+        session_overnight_hours = flt(split["overnight_hours"], 2)
+
+        hourly_hours += session_hourly_hours
+        reported_total_hours += flt(session_hourly_hours + session_overnight_hours, 2)
+
+        overnight_block_count = cint(split.get("overnight_block_count") or 0)
+        if overnight_block_count:
+            overnight_shift_count += overnight_block_count
+            overnight_flat_pay += flt(overnight_block_count * overnight_flat_amount, 2)
+
+        resolved_rows.append({
+            **session,
+            "resolved_hourly_hours": session_hourly_hours,
+            "resolved_overnight_hours": session_overnight_hours,
+            "resolved_overnight_block_count": overnight_block_count,
+            "resolved_has_full_overnight_block": split["has_full_overnight_block"],
+            "resolved_segments": split["segments"],
+        })
 
     total_working_days = date_diff(getdate(end_date), getdate(start_date)) + 1
     payment_days = len(compensated_dates)
@@ -546,7 +717,7 @@ def hybrid_overnight_summary(employee, start_date, end_date, hourly_rate, overni
     gross = flt(hourly_gross + overnight_flat_pay, 2)
 
     return {
-        "rows": sessions,
+        "rows": resolved_rows,
         "hours": flt(reported_total_hours, 2),
         "hourly_hours": flt(hourly_hours, 2),
         "payment_days": flt(payment_days, 2),
@@ -1756,6 +1927,8 @@ def build_consolidated_payroll_journal_entry_preview(
         "period_end": period_end,
         "employee_count": len(payroll_results),
     }
+
+
 
 
 def get_default_checking_bank_gl_account(company):
