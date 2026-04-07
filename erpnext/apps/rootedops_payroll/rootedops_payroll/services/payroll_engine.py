@@ -1393,18 +1393,68 @@ def set_manual_totals(slip):
     }
 
 
+def repair_salary_slip_totals(slip_or_name):
+    slip = (
+        frappe.get_doc("Salary Slip", slip_or_name)
+        if isinstance(slip_or_name, str)
+        else slip_or_name
+    )
+
+    earnings_sum = flt(sum(flt(row.amount) for row in slip.earnings), 2)
+    deductions_sum = flt(sum(flt(row.amount) for row in slip.deductions), 2)
+    net_pay = flt(earnings_sum - deductions_sum, 2)
+
+    updates = {
+        "gross_pay": earnings_sum,
+        "total_deduction": deductions_sum,
+        "net_pay": net_pay,
+        "rounded_total": net_pay,
+        "base_gross_pay": earnings_sum,
+        "base_total_deduction": deductions_sum,
+        "base_net_pay": net_pay,
+    }
+
+    frappe.db.set_value("Salary Slip", slip.name, updates, update_modified=False)
+    frappe.db.commit()
+    slip.reload()
+    return slip
+
+
+def finalize_custom_salary_slip(slip_or_name):
+    slip = (
+        frappe.get_doc("Salary Slip", slip_or_name)
+        if isinstance(slip_or_name, str)
+        else slip_or_name
+    )
+
+    normalize_saved_child_rows(slip)
+    slip.reload()
+    repair_salary_slip_totals(slip)
+    slip.reload()
+    return slip
+
+
+def submit_custom_salary_slip(slip_name):
+    slip = frappe.get_doc("Salary Slip", slip_name)
+    slip.submit()
+    frappe.db.commit()
+
+    # HRMS may recompute header totals on submit even when child rows remain correct.
+    finalize_custom_salary_slip(slip.name)
+
+    return frappe.get_doc("Salary Slip", slip.name)
+
+
 def normalize_saved_child_rows(slip):
     changed = 0
 
     for row in list(slip.earnings) + list(slip.deductions):
         target_amount = flt(getattr(row, "amount", 0.0), 2)
 
-        updates = {}
-        if cint(getattr(row, "depends_on_payment_days", 0)) != 0:
-            updates["depends_on_payment_days"] = 0
-
-        if flt(getattr(row, "default_amount", 0.0), 2) != target_amount:
-            updates["default_amount"] = target_amount
+        updates = {
+            "depends_on_payment_days": 0,
+            "default_amount": target_amount,
+        }
 
         if updates:
             for fieldname, value in updates.items():
@@ -1431,7 +1481,8 @@ def save_custom_salary_slip(slip, employee, start_date):
         slip.save(ignore_permissions=True)
 
     slip.reload()
-    normalize_saved_child_rows(slip)
+    finalize_custom_salary_slip(slip)
+
     return slip
 
 
