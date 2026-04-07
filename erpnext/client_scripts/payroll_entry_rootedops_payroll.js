@@ -105,6 +105,34 @@ frappe.ui.form.on("Payroll Entry", {
       });
     }, "RootedOps Payroll");
 
+    frm.add_custom_button("Submit Draft Salary Slips", () => {
+      frappe.call({
+        method: "rootedops_payroll.api.payroll_entry_actions.submit_draft_salary_slips",
+        args: { payroll_entry_name: frm.doc.name },
+        freeze: true,
+        freeze_message: "Submitting salary slips..."
+      }).then((r) => {
+        const data = r.message || {};
+        const submitted = data.submitted_salary_slip_names || [];
+        const alreadySubmitted = data.already_submitted_salary_slip_names || [];
+
+        frappe.msgprint({
+          title: "Salary Slips Submitted",
+          wide: true,
+          message: `
+            <p><b>Employees:</b> ${data.employee_count || 0}</p>
+            <p><b>Submitted Now:</b> ${submitted.length}</p>
+            <p>${salarySlipLinks(submitted) || "None"}</p>
+            <hr>
+            <p><b>Already Submitted:</b> ${alreadySubmitted.length}</p>
+            <p>${salarySlipLinks(alreadySubmitted) || "None"}</p>
+        `
+         });
+
+        frm.reload_doc();
+      });
+    }, "RootedOps Payroll");
+
     frm.add_custom_button("Create Consolidated Draft JE", () => {
       frappe.call({
         method: "rootedops_payroll.api.payroll_entry_actions.create_consolidated_draft_journal_entry",

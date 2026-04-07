@@ -7,8 +7,10 @@ from rootedops_payroll.services.payroll_engine import (
     create_consolidated_employee_payment_journal_entry_draft,
     create_consolidated_payroll_journal_entry_draft,
     create_consolidated_tax_reserve_transfer_journal_entry_draft,
+    finalize_custom_salary_slip,
     get_employees_with_attendance_in_period,
     run_batched_hourly_payroll,
+    submit_custom_salary_slip,
 )
 
 PAYROLL_ENTRY_FIELD_CONSOLIDATED_JE = "rootedops_consolidated_journal_entry"
@@ -124,7 +126,36 @@ def _extract_journal_entry_name(result):
     return getattr(result, "name", None)
 
 
-def _run_payroll_for_entry(pe, ctx):
+def _finalize_salary_slips_in_result(result):
+    slip_names = list(dict.fromkeys(result.get("salary_slip_names", []) or []))
+    finalized = []
+
+    for slip_name in slip_names:
+        finalize_custom_salary_slip(slip_name)
+        finalized.append(slip_name)
+
+    result["salary_slip_names"] = finalized
+    return finalized
+
+
+def _get_salary_slips_for_payroll_entry(employees, ctx):
+    if not employees:
+        return []
+
+    return frappe.get_all(
+        "Salary Slip",
+        filters={
+            "employee": ["in", employees],
+            "start_date": ctx["start_date"],
+            "end_date": ctx["end_date"],
+            "docstatus": ["!=", 2],
+        },
+        fields=["name", "employee", "docstatus"],
+        order_by="creation asc",
+    )
+
+
+def _run_payroll_for_entry(pe, ctx, finalize_slips=True):
     employees = _get_employees_for_payroll_entry(pe, ctx)
     result = run_batched_hourly_payroll(
         employees=employees,
@@ -132,6 +163,10 @@ def _run_payroll_for_entry(pe, ctx):
         end_date=ctx["end_date"],
         company=ctx["company"],
     )
+
+    if finalize_slips:
+        _finalize_salary_slips_in_result(result)
+
     return employees, result
 
 
@@ -184,10 +219,46 @@ def preview_payroll_cash_flow(payroll_entry_name: str):
             "payroll_results": result.get("payroll_results", []),
         },
     }
+
+
+@frappe.whitelist()
+def submit_draft_salary_slips(payroll_entry_name: str):
+    pe, ctx = _get_payroll_entry_context(payroll_entry_name)
+    employees = _get_employees_for_payroll_entry(pe, ctx)
+
+    slips = _get_salary_slips_for_payroll_entry(employees, ctx)
+    if not slips:
+        frappe.throw(_("No Salary Slips were found for this Payroll Entry period."))
+
+    submitted = []
+    already_submitted = []
+
+    for row in slips:
+        if row.get("docstatus") == 1:
+            already_submitted.append(row["name"])
+            continue
+
+        slip = submit_custom_salary_slip(row["name"])
+        submitted.append(slip.name)
+
+    # Refresh payroll summary after submit-safe slip finalization
+    _, result = _run_payroll_for_entry(pe, ctx, finalize_slips=True)
+    _write_payroll_entry_summary(pe, result)
+
+    return {
+        "payroll_entry": pe.name,
+        "employees": employees,
+        "submitted_salary_slip_names": submitted,
+        "already_submitted_salary_slip_names": already_submitted,
+        "salary_slip_names": [row["name"] for row in slips],
+        "employee_count": len(employees),
+    }
+
+
 @frappe.whitelist()
 def create_or_refresh_draft_salary_slips(payroll_entry_name: str):
     pe, ctx = _get_payroll_entry_context(payroll_entry_name)
-    employees, result = _run_payroll_for_entry(pe, ctx)
+    employees, result = _run_payroll_for_entry(pe, ctx, finalize_slips=True)
 
     _write_payroll_entry_summary(pe, result)
 
@@ -198,6 +269,7 @@ def create_or_refresh_draft_salary_slips(payroll_entry_name: str):
         "salary_slip_names": result.get("salary_slip_names", []),
         "payroll_results": result.get("payroll_results", []),
         "consolidated_liability_summary": result.get("consolidated_liability_summary"),
+        "finalized": True,
     }
 
 
