@@ -69,6 +69,7 @@ frappe
 erpnext
 hrms
 employee_self_service
+rootedops_payroll
 EOF
 
 if [ ! -f "sites/${ERPNEXT_SITE_NAME}/site_config.json" ]; then
@@ -104,6 +105,23 @@ bench --site "${ERPNEXT_SITE_NAME}" list-apps | grep -q "hrms" && echo "HRMS ins
 echo "Installing Employee Self Service on site ${ERPNEXT_SITE_NAME}..."
 bench --site "${ERPNEXT_SITE_NAME}" install-app employee_self_service && echo "ESS installed." \
   || { echo "ESS install did not complete cleanly."; exit 1; }
+
+if [ ! -d "apps/rootedops_payroll" ]; then
+  echo "ERROR: apps/rootedops_payroll is missing from the built ERPNext image." >&2
+  exit 1
+fi
+
+if [ -f "sites/apps.txt" ] && ! grep -qx 'rootedops_payroll' sites/apps.txt; then
+  echo "Registering rootedops_payroll in sites/apps.txt..."
+  printf 'rootedops_payroll\n' >> sites/apps.txt
+fi
+
+echo "Installing RootedOps Payroll on site ${ERPNEXT_SITE_NAME}..."
+bench --site "${ERPNEXT_SITE_NAME}" install-app rootedops_payroll || true
+
+echo "Verifying RootedOps Payroll install..."
+bench --site "${ERPNEXT_SITE_NAME}" list-apps | grep -q "rootedops_payroll" && echo "RootedOps Payroll installed." \
+  || { echo "RootedOps Payroll install did not complete cleanly."; exit 1; }
 
 echo "Verifying installed apps..."
 bench --site "${ERPNEXT_SITE_NAME}" list-apps

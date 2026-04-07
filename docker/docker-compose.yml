@@ -2,8 +2,8 @@ x-erpnext-image: &erpnext_image
   image: rootedops-erpnext:${ERPNEXT_IMAGE_TAG}
   pull_policy: never
   build:
-    context: .
-    dockerfile: erpnext-custom.Dockerfile
+    context: ..
+    dockerfile: docker/erpnext-custom.Dockerfile
     args:
       ERPNEXT_IMAGE_TAG: ${ERPNEXT_IMAGE_TAG}
       ERPNEXT_HRMS_BRANCH: ${ERPNEXT_HRMS_BRANCH}
@@ -250,12 +250,13 @@ services:
     entrypoint:
       - bash
       - -lc
-    command: >
-      if [ ! -d /out-apps/frappe ] || [ ! -d /out-apps/erpnext ]; then
-        echo 'Initializing ERPNext apps volume from container image...' &&
-        cp -a /home/frappe/frappe-bench/apps/. /out-apps/;
+    command: |
+      set -e
+      if [ ! -d /out-apps/frappe ] || [ ! -d /out-apps/erpnext ] || [ ! -d /out-apps/rootedops_payroll ]; then
+        echo 'Initializing ERPNext apps volume from container image...'
+        cp -a /home/frappe/frappe-bench/apps/. /out-apps/
       else
-        echo 'ERPNext apps volume already initialized.';
+        echo 'ERPNext apps volume already initialized.'
       fi
     volumes:
       - erpnext_apps:/out-apps
@@ -272,14 +273,21 @@ services:
     entrypoint:
       - bash
       - -lc
-    command: >
-      mkdir -p sites &&
-      printf "frappe\nerpnext\nhrms\nemployee_self_service\n" > sites/apps.txt &&
-      bench set-config -g db_host ${ERPNEXT_DB_HOST} &&
-      bench set-config -g db_port ${ERPNEXT_DB_PORT} &&
-      bench set-config -g redis_cache "redis://${ERPNEXT_REDIS_CACHE_HOST}:${ERPNEXT_REDIS_CACHE_PORT}" &&
-      bench set-config -g redis_queue "redis://${ERPNEXT_REDIS_QUEUE_HOST}:${ERPNEXT_REDIS_QUEUE_PORT}" &&
-      bench set-config -g redis_socketio "redis://${ERPNEXT_REDIS_QUEUE_HOST}:${ERPNEXT_REDIS_QUEUE_PORT}" &&
+    command: |
+      set -e
+      mkdir -p sites
+      cat > sites/apps.txt <<'EOF'
+      frappe
+      erpnext
+      hrms
+      employee_self_service
+      rootedops_payroll
+      EOF
+      bench set-config -g db_host ${ERPNEXT_DB_HOST}
+      bench set-config -g db_port ${ERPNEXT_DB_PORT}
+      bench set-config -g redis_cache redis://${ERPNEXT_REDIS_CACHE_HOST}:${ERPNEXT_REDIS_CACHE_PORT}
+      bench set-config -g redis_queue redis://${ERPNEXT_REDIS_QUEUE_HOST}:${ERPNEXT_REDIS_QUEUE_PORT}
+      bench set-config -g redis_socketio redis://${ERPNEXT_REDIS_QUEUE_HOST}:${ERPNEXT_REDIS_QUEUE_PORT}
       bench set-config -gp socketio_port ${ERPNEXT_SOCKETIO_PORT:-9000}
     volumes:
       - erpnext_apps:/home/frappe/frappe-bench/apps
