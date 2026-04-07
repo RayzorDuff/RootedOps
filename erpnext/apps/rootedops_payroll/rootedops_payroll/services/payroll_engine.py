@@ -28,10 +28,9 @@ Run inside bench console with:
 from contextlib import contextmanager
 
 import frappe
-from frappe.utils import cint, date_diff, flt, getdate
+from frappe.utils import cint, date_diff, flt, getdate, money_in_words
 from hrms.payroll.doctype.salary_slip.salary_slip import SalarySlip
 from frappe.custom.doctype.custom_field.custom_field import create_custom_fields
-
 
 SS_WAGE_BASE_2026 = 184500.0
 SS_RATE = 0.062
@@ -1404,7 +1403,6 @@ def repair_salary_slip_totals(slip_or_name):
     deductions_sum = flt(sum(flt(row.amount) for row in slip.deductions), 2)
     net_pay = flt(earnings_sum - deductions_sum, 2)
 
-    # Prior submitted slips only, excluding this slip
     prior_submitted = frappe.get_all(
         "Salary Slip",
         filters={
@@ -1455,9 +1453,44 @@ def repair_salary_slip_totals(slip_or_name):
         "base_year_to_date": year_to_date,
         "month_to_date": month_to_date,
         "base_month_to_date": month_to_date,
+        "total_in_words": money_in_words(net_pay, slip.currency),
+        "base_total_in_words": money_in_words(net_pay, slip.currency),
     }
 
     frappe.db.set_value("Salary Slip", slip.name, updates, update_modified=False)
+
+    # Repair row-level YTD fields if present on Salary Detail rows.
+    running_earning_ytd = prior_gross_ytd
+    for row in slip.earnings:
+        row_updates = {}
+        running_earning_ytd = flt(running_earning_ytd + flt(row.amount), 2)
+
+        row_meta = frappe.get_meta(row.doctype)
+        fieldnames = {df.fieldname for df in row_meta.fields}
+
+        if "year_to_date" in fieldnames:
+            row_updates["year_to_date"] = running_earning_ytd
+        if "base_year_to_date" in fieldnames:
+            row_updates["base_year_to_date"] = running_earning_ytd
+
+        if row_updates:
+            frappe.db.set_value(row.doctype, row.name, row_updates, update_modified=False)
+
+    for row in slip.deductions:
+        row_updates = {}
+        row_meta = frappe.get_meta(row.doctype)
+        fieldnames = {df.fieldname for df in row_meta.fields}
+
+        # Usually deduction row YTD is cumulative by component amount, but if present,
+        # at least keep it internally consistent for single-slip cases.
+        if "year_to_date" in fieldnames:
+            row_updates["year_to_date"] = flt(row.amount, 2)
+        if "base_year_to_date" in fieldnames:
+            row_updates["base_year_to_date"] = flt(row.amount, 2)
+
+        if row_updates:
+            frappe.db.set_value(row.doctype, row.name, row_updates, update_modified=False)
+
     frappe.db.commit()
     slip.reload()
     return slip
