@@ -100,6 +100,8 @@ frappe.ui.form.on("Payroll Entry", {
             <p>${salarySlipLinks(slips) || "None"}</p>
           `
         });
+
+        frm.reload_doc();
       });
     }, "RootedOps Payroll");
 

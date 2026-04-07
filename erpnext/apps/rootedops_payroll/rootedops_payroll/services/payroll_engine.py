@@ -2053,7 +2053,18 @@ def get_withholding_bank_gl_account(company):
     return None
 
 
-def build_simple_journal_preview(company, posting_date, user_remark, lines):
+def build_simple_journal_preview(
+    company,
+    posting_date,
+    user_remark,
+    lines,
+    missing_accounts=None,
+    account_map=None,
+    liability_summary=None,
+    salary_slip_names=None,
+    employee_count=None,
+    recommended_bank_accounts=None,
+):
     normalized = []
     for line in lines:
         debit = flt(line.get("debit_in_account_currency", 0.0), 2)
@@ -2070,6 +2081,8 @@ def build_simple_journal_preview(company, posting_date, user_remark, lines):
 
     total_debit = flt(sum(flt(d.get("debit_in_account_currency", 0.0)) for d in normalized), 2)
     total_credit = flt(sum(flt(d.get("credit_in_account_currency", 0.0)) for d in normalized), 2)
+    missing_accounts = list(missing_accounts or [])
+    is_balanced = total_debit == total_credit
 
     return {
         "voucher_type": "Journal Entry",
@@ -2079,8 +2092,14 @@ def build_simple_journal_preview(company, posting_date, user_remark, lines):
         "accounts": normalized,
         "total_debit": total_debit,
         "total_credit": total_credit,
-        "is_balanced": total_debit == total_credit,
-        "is_ready_to_create": total_debit == total_credit and len(normalized) > 0,
+        "is_balanced": is_balanced,
+        "is_ready_to_create": is_balanced and len(normalized) > 0 and not missing_accounts,
+        "missing_accounts": missing_accounts,
+        "account_map": account_map,
+        "liability_summary": liability_summary,
+        "salary_slip_names": salary_slip_names,
+        "employee_count": employee_count,
+        "recommended_bank_accounts": recommended_bank_accounts,
     }
 
 
@@ -2125,6 +2144,18 @@ def build_payroll_cash_flow_preview(
         company=company,
         posting_date=posting_date,
         user_remark=f"Employee payroll payment for {slip.name}",
+        missing_accounts=[name for name, account in {
+            "payroll_payable_account": account_map["payroll_payable_account"],
+            "checking_bank_account": checking_bank_account,
+        }.items() if not account],
+        account_map=account_map,
+        liability_summary=liability,
+        salary_slip_names=[slip.name],
+        employee_count=1,
+        recommended_bank_accounts={
+            "checking_bank_account": checking_bank_account,
+            "withholding_bank_account": withholding_bank_account,
+        },
         lines=[
             {
                 "account": account_map["payroll_payable_account"],
@@ -2147,6 +2178,18 @@ def build_payroll_cash_flow_preview(
         company=company,
         posting_date=posting_date,
         user_remark=f"Transfer payroll tax reserve for {slip.name}",
+        missing_accounts=[name for name, account in {
+            "checking_bank_account": checking_bank_account,
+            "withholding_bank_account": withholding_bank_account,
+        }.items() if not account],
+        account_map=account_map,
+        liability_summary=liability,
+        salary_slip_names=[slip.name],
+        employee_count=1,
+        recommended_bank_accounts={
+            "checking_bank_account": checking_bank_account,
+            "withholding_bank_account": withholding_bank_account,
+        },
         lines=[
             {
                 "account": withholding_bank_account,
@@ -2169,6 +2212,21 @@ def build_payroll_cash_flow_preview(
         company=company,
         posting_date=posting_date,
         user_remark=f"Payroll tax remittance preview for {slip.name}",
+        missing_accounts=[name for name, account in {
+            "social_security_payable_account": account_map["social_security_payable_account"],
+            "medicare_payable_account": account_map["medicare_payable_account"],
+            "federal_withholding_payable_account": account_map["federal_withholding_payable_account"],
+            "colorado_withholding_payable_account": account_map["colorado_withholding_payable_account"],
+            "withholding_bank_account": withholding_bank_account,
+        }.items() if not account],
+        account_map=account_map,
+        liability_summary=liability,
+        salary_slip_names=[slip.name],
+        employee_count=1,
+        recommended_bank_accounts={
+            "checking_bank_account": checking_bank_account,
+            "withholding_bank_account": withholding_bank_account,
+        },
         lines=[
             {
                 "account": account_map["social_security_payable_account"],
@@ -2273,6 +2331,18 @@ def build_consolidated_payroll_cash_flow_preview(
         company=company,
         posting_date=posting_date,
         user_remark=f"Consolidated employee payroll payment for {company}",
+        missing_accounts=[name for name, account in {
+            "payroll_payable_account": account_map["payroll_payable_account"],
+            "checking_bank_account": checking_bank_account,
+        }.items() if not account],
+        account_map=account_map,
+        liability_summary=liability,
+        salary_slip_names=[result["slip_name"] for result in payroll_results],
+        employee_count=len(payroll_results),
+        recommended_bank_accounts={
+            "checking_bank_account": checking_bank_account,
+            "withholding_bank_account": withholding_bank_account,
+        },
         lines=[
             {
                 "account": account_map["payroll_payable_account"],
@@ -2364,15 +2434,17 @@ def build_consolidated_payroll_cash_flow_preview(
 
 
 def create_journal_entry_draft_from_preview(preview, label="Journal Entry"):
-    if preview["missing_accounts"]:
+    missing_accounts = preview.get("missing_accounts", [])
+
+    if missing_accounts:
         frappe.throw(
             f"Cannot create {label} draft. Missing required account mappings: "
-            + ", ".join(preview["missing_accounts"])
+            + ", ".join(missing_accounts)
         )
 
-    if not preview["is_balanced"]:
+    if not preview.get("is_balanced", False):
         frappe.throw(
-            f"{label} preview is not balanced: debit={preview['total_debit']} credit={preview['total_credit']}"
+            f"{label} preview is not balanced: debit={preview.get('total_debit')} credit={preview.get('total_credit')}"
         )
 
     if not preview.get("accounts"):
@@ -2395,10 +2467,10 @@ def create_journal_entry_draft_from_preview(preview, label="Journal Entry"):
         "journal_entry_name": je.name,
         "posting_date": je.posting_date,
         "company": je.company,
-        "total_debit": preview["total_debit"],
-        "total_credit": preview["total_credit"],
-        "is_balanced": preview["is_balanced"],
-        "missing_accounts": preview["missing_accounts"],
+        "total_debit": preview.get("total_debit"),
+        "total_credit": preview.get("total_credit"),
+        "is_balanced": preview.get("is_balanced"),
+        "missing_accounts": missing_accounts,
         "account_map": preview.get("account_map"),
         "liability_summary": preview.get("liability_summary"),
         "salary_slip_names": preview.get("salary_slip_names"),
