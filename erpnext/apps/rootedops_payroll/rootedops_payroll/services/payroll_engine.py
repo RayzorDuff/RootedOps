@@ -481,17 +481,23 @@ def checkin_diagnostics(employee, start_date, end_date):
 
 
 def get_checkin_sessions_assigned_by_start_date(employee, start_date, end_date):
-    """Build paired IN/OUT sessions and assign them to a payroll period by IN date.
+    """Build paired IN/OUT sessions from a widened window.
 
-    This lets an overnight session like 2026-04-05 22:00 -> 2026-04-06 06:00
-    belong to the payroll period that includes 2026-04-05.
+    Important:
+    - We no longer only load sessions whose IN is inside the payroll period.
+    - We load a small lookback window so the next payroll period can capture
+      post-06:00 hourly tails from an overnight session that started in the
+      previous payroll period.
+    - Actual inclusion in the payroll is decided later by segment filtering.
     """
     start_date = getdate(start_date)
     end_date = getdate(end_date)
 
-    query_start = f"{start_date} 00:00:00"
-    # Look ahead far enough to capture long sessions that started in-period
-    # but end multiple days later.
+    # Look back far enough to catch a prior-day session whose post-06:00 tail
+    # belongs in this payroll period.
+    query_start = f"{frappe.utils.add_days(start_date, -2)} 00:00:00"
+
+    # Look ahead far enough to capture long sessions that may end after period end.
     query_end = f"{frappe.utils.add_days(end_date, 3)} 23:59:59"
 
     rows = frappe.get_all(
@@ -510,25 +516,28 @@ def get_checkin_sessions_assigned_by_start_date(employee, start_date, end_date):
     for row in rows:
         log_type = (row.get("log_type") or "").upper()
         when = frappe.utils.get_datetime(row.get("time"))
+
         if log_type == "IN":
             open_in = row
             continue
+
         if log_type == "OUT" and open_in:
             start_dt = frappe.utils.get_datetime(open_in.get("time"))
             end_dt = when
+
             if end_dt > start_dt:
-                start_day = getdate(start_dt)
-                if start_date <= start_day <= end_date:
-                    duration_hours = max(0.0, (end_dt - start_dt).total_seconds() / 3600.0)
-                    sessions.append({
-                        "in_name": open_in.get("name"),
-                        "out_name": row.get("name"),
-                        "start": start_dt,
-                        "end": end_dt,
-                        "hours": flt(duration_hours, 2),
-                        "shift": open_in.get("shift") or row.get("shift"),
-                        "skip_auto_attendance": cint(open_in.get("skip_auto_attendance") or 0) or cint(row.get("skip_auto_attendance") or 0),
-                    })
+                duration_hours = max(0.0, (end_dt - start_dt).total_seconds() / 3600.0)
+                sessions.append({
+                    "in_name": open_in.get("name"),
+                    "out_name": row.get("name"),
+                    "start": start_dt,
+                    "end": end_dt,
+                    "hours": flt(duration_hours, 2),
+                    "shift": open_in.get("shift") or row.get("shift"),
+                    "skip_auto_attendance": cint(open_in.get("skip_auto_attendance") or 0)
+                        or cint(row.get("skip_auto_attendance") or 0),
+                })
+
             open_in = None
 
     return sessions
@@ -683,6 +692,7 @@ def hybrid_overnight_summary(employee, start_date, end_date, hourly_rate, overni
     overnight_flat_amount = flt(overnight_flat_amount or DEFAULT_OVERNIGHT_FLAT_AMOUNT, 2)
 
     period_start = frappe.utils.get_datetime(f"{getdate(start_date)} 00:00:00")
+    period_end = frappe.utils.get_datetime(f"{getdate(end_date)} 23:59:59")
     hybrid_cutoff = frappe.utils.get_datetime(f"{frappe.utils.add_days(getdate(end_date), 1)} 06:00:00")
 
     hourly_hours = 0.0
@@ -693,7 +703,6 @@ def hybrid_overnight_summary(employee, start_date, end_date, hourly_rate, overni
     resolved_rows = []
 
     for session in sessions:
-        compensated_dates.add(str(getdate(session["start"])))
         split = split_session_into_hybrid_segments(session)
 
         kept_segments = []
@@ -705,28 +714,43 @@ def hybrid_overnight_summary(employee, start_date, end_date, hourly_rate, overni
             seg_start = frappe.utils.get_datetime(seg["start"])
             seg_end = frappe.utils.get_datetime(seg["end"])
 
-            # Ignore anything entirely beyond the hybrid payroll cutoff
-            if seg_start >= hybrid_cutoff:
-                continue
-
-            # Clip hourly segments to the cutoff
             if seg["type"] == "hourly":
-                clipped_end = min(seg_end, hybrid_cutoff)
-                if clipped_end > seg_start:
-                    hours = flt((clipped_end - seg_start).total_seconds() / 3600.0, 2)
+                # Hourly time belongs to the payroll period based on actual
+                # calendar overlap with the period itself, not by original session start.
+                clipped_start = max(seg_start, period_start)
+                clipped_end = min(seg_end, period_end)
+
+                if clipped_end > clipped_start:
+                    hours = flt((clipped_end - clipped_start).total_seconds() / 3600.0, 2)
                     session_hourly_hours += hours
                     kept_segments.append({
                         **seg,
+                        "start": clipped_start,
                         "end": clipped_end,
                         "hours": hours,
                     })
 
-            # Keep overnight flat blocks only if fully covered and their start is in-period
+                    cursor_day = getdate(clipped_start)
+                    last_day = getdate(clipped_end)
+                    while cursor_day <= last_day:
+                        compensated_dates.add(str(cursor_day))
+                        cursor_day = frappe.utils.add_days(cursor_day, 1)
+
             elif seg["type"] == "overnight_flat":
-                if seg_start >= period_start and seg_start <= frappe.utils.get_datetime(f"{getdate(end_date)} 23:59:59"):
+                # Overnight flat belongs to the payroll period containing the
+                # overnight start date, but only if the block is fully covered.
+                if (
+                    seg_start >= period_start
+                    and seg_start <= period_end
+                    and seg_end <= hybrid_cutoff
+                ):
                     session_overnight_hours += 8.0
                     overnight_block_count += 1
                     kept_segments.append(seg)
+                    compensated_dates.add(str(getdate(seg_start)))
+
+        if not kept_segments:
+            continue
 
         hourly_hours += flt(session_hourly_hours, 2)
         reported_total_hours += flt(session_hourly_hours + session_overnight_hours, 2)
