@@ -11,6 +11,10 @@ from rootedops_payroll.services.payroll_engine import (
     run_batched_hourly_payroll,
 )
 
+PAYROLL_ENTRY_FIELD_CONSOLIDATED_JE = "rootedops_consolidated_journal_entry"
+PAYROLL_ENTRY_FIELD_EMPLOYEE_PAYMENT_JE = "rootedops_employee_payment_journal_entry"
+PAYROLL_ENTRY_FIELD_TAX_RESERVE_TRANSFER_JE = "rootedops_tax_reserve_transfer_journal_entry"
+
 
 def _get_payroll_entry_context(payroll_entry_name: str):
     if not frappe.db.exists("Payroll Entry", payroll_entry_name):
@@ -29,6 +33,20 @@ def _get_payroll_entry_context(payroll_entry_name: str):
         "start_date": getdate(pe.start_date),
         "end_date": getdate(pe.end_date),
     }
+
+def _require_payroll_entry_columns(*fieldnames):
+    missing = [
+        fieldname
+        for fieldname in fieldnames
+        if not frappe.db.has_column("Payroll Entry", fieldname)
+    ]
+    if missing:
+        frappe.throw(
+            _(
+                "Payroll Entry is missing required custom fields: {0}. "
+                "Run the Payroll Entry custom field setup before using downstream JE actions."
+            ).format(", ".join(missing))
+        )
 
 def _get_employees_for_payroll_entry(pe, ctx):
     selected_employees = []
@@ -188,7 +206,7 @@ def create_consolidated_draft_journal_entry(payroll_entry_name: str):
     pe, ctx = _get_payroll_entry_context(payroll_entry_name)
     employees = _get_employees_for_payroll_entry(pe, ctx)
 
-    existing_je = pe.get("rootedops_consolidated_journal_entry")
+    existing_je = pe.get(PAYROLL_ENTRY_FIELD_CONSOLIDATED_JE)
     if existing_je:
         frappe.throw(
             _("This Payroll Entry already has a consolidated Journal Entry: {0}").format(existing_je)
@@ -235,10 +253,15 @@ def create_consolidated_draft_journal_entry(payroll_entry_name: str):
 
 @frappe.whitelist()
 def create_employee_payment_draft_journal_entry(payroll_entry_name: str):
-    pe, ctx = _get_payroll_entry_context(payroll_entry_name)
-    _get_existing_link(pe, "rootedops_employee_payment_journal_entry", "employee payment Journal Entry")
+    _require_payroll_entry_columns(
+        PAYROLL_ENTRY_FIELD_CONSOLIDATED_JE,
+        PAYROLL_ENTRY_FIELD_EMPLOYEE_PAYMENT_JE,
+    )
 
-    if not pe.get("rootedops_consolidated_journal_entry"):
+    pe, ctx = _get_payroll_entry_context(payroll_entry_name)
+    _get_existing_link(pe, PAYROLL_ENTRY_FIELD_EMPLOYEE_PAYMENT_JE, "employee payment Journal Entry")
+
+    if not pe.get(PAYROLL_ENTRY_FIELD_CONSOLIDATED_JE):
         frappe.throw(_("Create the consolidated payroll accrual Journal Entry first."))
 
     employees, result = _run_payroll_for_entry(pe, ctx)
@@ -254,7 +277,7 @@ def create_employee_payment_draft_journal_entry(payroll_entry_name: str):
     journal_entry_name = _extract_journal_entry_name(je_result)
 
     _write_payroll_entry_summary(pe, result)
-    _write_payroll_entry_links(pe, rootedops_employee_payment_journal_entry=journal_entry_name)
+    _write_payroll_entry_links(pe, **{PAYROLL_ENTRY_FIELD_EMPLOYEE_PAYMENT_JE: journal_entry_name})
 
     return {
         "payroll_entry": pe.name,
@@ -268,10 +291,15 @@ def create_employee_payment_draft_journal_entry(payroll_entry_name: str):
 
 @frappe.whitelist()
 def create_tax_reserve_transfer_draft_journal_entry(payroll_entry_name: str):
-    pe, ctx = _get_payroll_entry_context(payroll_entry_name)
-    _get_existing_link(pe, "rootedops_tax_reserve_journal_entry", "tax reserve transfer Journal Entry")
+    _require_payroll_entry_columns(
+        PAYROLL_ENTRY_FIELD_CONSOLIDATED_JE,
+        PAYROLL_ENTRY_FIELD_TAX_RESERVE_TRANSFER_JE,
+    )
 
-    if not pe.get("rootedops_consolidated_journal_entry"):
+    pe, ctx = _get_payroll_entry_context(payroll_entry_name)
+    _get_existing_link(pe, PAYROLL_ENTRY_FIELD_TAX_RESERVE_TRANSFER_JE, "tax reserve transfer Journal Entry")
+
+    if not pe.get(PAYROLL_ENTRY_FIELD_CONSOLIDATED_JE):
         frappe.throw(_("Create the consolidated payroll accrual Journal Entry first."))
 
     employees, result = _run_payroll_for_entry(pe, ctx)
@@ -287,7 +315,7 @@ def create_tax_reserve_transfer_draft_journal_entry(payroll_entry_name: str):
     journal_entry_name = _extract_journal_entry_name(je_result)
 
     _write_payroll_entry_summary(pe, result)
-    _write_payroll_entry_links(pe, rootedops_tax_reserve_journal_entry=journal_entry_name)
+    _write_payroll_entry_links(pe, **{PAYROLL_ENTRY_FIELD_TAX_RESERVE_TRANSFER_JE: journal_entry_name})
 
     return {
         "payroll_entry": pe.name,
