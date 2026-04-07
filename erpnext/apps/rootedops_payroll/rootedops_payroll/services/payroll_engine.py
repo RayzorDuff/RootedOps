@@ -899,7 +899,7 @@ def ytd_gross_before_period(employee, start_date, exclude_slip_name=None):
         "Salary Slip",
         filters={
             "employee": employee,
-            "docstatus": ["<", 2],
+            "docstatus": 1,
             "end_date": ["<", start_date],
         },
         fields=["name", "gross_pay"],
@@ -1404,6 +1404,42 @@ def repair_salary_slip_totals(slip_or_name):
     deductions_sum = flt(sum(flt(row.amount) for row in slip.deductions), 2)
     net_pay = flt(earnings_sum - deductions_sum, 2)
 
+    # Prior submitted slips only, excluding this slip
+    prior_submitted = frappe.get_all(
+        "Salary Slip",
+        filters={
+            "employee": slip.employee,
+            "docstatus": 1,
+            "end_date": ["<", slip.start_date],
+        },
+        fields=["name", "gross_pay", "net_pay", "end_date"],
+    )
+
+    prior_gross_ytd = 0.0
+    prior_net_ytd = 0.0
+    prior_net_mtd = 0.0
+
+    current_month = getdate(slip.end_date).month
+    current_year = getdate(slip.end_date).year
+
+    for row in prior_submitted:
+        if row.name == slip.name:
+            continue
+
+        row_end = getdate(row.end_date)
+        gross_val = flt(row.gross_pay, 2)
+        net_val = flt(row.net_pay, 2)
+
+        prior_gross_ytd += gross_val
+        prior_net_ytd += net_val
+
+        if row_end.year == current_year and row_end.month == current_month:
+            prior_net_mtd += net_val
+
+    gross_year_to_date = flt(prior_gross_ytd + earnings_sum, 2)
+    year_to_date = flt(prior_net_ytd + net_pay, 2)
+    month_to_date = flt(prior_net_mtd + net_pay, 2)
+
     updates = {
         "gross_pay": earnings_sum,
         "total_deduction": deductions_sum,
@@ -1412,6 +1448,13 @@ def repair_salary_slip_totals(slip_or_name):
         "base_gross_pay": earnings_sum,
         "base_total_deduction": deductions_sum,
         "base_net_pay": net_pay,
+        "base_rounded_total": net_pay,
+        "gross_year_to_date": gross_year_to_date,
+        "base_gross_year_to_date": gross_year_to_date,
+        "year_to_date": year_to_date,
+        "base_year_to_date": year_to_date,
+        "month_to_date": month_to_date,
+        "base_month_to_date": month_to_date,
     }
 
     frappe.db.set_value("Salary Slip", slip.name, updates, update_modified=False)
@@ -1436,10 +1479,77 @@ def finalize_custom_salary_slip(slip_or_name):
 
 def submit_custom_salary_slip(slip_name):
     slip = frappe.get_doc("Salary Slip", slip_name)
+
+    earnings_snapshot = [
+        {
+            "name": row.name,
+            "amount": flt(row.amount, 2),
+            "default_amount": flt(getattr(row, "default_amount", row.amount), 2),
+            "depends_on_payment_days": 0,
+        }
+        for row in slip.earnings
+    ]
+
+    deductions_snapshot = [
+        {
+            "name": row.name,
+            "amount": flt(row.amount, 2),
+            "default_amount": flt(getattr(row, "default_amount", row.amount), 2),
+            "depends_on_payment_days": 0,
+        }
+        for row in slip.deductions
+    ]
+
+    summary_snapshot = {
+        "payment_days": flt(getattr(slip, "payment_days", 0.0), 2),
+        "total_working_days": flt(getattr(slip, "total_working_days", 0.0), 2),
+        "absent_days": flt(getattr(slip, "absent_days", 0.0), 2),
+        "total_working_hours": flt(getattr(slip, "total_working_hours", 0.0), 2),
+    }
+
     slip.submit()
     frappe.db.commit()
 
-    # HRMS may recompute header totals on submit even when child rows remain correct.
+    slip = frappe.get_doc("Salary Slip", slip_name)
+
+    for row in earnings_snapshot:
+        frappe.db.set_value(
+            "Salary Detail",
+            row["name"],
+            {
+                "amount": row["amount"],
+                "default_amount": row["default_amount"],
+                "depends_on_payment_days": row["depends_on_payment_days"],
+            },
+            update_modified=False,
+        )
+
+    for row in deductions_snapshot:
+        frappe.db.set_value(
+            "Salary Detail",
+            row["name"],
+            {
+                "amount": row["amount"],
+                "default_amount": row["default_amount"],
+                "depends_on_payment_days": row["depends_on_payment_days"],
+            },
+            update_modified=False,
+        )
+
+    frappe.db.set_value(
+        "Salary Slip",
+        slip_name,
+        {
+            "payment_days": summary_snapshot["payment_days"],
+            "total_working_days": summary_snapshot["total_working_days"],
+            "absent_days": summary_snapshot["absent_days"],
+            "total_working_hours": summary_snapshot["total_working_hours"],
+        },
+        update_modified=False,
+    )
+    frappe.db.commit()
+
+    slip = frappe.get_doc("Salary Slip", slip_name)
     finalize_custom_salary_slip(slip.name)
 
     return frappe.get_doc("Salary Slip", slip.name)

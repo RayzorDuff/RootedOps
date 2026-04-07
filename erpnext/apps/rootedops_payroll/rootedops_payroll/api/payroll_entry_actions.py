@@ -241,9 +241,12 @@ def submit_draft_salary_slips(payroll_entry_name: str):
         slip = submit_custom_salary_slip(row["name"])
         submitted.append(slip.name)
 
-    # Refresh payroll summary after submit-safe slip finalization
-    _, result = _run_payroll_for_entry(pe, ctx, finalize_slips=True)
-    _write_payroll_entry_summary(pe, result)
+    # Do not rerun payroll here. Once slips are submitted, the payroll rebuild path
+    # will correctly block on existing submitted slips.
+    pe.db_set(
+        {"rootedops_last_processed_on": now_datetime()},
+        update_modified=True,
+    )
 
     return {
         "payroll_entry": pe.name,
