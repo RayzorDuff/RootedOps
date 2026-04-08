@@ -1,470 +1,408 @@
-# RootedOps ERPNext Scripts, App Code, and UI Workflow Guide
+# RootedOps ERPNext Scripts, App Code, and Operator Workflow Reference
 
-This file is the **implementation and operations guide** for the ERPNext folder.
+This file captures the exact purpose of the helper scripts, installed app code, client-script/UI actions, validation paths, and operational troubleshooting patterns for the ERPNext payroll workflow.
 
-It intentionally covers more than the `scripts/` directory alone, because the current payroll workflow spans:
-- helper scripts in `scripts/`
-- installed app code in `apps/rootedops_payroll/`
-- Client Script behavior mirrored in `client_scripts/`
-- ERPNext database state that those artifacts operate against
-
-If `README.md` answers **what this project is and where it stands**, this file answers **how it works and how to operate it**.
+It intentionally preserves older setup history while reflecting the current UI-first operator model.
 
 ---
 
-# Code ownership map
+# Core implementation layers
 
-## 1. Helper scripts in `scripts/`
-These are bench-oriented setup, repair, or validation helpers.
+The current ERPNext payroll workflow spans four layers:
 
-## 2. App code in `apps/rootedops_payroll/`
-This is the reusable custom payroll layer used by the Payroll Entry UI.
+1. **Bootstrap/import artifacts**
+   - CSVs and seed files used for fresh ERPNext setup
 
-## 3. Client Script in `client_scripts/`
-This is the ERPNext-side UI behavior reference. The live version exists in the ERPNext database; the repo file is the source-controlled mirror.
+2. **Bench/helper scripts**
+   - one-time or occasional setup / audit / repair helpers
 
-## 4. ERPNext database state
-This includes:
-- Company defaults
-- Salary Components and company account rows
-- Bank Account masters
-- Client Script records
-- Custom Fields
-- Payroll Entry records
-- Salary Slips and Journal Entries
+3. **Installed custom app (`rootedops_payroll`)**
+   - live payroll engine, API, and reusable submit/finalization logic
 
-A troubleshooting session often requires checking all four layers.
+4. **ERPNext UI / DB state**
+   - Payroll Entry docs, Salary Slips, Journal Entries, Holiday Lists, bank defaults, Client Script record
 
 ---
 
-# Script and module inventory
+# Bench/helper scripts
 
 ## `scripts/10_setup_master_data.py`
 Use for:
 - cost centers
 - departments
 - designations
-- supporting master data
+- related master data normalization
+
+When useful:
+- clean-room rebuild
+- repairing partially imported master data
 
 ## `scripts/20_setup_shift_and_test_employee.py`
 Use for:
-- Payroll Settings baseline
-- Day Shift setup
-- initial test employee setup
-- submitted Shift Assignment creation
+- Day Shift creation / repair
+- Payroll Settings foundation
+- test employee / shift assignment baseline
+
+Historical importance:
+- this created the first reliable Attendance foundation used to verify `Attendance.working_hours`.
 
 ## `scripts/21_create_employee.py`
-Preferred helper for creating a payroll-ready employee with fewer manual misses.
+Use for:
+- creating or updating payroll-ready employee records
+- user creation / linkage
+- employee custom payroll fields
+- shift assignment support
 
-Current responsibilities:
-- create or update Employee
-- create or update linked User
-- set payroll custom fields
-- create submitted Shift Assignment
-- optionally create Salary Structure Assignment
-- provide clean test checkin helpers
+Still useful when:
+- adding another real payroll employee
+- reconstituting an employee in a clean site
 
 ## `scripts/30_create_employee_home_page.py`
-Creates the file-backed employee landing page used when Workspace behavior was unreliable.
+Use for:
+- file-backed employee landing page creation
+
+Not central to payroll logic.
 
 ## `scripts/40_setup_payroll_test_foundation.py`
-Creates or repairs the payroll test foundation, including salary structure / assignment expectations used by the payroll engine.
+Use for:
+- salary structure / salary structure assignment test baseline
+- repairing early payroll-test configuration
+
+Historical importance:
+- useful as a template for rebuilding salary structures in a clean environment.
 
 ## `scripts/50_hourly_payroll_automation.py`
-This is the **bench-readable reference implementation** for the payroll engine.
-
-It remains valuable even though the UI now calls into the extracted app module.
-
-Current functional scope includes:
-- attendance-driven hourly payroll
-- FICA
-- federal withholding for supported weekly logic
-- Colorado withholding
-- employee tax-profile persistence
-- single-slip rebuild flow
-- batched payroll runs
-- consolidated payroll register output
-- consolidated liability summary
-- consolidated accrual JE preview and draft creation
-- cash-flow preview helpers
-
-## `scripts/60_setup_payroll_entry_ui_support.py`
-Creates or repairs custom Payroll Entry fields used by the UI integration.
-
-## `scripts/61_add_salary_slip_hours_field.py`
-Creates or repairs Salary Slip fields needed so final hours or hybrid totals are preserved visibly.
-
-## `scripts/70_phase6_bank_setup.py`
-Creates or repairs bank setup and default-bank configuration required for payroll cash-flow logic.
-
-## `scripts/71_phase6_payroll_account_audit.py`
-Audits payroll account mapping and bank linkage for the supported companies.
-
----
-
-# App-layer inventory
-
-## `apps/rootedops_payroll/rootedops_payroll/services/payroll_engine.py`
-This is the main reusable payroll engine used by the Payroll Entry UI and should be treated as the app-side source of truth for live behavior.
-
-Major responsibilities:
-- attendance resolution
-- pay-model handling
-- draft Salary Slip build / refresh
-- consolidated payroll preview
-- consolidated accrual JE preview / draft creation
-- payroll cash-flow preview
-- bank-account lookup helpers
-
-## `apps/rootedops_payroll/rootedops_payroll/api/payroll_entry_actions.py`
-Thin API layer exposing whitelisted actions for the Payroll Entry UI.
-
-Current or recent action pattern includes:
-- payroll preview
-- draft slip creation / refresh
-- consolidated draft accrual JE creation
-- payroll cash-flow preview
-- upcoming downstream cash-flow draft creation actions
-
-## `apps/rootedops_payroll/rootedops_payroll/hooks.py`
-App hook configuration. Verify this when client-side code or whitelisted methods appear not to load.
-
----
-
-# UI-layer inventory
-
-## `client_scripts/payroll_entry_rootedops_payroll.js`
-This file mirrors the current live Payroll Entry Client Script.
-
-Use it to:
-- review current button behavior
-- restore the Client Script in ERPNext if needed
-- compare repo state to live database state
-
-Current verified button set:
-- `Preview Attendance Payroll`
-- `Create / Refresh Draft Salary Slips`
-- `Create Consolidated Draft JE`
-- `Preview Payroll Cash Flow`
+Use for:
+- bench-reference mirror of the payroll engine logic
+- historical reference for how the payroll engine evolved
 
 Important:
-- after app or Client Script changes, reload the website before concluding the Payroll Entry form is broken
+- the **live app code** under `apps/rootedops_payroll/.../services/payroll_engine.py` is the operative implementation.
+- this script should be treated as a reference / portability aid, not the primary runtime module.
+
+## `scripts/60_setup_payroll_entry_ui_support.py`
+Use for:
+- creating / repairing Payroll Entry custom fields used by the UI flow
+
+Important fields created / repaired include the RootedOps JE link fields and summary fields.
+
+## `scripts/61_add_salary_slip_hours_field.py`
+Use for:
+- adding / repairing the custom Salary Slip hours field / related writeback support
+
+Historical importance:
+- helped keep displayed hours aligned with custom attendance payroll rather than stock ERPNext assumptions.
+
+## `scripts/70_phase6_bank_setup.py`
+Use for:
+- bank-account creation / correction
+- default-bank linkage setup
+- checking / withholding structure for payroll cash flow
+
+## `scripts/71_phase6_payroll_account_audit.py`
+Use for:
+- verifying company payroll account maps and bank GLs
+- auditing readiness for payroll JE and cash-flow actions
 
 ---
 
-# Recommended execution pattern for helper scripts
+# Installed app code (`apps/rootedops_payroll`)
 
-From the project root on the host, copy the script into the ERPNext backend container:
+## `services/payroll_engine.py`
+This is the main payroll engine.
 
-```bash
-sudo docker cp erpnext/scripts/50_hourly_payroll_automation.py \
-  erpnext-backend:/home/frappe/frappe-bench/sites/50_hourly_payroll_automation.py
-```
-
-Open bench console:
-
-```bash
-sudo docker compose --env-file ./.env -f docker/docker-compose.yml exec erpnext-backend \
-  bash -lc "bench --site erp.danks.store console"
-```
-
-Load the script:
-
-```python
-exec(open("/home/frappe/frappe-bench/sites/50_hourly_payroll_automation.py").read(), globals())
-```
-
-This copy-and-load pattern remains the safest method for larger helpers.
-
----
-
-# Current operator workflow from Payroll Entry
-
-For a saved Payroll Entry:
-1. click `Preview Attendance Payroll`
-2. review writeback fields and preview output
-3. click `Create / Refresh Draft Salary Slips`
-4. review the created or refreshed draft Salary Slips
-5. click `Create Consolidated Draft JE`
-6. review the payroll accrual JE
-7. click `Preview Payroll Cash Flow`
-8. review the intended downstream checking / withholding / remittance flow
-
-This is the current normal workflow.
-
-Bench-console work should mainly be used for:
-- setup
-- repair
-- audit
-- debugging
-- test data generation
-
----
-
-# Accounting model currently assumed by the payroll logic
-
-## Accrual step
-Payroll accrual creates:
-- wage expense
-- employer payroll tax expense
-- payroll payable liability
-- payroll tax payable liability
-- payroll withholding payable liability
-
-## Cash-movement step
-Downstream cash movement should remain separate:
-- employee payment from checking
-- reserve transfer from checking to withholding bank
-- tax remittance from withholding bank
-
-This separation is intentional.
-
-Do not merge the accrual JE and the cash-movement JE into one document unless the accounting model is intentionally redesigned.
-
----
-
-# Company/account configuration expectations
-
-## Dank Mushrooms, LLC
-Expected payroll account map:
-- `Payroll Expense - DML`
-- `Payroll Tax Expense - DML`
-- `Payroll Payable - DML`
-- `Payroll Tax Payable - DML`
-- `Payroll Withholding Payable - DML`
-
-Expected bank mapping:
-- default bank account: `Dank Mushrooms Checking - High Plains Bank`
-- checking GL: `Dank Mushrooms Checking - DML`
-- withholding GL: `Dank Mushrooms Withholding - DML`
-
-## Raymond Danks
-Expected payroll account map:
-- `Nanny Wages - RD`
-- `Payroll Tax Expense - RD`
-- `Payroll Payable - RD`
-- `Payroll Tax Payable - RD`
-- `Payroll Withholding Payable - RD`
-
-Expected bank mapping:
-- default bank account: `Raymond Danks Elevations Checking - Elevations Credit Union`
-- checking GL: `Elevations Checking - RD`
-- withholding GL: `Elevations Withholding Savings - RD`
-
-## Rooted Psyche
-Not yet validated to the same operational depth.
-Before production payroll use, confirm:
-- payroll expense / liability accounts
-- Salary Component Account rows
-- bank-account structure
-- salary structure / assignments
-- end-to-end Payroll Entry and JE testing
-
----
-
-# Payroll employee onboarding
-
-## UI-first path
-Recommended when a normal operator should understand the process.
-
-1. create Employee
-2. create submitted Shift Assignment
-3. create submitted Salary Structure Assignment
-4. populate payroll custom fields
-5. enter checkins
-6. process attendance
-7. verify Attendance with working hours before payroll
-
-## Bench-assisted path
-Recommended when you want the most reliable setup with less clicking.
-
-Use `scripts/21_create_employee.py`.
-
-Typical flow:
-
-```bash
-sudo docker cp erpnext/scripts/21_create_employee.py \
-  erpnext-backend:/home/frappe/frappe-bench/sites/21_create_employee.py
-```
-
-```bash
-sudo docker compose --env-file ./.env -f docker/docker-compose.yml exec erpnext-backend \
-  bash -lc "bench --site erp.danks.store console"
-```
-
-```python
-exec(open("/home/frappe/frappe-bench/sites/21_create_employee.py").read(), globals())
-```
-
-Then call `create_or_update_employee(...)` with the company, shift, salary structure, pay rate, and tax profiles you need.
-
-### Hybrid employee note
-For hybrid overnight employees, always verify:
-- `rootedops_pay_model`
-- `rootedops_overnight_flat_amount`
-
-after creation.
-
----
-
-# Test attendance creation
-
-Use the helper from `21_create_employee.py`:
-
-```python
-insert_checkin_pair("HR-EMP-00006", "2026-03-29 09:00:00", "2026-03-29 17:00:00")
-```
-
-For overnight tests:
-
-```python
-insert_checkin_pair("HR-EMP-00006", "2026-03-29 22:00:00", "2026-03-30 06:00:00")
-insert_checkin_pair("HR-EMP-00006", "2026-03-30 13:00:00", "2026-03-30 17:00:00")
-```
-
-Then process attendance:
-
-```python
-shift = frappe.get_doc("Shift Type", "Day Shift")
-shift.process_auto_attendance()
-frappe.db.commit()
-```
-
-Before payroll, verify that submitted Attendance exists and has nonzero `working_hours` where expected.
-
----
-
-# Useful payroll-engine helpers
-
-The exact callable surface may evolve, but the important working patterns include:
-- employee tax-profile update and retrieval
-- one-slip rebuild for one employee / one period
-- batched payroll run for one company / pay period
+### Major responsibilities
+- attendance-based hour collection
+- hourly gross calculation
+- hybrid overnight calculation
+- 2026 federal withholding logic
+- 2026 Colorado withholding logic
+- employee/employer FICA
 - consolidated liability summary
-- consolidated accrual JE preview / draft creation
-- payroll cash-flow preview
-- employee discovery from attendance in a date range
+- consolidated register generation
+- consolidated accrual JE preview + draft creation
+- employee payment JE preview + draft creation
+- tax reserve transfer JE preview + draft creation
+- Salary Slip rebuild, normalization, and submit hardening
+- YTD calculation for payroll-tax logic
 
-Typical examples from the bench reference layer include:
-- `update_employee_tax_profile(...)`
-- `get_employee_tax_profile(...)`
+### Important live functions
+
+#### Attendance/pay calculation
+- `hybrid_overnight_summary(...)`
 - `rebuild_hourly_salary_slip(...)`
 - `run_batched_hourly_payroll(...)`
-- `build_consolidated_payroll_journal_entry_preview(...)`
+
+#### JE preview / draft creation
+- `build_consolidated_payroll_cash_flow_preview(...)`
 - `create_consolidated_payroll_journal_entry_draft(...)`
-- `get_employees_with_attendance_in_period(...)`
+- `create_consolidated_employee_payment_journal_entry_draft(...)`
+- `create_consolidated_tax_reserve_transfer_journal_entry_draft(...)`
 
-As Phase 6 continues, additional draft-JE creation helpers should join that pattern.
+#### Salary Slip hardening
+- `normalize_saved_child_rows(...)`
+- `set_manual_totals(...)`
+- `repair_salary_slip_totals(...)`
+- `finalize_custom_salary_slip(...)`
+- `submit_custom_salary_slip(...)`
+- `diagnose_salary_slip_math(...)`
+
+### Current hardening notes
+
+#### `repair_salary_slip_totals(...)`
+This function must repair **all** of the following, not just header totals:
+- `gross_pay`
+- `total_deduction`
+- `net_pay`
+- `rounded_total`
+- `gross_year_to_date`
+- `year_to_date`
+- `month_to_date`
+- `total_in_words`
+- row-level `Salary Detail.year_to_date`
+
+This is critical because the PDF / print format can expose stale child-row YTD fields even after the Salary Slip header fields look correct.
+
+#### `submit_custom_salary_slip(...)`
+This function is the UI-safe submit path.
+
+It should:
+1. snapshot earnings/deduction rows and summary fields
+2. call `slip.submit()`
+3. restore controlled row values / summary fields
+4. call `finalize_custom_salary_slip(...)`
+
+This is what keeps the custom payroll workflow independent from stock HRMS submit-time recalculation.
+
+#### `ytd_gross_before_period(...)`
+Must count **submitted slips only**.
+
+Reason:
+- draft/test slips were previously contaminating YTD payroll tax logic.
 
 ---
 
-# Troubleshooting guide
+## `api/payroll_entry_actions.py`
+This exposes the UI actions on Payroll Entry.
 
-## Buttons missing or behaving oddly in Payroll Entry
-Check in this order:
-1. website reload performed?
-2. Client Script in ERPNext matches `client_scripts/payroll_entry_rootedops_payroll.js`?
-3. app code deployed and reloaded?
-4. hooks loading correctly?
-5. whitelisted method path still valid?
+### Important whitelisted methods
+- `preview_attendance_payroll(...)`
+- `preview_payroll_cash_flow(...)`
+- `create_or_refresh_draft_salary_slips(...)`
+- `submit_draft_salary_slips(...)`
+- `create_consolidated_draft_journal_entry(...)`
+- `create_employee_payment_draft_journal_entry(...)`
+- `create_tax_reserve_transfer_draft_journal_entry(...)`
 
-## Employee has checkins but payroll shows zero hours
+### Critical behavior of `submit_draft_salary_slips(...)`
+This function should:
+- locate Salary Slips for the employee(s) and pay period
+- submit draft slips through `submit_custom_salary_slip(...)`
+- **not rerun payroll after submit**
+
+The earlier bug was that it reran payroll after submit, which immediately tripped the "submitted Salary Slip already exists" safeguard.
+
+### Notes on Payroll Entry links
+The RootedOps JE link fields on Payroll Entry now matter operationally:
+- `rootedops_consolidated_journal_entry`
+- `rootedops_employee_payment_journal_entry`
+- `rootedops_tax_reserve_transfer_journal_entry`
+
+---
+
+## `hooks.py`
+Keep aligned with how the app is actually loaded into ERPNext, including any client JS inclusion.
+
+---
+
+## `public/js/payroll_entry.js`
+Reference app-side JS. The DB-stored Client Script is still the working live operator reference, but this file should not drift far from it.
+
+---
+
+# Payroll Entry Client Script
+
+Reference copy:
+- `client_scripts/payroll_entry_rootedops_payroll.js`
+
+## Current operator buttons
+- `Preview Attendance Payroll`
+- `Preview Payroll Cash Flow`
+- `Create / Refresh Draft Salary Slips`
+- `Submit Draft Salary Slips`
+- `Create Consolidated Draft JE`
+- `Create Employee Payment Draft JE`
+- `Create Tax Reserve Transfer Draft JE`
+
+## Important design note
+The client script should **not** contain payroll-repair logic.
+
+It should only call server methods.
+
+All Salary Slip repair / YTD / PDF / submit hardening belongs in server-side Python, not in browser JS.
+
+---
+
+# Live operator workflow
+
+## Salary Slip workflow
+1. Create a Payroll Entry
+2. `Preview Attendance Payroll`
+3. `Create / Refresh Draft Salary Slips`
+4. inspect draft Salary Slips if desired
+5. `Submit Draft Salary Slips` using the **RootedOps button**
+6. confirm Salary Slip values and PDF output
+
+### Do not do this
+- do **not** use the native Salary Slip submit button for this custom payroll workflow
+
+Reason:
+- native HRMS submit can reapply stock payroll assumptions and cause drift in YTD / print-format values.
+
+## Journal Entry workflow
+After Salary Slips are correct and submitted:
+1. `Create Consolidated Draft JE`
+2. `Preview Payroll Cash Flow`
+3. `Create Employee Payment Draft JE`
+4. `Create Tax Reserve Transfer Draft JE`
+5. review and submit accounting docs in ERPNext
+
+---
+
+# Validation / debugging checklist
+
+## Salary Slip draft validation
+Run in bench console if needed:
+
+```python
+from rootedops_payroll.services.payroll_engine import diagnose_salary_slip_math
+
+result = diagnose_salary_slip_math("Sal Slip/HR-EMP-00005/00003")
+print(result)
+```
+
 Check:
-1. Shift Assignment exists and is submitted
-2. checkins use explicit `IN` / `OUT`
-3. `skip_auto_attendance = 0`
-4. Attendance rows were actually created
-5. Attendance rows have nonzero `working_hours`
+- `gross_pay_field == earnings_sum`
+- `total_deduction_field == deductions_sum`
+- `net_pay_field == earnings_sum - deductions_sum`
+- `depends_on_payment_days == 0` on all rows
 
-## Salary Slip rebuild fails
-Check:
-1. Salary Structure Assignment exists and is submitted
-2. employee custom fields are present
-3. hourly rate is populated
-4. company account map is complete
-5. Salary Component Account rows exist for the company
+## Salary Slip submit validation
+After RootedOps UI submit:
+- verify header totals
+- verify YTD / MTD
+- verify `total_in_words`
+- verify row-level `Salary Detail.year_to_date`
+- verify print / PDF output
 
-## Consolidated JE preview is incomplete or not ready
-Check:
-1. all payroll results belong to one company
-2. all required payroll account map keys resolve
-3. gross / deductions / employer tax values are nonzero where expected
-4. missing-account list is empty
-
-## UI looks current but server behavior looks old
-Likely causes:
-- app code not reloaded
-- stale website assets
-- live Client Script differs from repo mirror
-- live ERPNext database state differs from expected setup
+## JE validation
+For each created draft JE, confirm:
+- debit = credit
+- account mapping is correct
+- bank GLs are correct
+- Payroll Entry RootedOps JE link fields populated correctly
 
 ---
 
-# Validation checklists
+# Holiday List / HRMS submit requirements
 
-## Before using a real employee
-- Employee exists and is active
-- submitted Shift Assignment exists
-- submitted Salary Structure Assignment exists
-- payroll custom fields are populated
-- Attendance exists with working hours
-- payroll account map is complete
-- relevant Salary Component Account rows exist
-- default bank account is configured if cash-flow features will be used
+This install requires a valid **Holiday List Assignment** for the employee for Salary Slip submit.
 
-## Before trusting Payroll Entry UI changes
-- app code matches intended snapshot
-- Client Script matches intended snapshot
-- helper Custom Fields exist
-- browser / website reload completed
-- test Payroll Entry successfully previews and writes back results
+Important notes:
+- Employee holiday_list alone was not sufficient
+- the active Holiday List Assignment record was required
+- assignment schema in this install used:
+  - `applicable_for`
+  - `assigned_to`
+  - `holiday_list`
+  - `from_date`
+- the assignment had to be submitted to be recognized
 
-## Before a fresh-install handoff is considered reproducible
-- baseline CSV imports documented
-- required helper scripts documented
-- app installation documented
-- required ERPNext UI setup documented
-- company-specific account and bank requirements documented
-- at least one full payroll dry run validated
+This matters when adding new payroll employees.
 
 ---
 
-# Year-bound maintenance notes
+# Docker / app persistence notes
 
-Before the first payroll of a new calendar year, review and update:
-- FICA wage base
-- any FICA rate changes
-- federal withholding tables / logic
-- Colorado withholding constants / logic
-- any W-4 or Colorado form interpretation changes
+The custom app must survive clean container recreation.
 
-Then rerun a validation payroll test and confirm:
-- gross
-- deductions
-- employer taxes
-- net pay
-- liability summary
-- JE preview balance
-- cash-flow preview logic
+## What was happening
+After a clean restart, `rootedops_payroll` disappeared from the live Python environment and had to be reinstalled with:
+
+```bash
+./env/bin/pip install -e apps/rootedops_payroll
+```
+
+That was not acceptable operationally.
+
+## Current direction / fix
+Docker files under `docker/` were updated so the custom app is included in image/build/bootstrap flow.
+
+Files to inspect together:
+- `docker/docker-compose.yml`
+- `docker/erpnext-custom.Dockerfile`
+- `docker/erpnext-bootstrap.sh`
+
+## Runtime verification
+After clean build/restart, verify:
+
+```bash
+bench --site erp.danks.store list-apps
+```
+
+Expected to include:
+- frappe
+- erpnext
+- hrms
+- employee_self_service
+- rootedops_payroll
+
+## Remaining watch item
+During one restart sequence the logs still showed:
+- `erpnext-apps-init` syntax error
+- `erpnext-configurator` `mkdir: missing operand`
+
+The runtime recovered, but Docker startup flow should still be watched and cleaned further if needed.
 
 ---
 
-# Immediate next implementation target
+# Common failure modes and meaning
 
-Proceed with **Phase 6B** by adding server/UI actions for:
-- `create_employee_payment_draft_journal_entry`
-- `create_tax_reserve_transfer_draft_journal_entry`
+## `Submitted Salary Slip already exists ...`
+Usually means:
+- a slip for employee/date range is already submitted
+- or the submit action incorrectly reran payroll after submit
 
-Once those exist, update this file with:
-- where the actions live
-- what documents they create
-- what review steps the operator must follow
-- how those entries interact with the accrual JE and cash-flow preview
+Current fix:
+- `submit_draft_salary_slips(...)` must not rerun payroll after submission
+
+## Wrong totals after submit
+Usually means:
+- native HRMS submit recalculated values
+- or `submit_custom_salary_slip(...)` / `repair_salary_slip_totals(...)` is stale
+
+## PDF still wrong while bench values are correct
+Usually means stale stored fields such as:
+- `Salary Detail.year_to_date`
+- `Salary Slip.total_in_words`
+
+## Missing federal withholding on a low-wage slip
+May be correct.
+- for low weekly wages under the employee’s filing configuration, federal withholding can legitimately compute to `0.00`
+
+## Hybrid overnight hours look short on one pay period
+Check payroll-boundary splitting.
+- hours after the end date should not count in the earlier period
+- they should appear in the next period instead
 
 ---
 
-# See also
-
+# Clean next-session starting points
+If a future session needs to resume work quickly, open these first:
+- `apps/rootedops_payroll/rootedops_payroll/services/payroll_engine.py`
+- `apps/rootedops_payroll/rootedops_payroll/api/payroll_entry_actions.py`
+- `client_scripts/payroll_entry_rootedops_payroll.js`
 - `README.md`
 - `CHATGPT_HANDOFF.md`
-- `CHATGPT_HANDOFF.json`
+- `../docker/docker-compose.yml`
+
