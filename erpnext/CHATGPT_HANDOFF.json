@@ -13,14 +13,20 @@
     "Phase 3 - federal withholding, Colorado withholding, employee tax profiles, liability summary, and draft Journal Entry creation",
     "Phase 4 - batched payroll-period runs, consolidated register output, and consolidated Journal Entry preview/draft creation",
     "Phase 5 - Payroll Entry UI integration and hybrid-overnight hardening",
-    "Phase 6 - bank setup, payroll account audit, and Payroll Cash Flow Preview"
+    "Phase 6A - bank setup, payroll account audit, and payroll cash-flow preview",
+    "Phase 6B - employee payment and tax reserve transfer draft JE actions",
+    "Phase 6C - live payroll execution, submit hardening, and Salary Slip/YTD/PDF repair",
+    "Phase 6D - Docker persistence for rootedops_payroll"
   ],
-  "phase_next": "Phase 6C - run the first live payroll cycle and decide whether to add a tax-remittance draft Journal Entry action from Payroll Entry UI",
+  "phase_next": "Validate one more clean UI-only payroll cycle, decide whether to add tax-remittance draft JE support, and clean remaining Docker init/bootstrap warnings.",
   "ui_buttons_verified": [
     "Preview Attendance Payroll",
+    "Preview Payroll Cash Flow",
     "Create / Refresh Draft Salary Slips",
+    "Submit Draft Salary Slips",
     "Create Consolidated Draft JE",
-    "Preview Payroll Cash Flow"
+    "Create Employee Payment Draft JE",
+    "Create Tax Reserve Transfer Draft JE"
   ],
   "bank_setup_verified": {
     "Dank Mushrooms, LLC": {
@@ -50,29 +56,28 @@
       "payroll_withholding_payable_account": "Payroll Withholding Payable - RD"
     }
   },
-  "cash_flow_preview_verified": {
-    "status": "working in UI after website reload",
-    "preview_steps": [
-      "employee payment from checking",
-      "tax reserve transfer from checking to withholding bank",
-      "tax remittance from withholding bank"
-    ]
-  },
   "important_notes": [
-    "Reload the website after updating client script or app code before assuming the Payroll Entry form is broken.",
-    "Salary Slips create payroll liabilities first; actual bank movement should be created later through downstream cash-flow entries.",
-    "Documentation in erpnext/README.md and erpnext/scripts/README_SCRIPTS.md intentionally preserves prior phase steps rather than truncating them."
+    "Use the RootedOps Payroll Entry button 'Submit Draft Salary Slips' instead of the native Salary Slip submit action.",
+    "Holiday List Assignment is required for Salary Slip submit on this install.",
+    "repair_salary_slip_totals(...) must keep Salary Slip header totals, YTD/MTD values, total_in_words, and row-level Salary Detail.year_to_date aligned.",
+    "ytd_gross_before_period(...) must count submitted slips only.",
+    "Docker files now matter operationally because rootedops_payroll must survive clean container recreation.",
+    "payments was removed from the live environment and from apps.txt."
   ],
   "files_to_open_first": [
     "erpnext/apps/rootedops_payroll/rootedops_payroll/services/payroll_engine.py",
     "erpnext/apps/rootedops_payroll/rootedops_payroll/api/payroll_entry_actions.py",
     "erpnext/client_scripts/payroll_entry_rootedops_payroll.js",
+    "docker/docker-compose.yml",
+    "docker/erpnext-custom.Dockerfile",
+    "docker/erpnext-bootstrap.sh",
     "erpnext/README.md",
-    "erpnext/scripts/README_SCRIPTS.md"
+    "erpnext/README_SCRIPTS.md"
   ],
   "next_step": [
-    "install the new 6B Payroll Entry actions in the live site",
-    "run the first live payroll cycle for Raymond Danks and Dank Mushrooms, LLC",
-    "decide whether to add create_tax_remittance_draft_journal_entry as Phase 6C"
+    "Run one more clean UI-only payroll cycle after the latest repair_salary_slip_totals patch.",
+    "Decide whether to add create_tax_remittance_draft_journal_entry as the next Payroll Entry action.",
+    "Clean remaining Docker apps-init/configurator startup warnings if they persist.",
+    "Keep README and handoff files aligned with app-code and Docker changes."
   ]
 }

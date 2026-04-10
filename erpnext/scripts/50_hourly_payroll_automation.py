@@ -28,10 +28,9 @@ Run inside bench console with:
 from contextlib import contextmanager
 
 import frappe
-from frappe.utils import cint, date_diff, flt, getdate
+from frappe.utils import cint, date_diff, flt, getdate, money_in_words
 from hrms.payroll.doctype.salary_slip.salary_slip import SalarySlip
 from frappe.custom.doctype.custom_field.custom_field import create_custom_fields
-
 
 SS_WAGE_BASE_2026 = 184500.0
 SS_RATE = 0.062
@@ -481,17 +480,23 @@ def checkin_diagnostics(employee, start_date, end_date):
 
 
 def get_checkin_sessions_assigned_by_start_date(employee, start_date, end_date):
-    """Build paired IN/OUT sessions and assign them to a payroll period by IN date.
+    """Build paired IN/OUT sessions from a widened window.
 
-    This lets an overnight session like 2026-04-05 22:00 -> 2026-04-06 06:00
-    belong to the payroll period that includes 2026-04-05.
+    Important:
+    - We no longer only load sessions whose IN is inside the payroll period.
+    - We load a small lookback window so the next payroll period can capture
+      post-06:00 hourly tails from an overnight session that started in the
+      previous payroll period.
+    - Actual inclusion in the payroll is decided later by segment filtering.
     """
     start_date = getdate(start_date)
     end_date = getdate(end_date)
 
-    query_start = f"{start_date} 00:00:00"
-    # Look ahead far enough to capture long sessions that started in-period
-    # but end multiple days later.
+    # Look back far enough to catch a prior-day session whose post-06:00 tail
+    # belongs in this payroll period.
+    query_start = f"{frappe.utils.add_days(start_date, -2)} 00:00:00"
+
+    # Look ahead far enough to capture long sessions that may end after period end.
     query_end = f"{frappe.utils.add_days(end_date, 3)} 23:59:59"
 
     rows = frappe.get_all(
@@ -510,25 +515,28 @@ def get_checkin_sessions_assigned_by_start_date(employee, start_date, end_date):
     for row in rows:
         log_type = (row.get("log_type") or "").upper()
         when = frappe.utils.get_datetime(row.get("time"))
+
         if log_type == "IN":
             open_in = row
             continue
+
         if log_type == "OUT" and open_in:
             start_dt = frappe.utils.get_datetime(open_in.get("time"))
             end_dt = when
+
             if end_dt > start_dt:
-                start_day = getdate(start_dt)
-                if start_date <= start_day <= end_date:
-                    duration_hours = max(0.0, (end_dt - start_dt).total_seconds() / 3600.0)
-                    sessions.append({
-                        "in_name": open_in.get("name"),
-                        "out_name": row.get("name"),
-                        "start": start_dt,
-                        "end": end_dt,
-                        "hours": flt(duration_hours, 2),
-                        "shift": open_in.get("shift") or row.get("shift"),
-                        "skip_auto_attendance": cint(open_in.get("skip_auto_attendance") or 0) or cint(row.get("skip_auto_attendance") or 0),
-                    })
+                duration_hours = max(0.0, (end_dt - start_dt).total_seconds() / 3600.0)
+                sessions.append({
+                    "in_name": open_in.get("name"),
+                    "out_name": row.get("name"),
+                    "start": start_dt,
+                    "end": end_dt,
+                    "hours": flt(duration_hours, 2),
+                    "shift": open_in.get("shift") or row.get("shift"),
+                    "skip_auto_attendance": cint(open_in.get("skip_auto_attendance") or 0)
+                        or cint(row.get("skip_auto_attendance") or 0),
+                })
+
             open_in = None
 
     return sessions
@@ -683,6 +691,7 @@ def hybrid_overnight_summary(employee, start_date, end_date, hourly_rate, overni
     overnight_flat_amount = flt(overnight_flat_amount or DEFAULT_OVERNIGHT_FLAT_AMOUNT, 2)
 
     period_start = frappe.utils.get_datetime(f"{getdate(start_date)} 00:00:00")
+    period_end = frappe.utils.get_datetime(f"{getdate(end_date)} 23:59:59")
     hybrid_cutoff = frappe.utils.get_datetime(f"{frappe.utils.add_days(getdate(end_date), 1)} 06:00:00")
 
     hourly_hours = 0.0
@@ -693,7 +702,6 @@ def hybrid_overnight_summary(employee, start_date, end_date, hourly_rate, overni
     resolved_rows = []
 
     for session in sessions:
-        compensated_dates.add(str(getdate(session["start"])))
         split = split_session_into_hybrid_segments(session)
 
         kept_segments = []
@@ -705,28 +713,43 @@ def hybrid_overnight_summary(employee, start_date, end_date, hourly_rate, overni
             seg_start = frappe.utils.get_datetime(seg["start"])
             seg_end = frappe.utils.get_datetime(seg["end"])
 
-            # Ignore anything entirely beyond the hybrid payroll cutoff
-            if seg_start >= hybrid_cutoff:
-                continue
-
-            # Clip hourly segments to the cutoff
             if seg["type"] == "hourly":
-                clipped_end = min(seg_end, hybrid_cutoff)
-                if clipped_end > seg_start:
-                    hours = flt((clipped_end - seg_start).total_seconds() / 3600.0, 2)
+                # Hourly time belongs to the payroll period based on actual
+                # calendar overlap with the period itself, not by original session start.
+                clipped_start = max(seg_start, period_start)
+                clipped_end = min(seg_end, period_end)
+
+                if clipped_end > clipped_start:
+                    hours = flt((clipped_end - clipped_start).total_seconds() / 3600.0, 2)
                     session_hourly_hours += hours
                     kept_segments.append({
                         **seg,
+                        "start": clipped_start,
                         "end": clipped_end,
                         "hours": hours,
                     })
 
-            # Keep overnight flat blocks only if fully covered and their start is in-period
+                    cursor_day = getdate(clipped_start)
+                    last_day = getdate(clipped_end)
+                    while cursor_day <= last_day:
+                        compensated_dates.add(str(cursor_day))
+                        cursor_day = frappe.utils.add_days(cursor_day, 1)
+
             elif seg["type"] == "overnight_flat":
-                if seg_start >= period_start and seg_start <= frappe.utils.get_datetime(f"{getdate(end_date)} 23:59:59"):
+                # Overnight flat belongs to the payroll period containing the
+                # overnight start date, but only if the block is fully covered.
+                if (
+                    seg_start >= period_start
+                    and seg_start <= period_end
+                    and seg_end <= hybrid_cutoff
+                ):
                     session_overnight_hours += 8.0
                     overnight_block_count += 1
                     kept_segments.append(seg)
+                    compensated_dates.add(str(getdate(seg_start)))
+
+        if not kept_segments:
+            continue
 
         hourly_hours += flt(session_hourly_hours, 2)
         reported_total_hours += flt(session_hourly_hours + session_overnight_hours, 2)
@@ -875,7 +898,7 @@ def ytd_gross_before_period(employee, start_date, exclude_slip_name=None):
         "Salary Slip",
         filters={
             "employee": employee,
-            "docstatus": ["<", 2],
+            "docstatus": 1,
             "end_date": ["<", start_date],
         },
         fields=["name", "gross_pay"],
@@ -1369,18 +1392,212 @@ def set_manual_totals(slip):
     }
 
 
+def repair_salary_slip_totals(slip_or_name):
+    slip = (
+        frappe.get_doc("Salary Slip", slip_or_name)
+        if isinstance(slip_or_name, str)
+        else slip_or_name
+    )
+
+    earnings_sum = flt(sum(flt(row.amount) for row in slip.earnings), 2)
+    deductions_sum = flt(sum(flt(row.amount) for row in slip.deductions), 2)
+    net_pay = flt(earnings_sum - deductions_sum, 2)
+
+    prior_submitted = frappe.get_all(
+        "Salary Slip",
+        filters={
+            "employee": slip.employee,
+            "docstatus": 1,
+            "end_date": ["<", slip.start_date],
+        },
+        fields=["name", "gross_pay", "net_pay", "end_date"],
+    )
+
+    prior_gross_ytd = 0.0
+    prior_net_ytd = 0.0
+    prior_net_mtd = 0.0
+
+    current_month = getdate(slip.end_date).month
+    current_year = getdate(slip.end_date).year
+
+    for row in prior_submitted:
+        if row.name == slip.name:
+            continue
+
+        row_end = getdate(row.end_date)
+        gross_val = flt(row.gross_pay, 2)
+        net_val = flt(row.net_pay, 2)
+
+        prior_gross_ytd += gross_val
+        prior_net_ytd += net_val
+
+        if row_end.year == current_year and row_end.month == current_month:
+            prior_net_mtd += net_val
+
+    gross_year_to_date = flt(prior_gross_ytd + earnings_sum, 2)
+    year_to_date = flt(prior_net_ytd + net_pay, 2)
+    month_to_date = flt(prior_net_mtd + net_pay, 2)
+
+    updates = {
+        "gross_pay": earnings_sum,
+        "total_deduction": deductions_sum,
+        "net_pay": net_pay,
+        "rounded_total": net_pay,
+        "base_gross_pay": earnings_sum,
+        "base_total_deduction": deductions_sum,
+        "base_net_pay": net_pay,
+        "base_rounded_total": net_pay,
+        "gross_year_to_date": gross_year_to_date,
+        "base_gross_year_to_date": gross_year_to_date,
+        "year_to_date": year_to_date,
+        "base_year_to_date": year_to_date,
+        "month_to_date": month_to_date,
+        "base_month_to_date": month_to_date,
+        "total_in_words": money_in_words(net_pay, slip.currency),
+        "base_total_in_words": money_in_words(net_pay, slip.currency),
+    }
+
+    frappe.db.set_value("Salary Slip", slip.name, updates, update_modified=False)
+
+    # Repair row-level YTD fields if present on Salary Detail rows.
+    running_earning_ytd = prior_gross_ytd
+    for row in slip.earnings:
+        row_updates = {}
+        running_earning_ytd = flt(running_earning_ytd + flt(row.amount), 2)
+
+        row_meta = frappe.get_meta(row.doctype)
+        fieldnames = {df.fieldname for df in row_meta.fields}
+
+        if "year_to_date" in fieldnames:
+            row_updates["year_to_date"] = running_earning_ytd
+        if "base_year_to_date" in fieldnames:
+            row_updates["base_year_to_date"] = running_earning_ytd
+
+        if row_updates:
+            frappe.db.set_value(row.doctype, row.name, row_updates, update_modified=False)
+
+    for row in slip.deductions:
+        row_updates = {}
+        row_meta = frappe.get_meta(row.doctype)
+        fieldnames = {df.fieldname for df in row_meta.fields}
+
+        # Usually deduction row YTD is cumulative by component amount, but if present,
+        # at least keep it internally consistent for single-slip cases.
+        if "year_to_date" in fieldnames:
+            row_updates["year_to_date"] = flt(row.amount, 2)
+        if "base_year_to_date" in fieldnames:
+            row_updates["base_year_to_date"] = flt(row.amount, 2)
+
+        if row_updates:
+            frappe.db.set_value(row.doctype, row.name, row_updates, update_modified=False)
+
+    frappe.db.commit()
+    slip.reload()
+    return slip
+
+
+def finalize_custom_salary_slip(slip_or_name):
+    slip = (
+        frappe.get_doc("Salary Slip", slip_or_name)
+        if isinstance(slip_or_name, str)
+        else slip_or_name
+    )
+
+    normalize_saved_child_rows(slip)
+    slip.reload()
+    repair_salary_slip_totals(slip)
+    slip.reload()
+    return slip
+
+
+def submit_custom_salary_slip(slip_name):
+    slip = frappe.get_doc("Salary Slip", slip_name)
+
+    earnings_snapshot = [
+        {
+            "name": row.name,
+            "amount": flt(row.amount, 2),
+            "default_amount": flt(getattr(row, "default_amount", row.amount), 2),
+            "depends_on_payment_days": 0,
+        }
+        for row in slip.earnings
+    ]
+
+    deductions_snapshot = [
+        {
+            "name": row.name,
+            "amount": flt(row.amount, 2),
+            "default_amount": flt(getattr(row, "default_amount", row.amount), 2),
+            "depends_on_payment_days": 0,
+        }
+        for row in slip.deductions
+    ]
+
+    summary_snapshot = {
+        "payment_days": flt(getattr(slip, "payment_days", 0.0), 2),
+        "total_working_days": flt(getattr(slip, "total_working_days", 0.0), 2),
+        "absent_days": flt(getattr(slip, "absent_days", 0.0), 2),
+        "total_working_hours": flt(getattr(slip, "total_working_hours", 0.0), 2),
+    }
+
+    slip.submit()
+    frappe.db.commit()
+
+    slip = frappe.get_doc("Salary Slip", slip_name)
+
+    for row in earnings_snapshot:
+        frappe.db.set_value(
+            "Salary Detail",
+            row["name"],
+            {
+                "amount": row["amount"],
+                "default_amount": row["default_amount"],
+                "depends_on_payment_days": row["depends_on_payment_days"],
+            },
+            update_modified=False,
+        )
+
+    for row in deductions_snapshot:
+        frappe.db.set_value(
+            "Salary Detail",
+            row["name"],
+            {
+                "amount": row["amount"],
+                "default_amount": row["default_amount"],
+                "depends_on_payment_days": row["depends_on_payment_days"],
+            },
+            update_modified=False,
+        )
+
+    frappe.db.set_value(
+        "Salary Slip",
+        slip_name,
+        {
+            "payment_days": summary_snapshot["payment_days"],
+            "total_working_days": summary_snapshot["total_working_days"],
+            "absent_days": summary_snapshot["absent_days"],
+            "total_working_hours": summary_snapshot["total_working_hours"],
+        },
+        update_modified=False,
+    )
+    frappe.db.commit()
+
+    slip = frappe.get_doc("Salary Slip", slip_name)
+    finalize_custom_salary_slip(slip.name)
+
+    return frappe.get_doc("Salary Slip", slip.name)
+
+
 def normalize_saved_child_rows(slip):
     changed = 0
 
     for row in list(slip.earnings) + list(slip.deductions):
         target_amount = flt(getattr(row, "amount", 0.0), 2)
 
-        updates = {}
-        if cint(getattr(row, "depends_on_payment_days", 0)) != 0:
-            updates["depends_on_payment_days"] = 0
-
-        if flt(getattr(row, "default_amount", 0.0), 2) != target_amount:
-            updates["default_amount"] = target_amount
+        updates = {
+            "depends_on_payment_days": 0,
+            "default_amount": target_amount,
+        }
 
         if updates:
             for fieldname, value in updates.items():
@@ -1407,7 +1624,8 @@ def save_custom_salary_slip(slip, employee, start_date):
         slip.save(ignore_permissions=True)
 
     slip.reload()
-    normalize_saved_child_rows(slip)
+    finalize_custom_salary_slip(slip)
+
     return slip
 
 
@@ -2029,7 +2247,18 @@ def get_withholding_bank_gl_account(company):
     return None
 
 
-def build_simple_journal_preview(company, posting_date, user_remark, lines):
+def build_simple_journal_preview(
+    company,
+    posting_date,
+    user_remark,
+    lines,
+    missing_accounts=None,
+    account_map=None,
+    liability_summary=None,
+    salary_slip_names=None,
+    employee_count=None,
+    recommended_bank_accounts=None,
+):
     normalized = []
     for line in lines:
         debit = flt(line.get("debit_in_account_currency", 0.0), 2)
@@ -2046,6 +2275,8 @@ def build_simple_journal_preview(company, posting_date, user_remark, lines):
 
     total_debit = flt(sum(flt(d.get("debit_in_account_currency", 0.0)) for d in normalized), 2)
     total_credit = flt(sum(flt(d.get("credit_in_account_currency", 0.0)) for d in normalized), 2)
+    missing_accounts = list(missing_accounts or [])
+    is_balanced = total_debit == total_credit
 
     return {
         "voucher_type": "Journal Entry",
@@ -2055,8 +2286,14 @@ def build_simple_journal_preview(company, posting_date, user_remark, lines):
         "accounts": normalized,
         "total_debit": total_debit,
         "total_credit": total_credit,
-        "is_balanced": total_debit == total_credit,
-        "is_ready_to_create": total_debit == total_credit and len(normalized) > 0,
+        "is_balanced": is_balanced,
+        "is_ready_to_create": is_balanced and len(normalized) > 0 and not missing_accounts,
+        "missing_accounts": missing_accounts,
+        "account_map": account_map,
+        "liability_summary": liability_summary,
+        "salary_slip_names": salary_slip_names,
+        "employee_count": employee_count,
+        "recommended_bank_accounts": recommended_bank_accounts,
     }
 
 
@@ -2101,6 +2338,18 @@ def build_payroll_cash_flow_preview(
         company=company,
         posting_date=posting_date,
         user_remark=f"Employee payroll payment for {slip.name}",
+        missing_accounts=[name for name, account in {
+            "payroll_payable_account": account_map["payroll_payable_account"],
+            "checking_bank_account": checking_bank_account,
+        }.items() if not account],
+        account_map=account_map,
+        liability_summary=liability,
+        salary_slip_names=[slip.name],
+        employee_count=1,
+        recommended_bank_accounts={
+            "checking_bank_account": checking_bank_account,
+            "withholding_bank_account": withholding_bank_account,
+        },
         lines=[
             {
                 "account": account_map["payroll_payable_account"],
@@ -2123,6 +2372,18 @@ def build_payroll_cash_flow_preview(
         company=company,
         posting_date=posting_date,
         user_remark=f"Transfer payroll tax reserve for {slip.name}",
+        missing_accounts=[name for name, account in {
+            "checking_bank_account": checking_bank_account,
+            "withholding_bank_account": withholding_bank_account,
+        }.items() if not account],
+        account_map=account_map,
+        liability_summary=liability,
+        salary_slip_names=[slip.name],
+        employee_count=1,
+        recommended_bank_accounts={
+            "checking_bank_account": checking_bank_account,
+            "withholding_bank_account": withholding_bank_account,
+        },
         lines=[
             {
                 "account": withholding_bank_account,
@@ -2145,6 +2406,21 @@ def build_payroll_cash_flow_preview(
         company=company,
         posting_date=posting_date,
         user_remark=f"Payroll tax remittance preview for {slip.name}",
+        missing_accounts=[name for name, account in {
+            "social_security_payable_account": account_map["social_security_payable_account"],
+            "medicare_payable_account": account_map["medicare_payable_account"],
+            "federal_withholding_payable_account": account_map["federal_withholding_payable_account"],
+            "colorado_withholding_payable_account": account_map["colorado_withholding_payable_account"],
+            "withholding_bank_account": withholding_bank_account,
+        }.items() if not account],
+        account_map=account_map,
+        liability_summary=liability,
+        salary_slip_names=[slip.name],
+        employee_count=1,
+        recommended_bank_accounts={
+            "checking_bank_account": checking_bank_account,
+            "withholding_bank_account": withholding_bank_account,
+        },
         lines=[
             {
                 "account": account_map["social_security_payable_account"],
@@ -2249,6 +2525,18 @@ def build_consolidated_payroll_cash_flow_preview(
         company=company,
         posting_date=posting_date,
         user_remark=f"Consolidated employee payroll payment for {company}",
+        missing_accounts=[name for name, account in {
+            "payroll_payable_account": account_map["payroll_payable_account"],
+            "checking_bank_account": checking_bank_account,
+        }.items() if not account],
+        account_map=account_map,
+        liability_summary=liability,
+        salary_slip_names=[result["slip_name"] for result in payroll_results],
+        employee_count=len(payroll_results),
+        recommended_bank_accounts={
+            "checking_bank_account": checking_bank_account,
+            "withholding_bank_account": withholding_bank_account,
+        },
         lines=[
             {
                 "account": account_map["payroll_payable_account"],
@@ -2340,15 +2628,17 @@ def build_consolidated_payroll_cash_flow_preview(
 
 
 def create_journal_entry_draft_from_preview(preview, label="Journal Entry"):
-    if preview["missing_accounts"]:
+    missing_accounts = preview.get("missing_accounts", [])
+
+    if missing_accounts:
         frappe.throw(
             f"Cannot create {label} draft. Missing required account mappings: "
-            + ", ".join(preview["missing_accounts"])
+            + ", ".join(missing_accounts)
         )
 
-    if not preview["is_balanced"]:
+    if not preview.get("is_balanced", False):
         frappe.throw(
-            f"{label} preview is not balanced: debit={preview['total_debit']} credit={preview['total_credit']}"
+            f"{label} preview is not balanced: debit={preview.get('total_debit')} credit={preview.get('total_credit')}"
         )
 
     if not preview.get("accounts"):
@@ -2371,10 +2661,10 @@ def create_journal_entry_draft_from_preview(preview, label="Journal Entry"):
         "journal_entry_name": je.name,
         "posting_date": je.posting_date,
         "company": je.company,
-        "total_debit": preview["total_debit"],
-        "total_credit": preview["total_credit"],
-        "is_balanced": preview["is_balanced"],
-        "missing_accounts": preview["missing_accounts"],
+        "total_debit": preview.get("total_debit"),
+        "total_credit": preview.get("total_credit"),
+        "is_balanced": preview.get("is_balanced"),
+        "missing_accounts": missing_accounts,
         "account_map": preview.get("account_map"),
         "liability_summary": preview.get("liability_summary"),
         "salary_slip_names": preview.get("salary_slip_names"),
