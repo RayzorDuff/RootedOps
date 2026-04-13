@@ -1584,7 +1584,9 @@ def submit_custom_salary_slip(slip_name):
 
     slip = frappe.get_doc("Salary Slip", slip_name)
     finalize_custom_salary_slip(slip.name)
+    repair_salary_slip_totals(slip.name)
 
+    frappe.db.commit()
     return frappe.get_doc("Salary Slip", slip.name)
 
 

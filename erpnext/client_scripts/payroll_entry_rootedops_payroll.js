@@ -133,6 +133,89 @@ frappe.ui.form.on("Payroll Entry", {
       });
     }, "RootedOps Payroll");
 
+    frm.add_custom_button("Finalize Payroll (Safe)", async () => {
+      const steps = [
+        {
+          label: "Submit Draft Salary Slips",
+          method: "rootedops_payroll.api.payroll_entry_actions.submit_draft_salary_slips",
+          freeze_message: "Submitting salary slips..."
+        },
+        {
+          label: "Create Consolidated Draft JE",
+          method: "rootedops_payroll.api.payroll_entry_actions.create_consolidated_draft_journal_entry",
+          freeze_message: "Creating consolidated Journal Entry draft..."
+        },
+        {
+          label: "Create Employee Payment Draft JE",
+          method: "rootedops_payroll.api.payroll_entry_actions.create_employee_payment_draft_journal_entry",
+          freeze_message: "Creating employee payment Journal Entry draft..."
+        },
+        {
+          label: "Create Tax Reserve Transfer Draft JE",
+          method: "rootedops_payroll.api.payroll_entry_actions.create_tax_reserve_transfer_draft_journal_entry",
+          freeze_message: "Creating tax reserve transfer Journal Entry draft..."
+        }
+      ];
+
+      const results = [];
+
+      try {
+        for (const step of steps) {
+          const r = await frappe.call({
+            method: step.method,
+            args: { payroll_entry_name: frm.doc.name },
+            freeze: true,
+            freeze_message: step.freeze_message
+          });
+
+          results.push({
+            label: step.label,
+            data: r.message || {}
+          });
+        }
+
+        const submitData = results.find(r => r.label === "Submit Draft Salary Slips")?.data || {};
+        const consolidatedData = results.find(r => r.label === "Create Consolidated Draft JE")?.data || {};
+        const paymentData = results.find(r => r.label === "Create Employee Payment Draft JE")?.data || {};
+        const reserveData = results.find(r => r.label === "Create Tax Reserve Transfer Draft JE")?.data || {};
+
+        const submitted = submitData.submitted_salary_slip_names || [];
+        const alreadySubmitted = submitData.already_submitted_salary_slip_names || [];
+
+        frappe.msgprint({
+          title: "Payroll Finalized",
+          wide: true,
+          message: `
+            <p><b>Employees:</b> ${submitData.employee_count || 0}</p>
+
+            <hr>
+            <p><b>Salary Slips Submitted Now:</b> ${submitted.length}</p>
+            <p>${salarySlipLinks(submitted) || "None"}</p>
+
+            <p><b>Salary Slips Already Submitted:</b> ${alreadySubmitted.length}</p>
+            <p>${salarySlipLinks(alreadySubmitted) || "None"}</p>
+
+            <hr>
+            <p><b>Consolidated JE:</b> ${journalEntryLink(consolidatedData.journal_entry)}</p>
+            <p><b>Employee Payment JE:</b> ${journalEntryLink(paymentData.journal_entry)}</p>
+            <p><b>Tax Reserve Transfer JE:</b> ${journalEntryLink(reserveData.journal_entry)}</p>
+          `
+        });
+
+        frm.reload_doc();
+      } catch (e) {
+        frappe.msgprint({
+          title: "Finalize Payroll Stopped",
+          indicator: "red",
+          message: `
+            <p>The payroll flow stopped before completion.</p>
+            <p>Review the server error above, correct it, and rerun the remaining steps.</p>
+          `
+        });
+        throw e;
+      }
+    }, "RootedOps Payroll");
+
     frm.add_custom_button("Create Consolidated Draft JE", () => {
       frappe.call({
         method: "rootedops_payroll.api.payroll_entry_actions.create_consolidated_draft_journal_entry",
