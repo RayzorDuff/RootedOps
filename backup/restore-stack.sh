@@ -93,6 +93,7 @@ log "Restoring bind-mounted content"
 restore_bind_archive documenso-certs.tgz "$REPO_ROOT/documenso"
 restore_bind_archive grav.tgz "$REPO_ROOT"
 restore_bind_archive nginx.tgz "$REPO_ROOT"
+restore_bind_archive minecraft-bedrock.tgz "$REPO_ROOT/minecraft"
 
 log "Starting database containers only"
 "${COMPOSE_SH[@]}" up -d signaturegate-postgres mushroomprocess-bridge-postgres nocodb-meta-postgres documenso-postgres erpnext-db
