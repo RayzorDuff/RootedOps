@@ -231,6 +231,24 @@ services:
     volumes:
       - ../grav:/var/www/html:rw
 
+  # --- Minecraft Bedrock BedWars (PocketMine-MP) ---
+  minecraft-bedwars:
+    image: ghcr.io/pmmp/pocketmine-mp:${MINECRAFT_BEDWARS_POCKETMINE_TAG}
+    container_name: minecraft-bedwars
+    tty: true
+    stdin_open: true
+    environment:
+      # Optional Poggit auto-downloads. Leave blank if using a manually downloaded .phar.
+      POCKETMINE_PLUGINS: ${MINECRAFT_BEDWARS_POCKETMINE_PLUGINS}
+      TZ: America/Denver
+    ports:
+      # Minecraft Bedrock uses UDP. Keep the container side at 19132.
+      - "${MINECRAFT_BEDWARS_PORT}:19132/udp"
+    volumes:
+      - ../minecraft/bedwars/data:/data
+      - ../minecraft/bedwars/plugins:/plugins
+    restart: unless-stopped
+
   # --- ERPNext / Frappe HR ---
   erpnext-db:
     image: mariadb:${ERPNEXT_MARIADB_VERSION}
