@@ -38,6 +38,103 @@ This repository is the standalone operations and deployment project that was spl
    - Grav: http://localhost:8085
    - Documenso: http://localhost:3002
 
+
+
+## Minecraft Bedrock BedWars service
+
+RootedOps can run a Minecraft: Bedrock Edition BedWars server using PocketMine-MP plus a BedWars plugin such as `BedwarsPM` from Poggit.
+
+Minecraft Bedrock is not an HTTP service. It uses UDP, normally on port `19132`, so it does not use the normal `nginx/sites-enabled` HTTP reverse-proxy pattern used by NocoDB, n8n, Appsmith, Grav, Documenso, and ERPNext.
+
+### Configure environment
+
+Set these values in `.env`:
+
+```env
+MINECRAFT_BEDWARS_HOST=minecraft.yourdomain.com
+MINECRAFT_BEDWARS_PORT=19132
+MINECRAFT_BEDWARS_POCKETMINE_TAG=5.43.1
+```
+
+For a manually downloaded BedWars `.phar`, leave the Poggit auto-download variable blank:
+
+```env
+MINECRAFT_BEDWARS_POCKETMINE_PLUGINS=
+```
+
+Only set `MINECRAFT_BEDWARS_POCKETMINE_PLUGINS` when using a confirmed Poggit plugin slug and version. The format is space-separated `PluginName[:version]` values, for example:
+
+```env
+MINECRAFT_BEDWARS_POCKETMINE_PLUGINS=PluginOne:1.2.3 PluginTwo
+```
+
+### Install the BedWars plugin manually
+
+Create the bind-mounted PocketMine directories from the RootedOps repository root:
+
+```bash
+mkdir -p minecraft/bedwars/data minecraft/bedwars/plugins
+```
+
+Download the BedWars plugin `.phar` and place it in:
+
+```text
+minecraft/bedwars/plugins/
+```
+
+For example, if using the Poggit `BedwarsPM` download, the file should live under:
+
+```text
+minecraft/bedwars/plugins/BedwarsPM.phar
+```
+
+The PocketMine container runs as UID/GID `1000:1000`. If the directories were created by `root`, fix ownership before startup:
+
+```bash
+sudo chown -R 1000:1000 minecraft/bedwars
+```
+
+### Start and inspect the server
+
+From the RootedOps repository root:
+
+```bash
+sudo docker compose --env-file .env -f docker/docker-compose.yml up -d minecraft-bedwars
+sudo docker logs -f minecraft-bedwars
+```
+
+If launching the full stack instead of only Minecraft:
+
+```bash
+sudo docker compose --env-file .env -f docker/docker-compose.yml up -d
+```
+
+### DNS, firewall, and nginx
+
+Point `minecraft.yourdomain.com` to the Linode with an `A` record. Open Bedrock's UDP port on the host firewall:
+
+```bash
+sudo ufw allow 19132/udp
+```
+
+Do not copy `nginx/minecraft-bedwars.stream.conf` into `/etc/nginx/sites-available` or link it under `/etc/nginx/sites-enabled`. Those directories are normally included inside nginx's `http {}` context, and `listen ... udp` is only valid in nginx's top-level `stream {}` context.
+
+The recommended RootedOps setup is direct Docker UDP publishing:
+
+```yaml
+ports:
+  - "${MINECRAFT_BEDWARS_PORT}:19132/udp"
+```
+
+With direct Docker publishing, nginx is not involved for Minecraft. Bedrock clients connect to:
+
+```text
+Server Address: minecraft.yourdomain.com
+Port: 19132
+```
+
+Optional nginx stream proxying is only needed if nginx must own the public UDP listener. In that case, configure a top-level nginx `stream {}` include and use a separate Docker backend port, such as public `19132/udp` to nginx and localhost backend `19133/udp` to the container. Do not have nginx and Docker both bind public `19132/udp`.
+
 ## Repository layout
 
 - `docker/` - Compose stack and custom Dockerfiles

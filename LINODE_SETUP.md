@@ -82,11 +82,11 @@ This repo includes example NGINX site configs under:
 - `nginx/grav.conf`
 - `nginx/erpnext.conf`
 
-Install them like this:
+Install the HTTP site configs like this:
 
 ```bash
 sudo apt-get install -y nginx certbot python3-certbot-nginx
-sudo cp nginx/*.conf /etc/nginx/sites-available/
+sudo cp nginx/n8n.conf nginx/nocodb.conf nginx/appsmith.conf nginx/documenso.conf nginx/grav.conf nginx/erpnext.conf /etc/nginx/sites-available/
 sudo ln -sf /etc/nginx/sites-available/n8n.conf /etc/nginx/sites-enabled/n8n.conf
 sudo ln -sf /etc/nginx/sites-available/nocodb.conf /etc/nginx/sites-enabled/nocodb.conf
 sudo ln -sf /etc/nginx/sites-available/appsmith.conf /etc/nginx/sites-enabled/appsmith.conf
@@ -96,6 +96,8 @@ sudo ln -sf /etc/nginx/sites-available/erpnext.conf /etc/nginx/sites-enabled/erp
 sudo nginx -t
 sudo systemctl reload nginx
 ```
+
+Do not copy `nginx/minecraft-bedwars.stream.conf` into `/etc/nginx/sites-available` or link it under `/etc/nginx/sites-enabled`. Minecraft Bedrock uses UDP, not HTTP, and nginx UDP proxying belongs in nginx's top-level `stream {}` context.
 
 Then request certificates:
 
@@ -111,6 +113,171 @@ sudo certbot --nginx \
 ```
 
 Update `.env` values so each service knows its public URL.
+
+
+
+## 4.1 Minecraft Bedrock BedWars
+
+The Minecraft Bedrock BedWars service uses PocketMine-MP and a BedWars plugin. It is different from the other RootedOps services because Bedrock is UDP traffic, not HTTP traffic.
+
+### 4.1.1 DNS and firewall
+
+Create a DNS `A` record:
+
+```text
+minecraft.yourdomain.com -> your Linode IPv4 address
+```
+
+Open the Bedrock UDP port:
+
+```bash
+sudo ufw allow 19132/udp
+sudo ufw status
+```
+
+### 4.1.2 Environment values
+
+In `.env`, set:
+
+```env
+MINECRAFT_BEDWARS_HOST=minecraft.yourdomain.com
+MINECRAFT_BEDWARS_PORT=19132
+MINECRAFT_BEDWARS_POCKETMINE_TAG=5.43.1
+```
+
+For manual plugin installation, leave this blank:
+
+```env
+MINECRAFT_BEDWARS_POCKETMINE_PLUGINS=
+```
+
+Use `MINECRAFT_BEDWARS_POCKETMINE_PLUGINS` only for confirmed Poggit plugin slugs. The format is:
+
+```env
+MINECRAFT_BEDWARS_POCKETMINE_PLUGINS=PluginOne:1.2.3 PluginTwo
+```
+
+### 4.1.3 Install the BedWars plugin
+
+From the RootedOps repository root:
+
+```bash
+mkdir -p minecraft/bedwars/data minecraft/bedwars/plugins
+```
+
+Download the BedWars `.phar`, such as `BedwarsPM.phar` from Poggit, and place it in:
+
+```text
+minecraft/bedwars/plugins/
+```
+
+Example:
+
+```text
+minecraft/bedwars/plugins/BedwarsPM.phar
+```
+
+PocketMine runs as UID/GID `1000:1000`. If Docker logs show permission errors like `Failed to open lock file` or warnings that `/data` or `/plugins` are not owned by `pocketmine`, fix the bind mount ownership:
+
+```bash
+sudo chown -R 1000:1000 minecraft/bedwars
+```
+
+### 4.1.4 Start the server
+
+Start only Minecraft:
+
+```bash
+sudo docker compose --env-file .env -f docker/docker-compose.yml up -d minecraft-bedwars
+sudo docker logs -f minecraft-bedwars
+```
+
+Or start the full RootedOps stack:
+
+```bash
+sudo docker compose --env-file .env -f docker/docker-compose.yml up -d
+```
+
+Bedrock clients should connect with:
+
+```text
+Server Address: minecraft.yourdomain.com
+Port: 19132
+```
+
+### 4.1.5 NGINX guidance for Minecraft
+
+For RootedOps, the recommended setup is to let Docker publish UDP directly:
+
+```yaml
+ports:
+  - "${MINECRAFT_BEDWARS_PORT}:19132/udp"
+```
+
+In this mode, nginx is not used for Minecraft.
+
+If you accidentally copied `minecraft-bedwars.stream.conf` to `sites-available` / `sites-enabled` and nginx fails with an error like `invalid parameter "udp"`, remove it from the HTTP site config directories:
+
+```bash
+sudo rm -f /etc/nginx/sites-enabled/minecraft-bedwars.stream.conf
+sudo rm -f /etc/nginx/sites-available/minecraft-bedwars.stream.conf
+sudo nginx -t
+sudo systemctl reload nginx
+```
+
+Optional nginx stream proxying is possible, but it must be configured outside the `http {}` context. Use it only if nginx must own public UDP `19132`.
+
+Install nginx stream support if needed:
+
+```bash
+sudo apt-get install -y libnginx-mod-stream
+```
+
+Create a stream include directory:
+
+```bash
+sudo mkdir -p /etc/nginx/streams-enabled
+```
+
+Add this at the top level of `/etc/nginx/nginx.conf`, outside the existing `http {}` block:
+
+```nginx
+stream {
+    include /etc/nginx/streams-enabled/*.conf;
+}
+```
+
+Then configure Docker to expose PocketMine only on a separate localhost backend UDP port, for example:
+
+```yaml
+ports:
+  - "127.0.0.1:19133:19132/udp"
+```
+
+Create `/etc/nginx/streams-enabled/minecraft-bedwars.conf`:
+
+```nginx
+upstream minecraft_bedwars_udp {
+    server 127.0.0.1:19133;
+}
+
+server {
+    listen 19132 udp reuseport;
+    proxy_timeout 600s;
+    proxy_responses 1;
+    proxy_pass minecraft_bedwars_udp;
+}
+```
+
+Then test and reload nginx:
+
+```bash
+sudo nginx -t
+sudo systemctl reload nginx
+```
+
+Do not use both direct Docker public `19132:19132/udp` and nginx public `listen 19132 udp` at the same time.
+
 
 ## 5. Persistent data map in this stack
 
@@ -140,6 +307,8 @@ These Redis volumes can still be backed up if you want a more literal snapshot, 
 ### Bind-mounted paths to preserve
 - `documenso/certs/cert.p12`
 - `grav/`
+- `minecraft/bedwars/data/` - PocketMine server config, worlds, players, and plugin data
+- `minecraft/bedwars/plugins/` - manually installed PocketMine plugins, including BedWars `.phar` files
 - `.env`
 - `nginx/`
 
