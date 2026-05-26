@@ -82,11 +82,11 @@ This repo includes example NGINX site configs under:
 - `nginx/grav.conf`
 - `nginx/erpnext.conf`
 
-Install them like this:
+Install the HTTP site configs like this:
 
 ```bash
 sudo apt-get install -y nginx certbot python3-certbot-nginx
-sudo cp nginx/*.conf /etc/nginx/sites-available/
+sudo cp nginx/n8n.conf nginx/nocodb.conf nginx/appsmith.conf nginx/documenso.conf nginx/grav.conf nginx/erpnext.conf /etc/nginx/sites-available/
 sudo ln -sf /etc/nginx/sites-available/n8n.conf /etc/nginx/sites-enabled/n8n.conf
 sudo ln -sf /etc/nginx/sites-available/nocodb.conf /etc/nginx/sites-enabled/nocodb.conf
 sudo ln -sf /etc/nginx/sites-available/appsmith.conf /etc/nginx/sites-enabled/appsmith.conf
@@ -96,6 +96,8 @@ sudo ln -sf /etc/nginx/sites-available/erpnext.conf /etc/nginx/sites-enabled/erp
 sudo nginx -t
 sudo systemctl reload nginx
 ```
+
+Do not create or install an nginx HTTP site for Minecraft. Minecraft Bedrock uses UDP, not HTTP, and the recommended RootedOps setup lets Docker publish UDP `19132` directly.
 
 Then request certificates:
 
@@ -111,6 +113,179 @@ sudo certbot --nginx \
 ```
 
 Update `.env` values so each service knows its public URL.
+
+
+
+## 4.1 Minecraft Bedrock BedWars
+
+The Minecraft Bedrock BedWars service uses the official Bedrock Dedicated Server runtime through the `itzg/minecraft-bedrock-server` Docker image. This is the recommended runtime for downloaded Bedrock `.mcworld` minigame maps that rely on command blocks, behavior packs, resource packs, or built-in lobby controls.
+
+This mode is different from PocketMine:
+
+```text
+Official Bedrock Dedicated Server
+  - runs Bedrock .mcworld maps and built-in map logic
+  - does not use PocketMine .phar plugins
+  - does not use /bedwars
+
+PocketMine
+  - runs PocketMine plugins such as BedwarsPM
+  - does not reliably run command-block Bedrock minigame maps
+```
+
+For RootedOps, use the official Bedrock server with a downloaded BedWars map. Do not install the PocketMine BedwarsPM plugin for this service.
+
+### 4.1.1 DNS and firewall
+
+Create a DNS `A` record:
+
+```text
+minecraft.yourdomain.com -> your Linode IPv4 address
+```
+
+Open the Bedrock UDP port:
+
+```bash
+sudo ufw allow 19132/udp
+sudo ufw status
+```
+
+### 4.1.2 Environment values
+
+In `.env`, set:
+
+```env
+MINECRAFT_BEDWARS_HOST=minecraft.yourdomain.com
+MINECRAFT_BEDWARS_PORT=19132
+MINECRAFT_BEDROCK_IMAGE_TAG=latest
+MINECRAFT_BEDWARS_SERVER_NAME=Rooted BedWars
+MINECRAFT_BEDWARS_LEVEL_NAME=bedwars_minigame
+MINECRAFT_BEDWARS_GAMEMODE=adventure
+MINECRAFT_BEDWARS_DIFFICULTY=normal
+MINECRAFT_BEDWARS_MAX_PLAYERS=8
+MINECRAFT_BEDWARS_ONLINE_MODE=true
+MINECRAFT_BEDWARS_ALLOW_CHEATS=true
+MINECRAFT_BEDWARS_ALLOW_LIST=true
+MINECRAFT_BEDWARS_ALLOW_LIST_USERS=PlayerOneName,PlayerTwoName
+```
+
+`MINECRAFT_BEDWARS_LEVEL_NAME` must match the folder name under:
+
+```text
+minecraft/bedrock/worlds/
+```
+
+For example, if the world folder is:
+
+```text
+minecraft/bedrock/worlds/bedwars_minigame/
+```
+
+then use:
+
+```env
+MINECRAFT_BEDWARS_LEVEL_NAME=bedwars_minigame
+```
+
+### 4.1.3 Install a Bedrock BedWars map
+
+From the RootedOps repository root:
+
+```bash
+mkdir -p minecraft/bedrock/worlds
+```
+
+Download a Bedrock `.mcworld` BedWars map. A `.mcworld` file is a zip archive. Extract it into a named world directory:
+
+```bash
+mkdir -p /tmp/bedwars_minigame
+unzip "/path/to/Bedwars Mini-Game.mcworld" -d /tmp/bedwars_minigame
+mv /tmp/bedwars_minigame minecraft/bedrock/worlds/bedwars_minigame
+```
+
+Confirm that `level.dat` is directly inside the configured world folder:
+
+```text
+minecraft/bedrock/worlds/bedwars_minigame/level.dat
+```
+
+If the map download includes separate `.mcpack` or `.mcaddon` files, install the required behavior/resource packs into the Bedrock server data folders and confirm that the world references them. A map may load visually but fail to show controls or custom gameplay if required packs are missing.
+
+### 4.1.4 Start the server
+
+Start only Minecraft:
+
+```bash
+sudo docker compose --env-file .env -f docker/docker-compose.yml up -d minecraft-bedwars
+sudo docker logs -f minecraft-bedwars
+```
+
+Or start the full RootedOps stack:
+
+```bash
+sudo docker compose --env-file .env -f docker/docker-compose.yml up -d
+```
+
+Bedrock clients should connect with:
+
+```text
+Server Address: minecraft.yourdomain.com
+Port: 19132
+```
+
+The expected player flow is:
+
+```text
+Players join the server
+Players spawn in the BedWars map lobby
+Players use the map's built-in buttons, signs, NPCs, or selectors
+No /bedwars command is used
+```
+
+### 4.1.5 Private invite-only access
+
+The service is private when the allow list is enabled:
+
+```env
+MINECRAFT_BEDWARS_ALLOW_LIST=true
+MINECRAFT_BEDWARS_ALLOW_LIST_USERS=PlayerOneName,PlayerTwoName
+```
+
+Use Bedrock/Xbox gamertags. If an invited player is rejected, watch the logs while they attempt to connect and correct the allow-list entry from the name/XUID details shown there.
+
+To grant operator permissions, attach to the server console:
+
+```bash
+sudo docker attach minecraft-bedwars
+```
+
+Run:
+
+```text
+op PlayerOneName
+```
+
+Detach without stopping the container by pressing `Ctrl-p`, then `Ctrl-q`.
+
+### 4.1.6 NGINX guidance for Minecraft
+
+For RootedOps, the recommended setup is to let Docker publish UDP directly:
+
+```yaml
+ports:
+  - "${MINECRAFT_BEDWARS_PORT}:19132/udp"
+```
+
+In this mode, nginx is not used for Minecraft. Do not copy a Minecraft config into `/etc/nginx/sites-available` or link it under `/etc/nginx/sites-enabled`; those are HTTP virtual hosts, while Minecraft Bedrock uses UDP.
+
+If you previously installed a Minecraft stream file into the HTTP site directories and nginx fails with an error like `invalid parameter "udp"`, remove it:
+
+```bash
+sudo rm -f /etc/nginx/sites-enabled/minecraft-bedwars.stream.conf
+sudo rm -f /etc/nginx/sites-available/minecraft-bedwars.stream.conf
+sudo nginx -t
+sudo systemctl reload nginx
+```
 
 ## 5. Persistent data map in this stack
 
@@ -140,6 +315,7 @@ These Redis volumes can still be backed up if you want a more literal snapshot, 
 ### Bind-mounted paths to preserve
 - `documenso/certs/cert.p12`
 - `grav/`
+- `minecraft/bedrock/` - official Bedrock Dedicated Server config, worlds, players, allow list, and map data
 - `.env`
 - `nginx/`
 
