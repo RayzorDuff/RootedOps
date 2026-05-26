@@ -42,9 +42,11 @@ This repository is the standalone operations and deployment project that was spl
 
 ## Minecraft Bedrock BedWars service
 
-RootedOps can run a Minecraft: Bedrock Edition BedWars server using PocketMine-MP plus a BedWars plugin such as `BedwarsPM` from Poggit.
+RootedOps can run a Minecraft: Bedrock Edition BedWars server using the official Bedrock Dedicated Server runtime through the `itzg/minecraft-bedrock-server` Docker image. This is the recommended runtime for self-contained Bedrock `.mcworld` minigame maps that rely on command blocks, behavior packs, resource packs, or built-in lobby controls.
 
-Minecraft Bedrock is not an HTTP service. It uses UDP, normally on port `19132`, so it does not use the normal `nginx/sites-enabled` HTTP reverse-proxy pattern used by NocoDB, n8n, Appsmith, Grav, Documenso, and ERPNext.
+This service does **not** use PocketMine or PocketMine `.phar` plugins. Do not install `BedwarsPM`, do not use `/bedwars`, and do not configure a PocketMine lobby/arena workflow for this mode. BedWars is provided by the downloaded Bedrock map itself.
+
+Minecraft Bedrock is not an HTTP service. It uses UDP, normally on port `19132`, so it does not use the normal nginx `sites-enabled` HTTP reverse-proxy pattern used by NocoDB, n8n, Appsmith, Grav, Documenso, and ERPNext.
 
 ### Configure environment
 
@@ -53,46 +55,47 @@ Set these values in `.env`:
 ```env
 MINECRAFT_BEDWARS_HOST=minecraft.yourdomain.com
 MINECRAFT_BEDWARS_PORT=19132
-MINECRAFT_BEDWARS_POCKETMINE_TAG=5.43.1
+MINECRAFT_BEDROCK_IMAGE_TAG=latest
+MINECRAFT_BEDWARS_SERVER_NAME=Rooted BedWars
+MINECRAFT_BEDWARS_LEVEL_NAME=bedwars_minigame
+MINECRAFT_BEDWARS_GAMEMODE=adventure
+MINECRAFT_BEDWARS_DIFFICULTY=normal
+MINECRAFT_BEDWARS_MAX_PLAYERS=8
+MINECRAFT_BEDWARS_ONLINE_MODE=true
+MINECRAFT_BEDWARS_ALLOW_CHEATS=true
+MINECRAFT_BEDWARS_ALLOW_LIST=true
+MINECRAFT_BEDWARS_ALLOW_LIST_USERS=PlayerOneName,PlayerTwoName
 ```
 
-For a manually downloaded BedWars `.phar`, leave the Poggit auto-download variable blank:
-
-```env
-MINECRAFT_BEDWARS_POCKETMINE_PLUGINS=
-```
-
-Only set `MINECRAFT_BEDWARS_POCKETMINE_PLUGINS` when using a confirmed Poggit plugin slug and version. The format is space-separated `PluginName[:version]` values, for example:
-
-```env
-MINECRAFT_BEDWARS_POCKETMINE_PLUGINS=PluginOne:1.2.3 PluginTwo
-```
-
-### Install the BedWars plugin manually
-
-Create the bind-mounted PocketMine directories from the RootedOps repository root:
-
-```bash
-mkdir -p minecraft/bedwars/data minecraft/bedwars/plugins
-```
-
-Download the BedWars plugin `.phar` and place it in:
+`MINECRAFT_BEDWARS_LEVEL_NAME` must match the folder name of the installed world under `minecraft/bedrock/worlds/`. For example:
 
 ```text
-minecraft/bedwars/plugins/
+minecraft/bedrock/worlds/bedwars_minigame/
 ```
 
-For example, if using the Poggit `BedwarsPM` download, the file should live under:
+### Install a Bedrock BedWars map
 
-```text
-minecraft/bedwars/plugins/BedwarsPM.phar
-```
-
-The PocketMine container runs as UID/GID `1000:1000`. If the directories were created by `root`, fix ownership before startup:
+Create the persistent Bedrock server directories from the RootedOps repository root:
 
 ```bash
-sudo chown -R 1000:1000 minecraft/bedwars
+mkdir -p minecraft/bedrock/worlds
 ```
+
+Download a Bedrock `.mcworld` BedWars map. A `.mcworld` file is a zip archive. Extract it into a world folder under `minecraft/bedrock/worlds/`:
+
+```bash
+mkdir -p /tmp/bedwars_minigame
+unzip "/path/to/Bedwars Mini-Game.mcworld" -d /tmp/bedwars_minigame
+mv /tmp/bedwars_minigame minecraft/bedrock/worlds/bedwars_minigame
+```
+
+After extraction, confirm the world folder contains `level.dat` directly inside the configured folder:
+
+```text
+minecraft/bedrock/worlds/bedwars_minigame/level.dat
+```
+
+If the map download includes separate `.mcpack` or `.mcaddon` behavior/resource packs, install those into the appropriate Bedrock server data folders and make sure the world references them. Some maps will load visually but will not function correctly if required packs are missing.
 
 ### Start and inspect the server
 
@@ -109,6 +112,32 @@ If launching the full stack instead of only Minecraft:
 sudo docker compose --env-file .env -f docker/docker-compose.yml up -d
 ```
 
+The `itzg/minecraft-bedrock-server` image accepts the Minecraft EULA with `EULA=TRUE`, maps server properties from environment variables, and publishes Bedrock on UDP `19132`.
+
+### Private invite-only access
+
+The Compose service enables the Bedrock allow list when `MINECRAFT_BEDWARS_ALLOW_LIST=true`. Add invited Bedrock/Xbox gamertags to:
+
+```env
+MINECRAFT_BEDWARS_ALLOW_LIST_USERS=PlayerOneName,PlayerTwoName
+```
+
+If an allow-listed player is rejected, check the container logs while they attempt to connect. Bedrock names and XUID-related details may appear in the logs and can be used to correct the allow list.
+
+To grant operator/admin permissions, attach to the server console:
+
+```bash
+sudo docker attach minecraft-bedwars
+```
+
+Then run:
+
+```text
+op PlayerOneName
+```
+
+Detach without stopping the container with `Ctrl-p`, then `Ctrl-q`.
+
 ### DNS, firewall, and nginx
 
 Point `minecraft.yourdomain.com` to the Linode with an `A` record. Open Bedrock's UDP port on the host firewall:
@@ -117,23 +146,32 @@ Point `minecraft.yourdomain.com` to the Linode with an `A` record. Open Bedrock'
 sudo ufw allow 19132/udp
 ```
 
-Do not copy `nginx/minecraft-bedwars.stream.conf` into `/etc/nginx/sites-available` or link it under `/etc/nginx/sites-enabled`. Those directories are normally included inside nginx's `http {}` context, and `listen ... udp` is only valid in nginx's top-level `stream {}` context.
-
-The recommended RootedOps setup is direct Docker UDP publishing:
+nginx is not used for Minecraft in the recommended RootedOps setup. Let Docker publish UDP directly:
 
 ```yaml
 ports:
   - "${MINECRAFT_BEDWARS_PORT}:19132/udp"
 ```
 
-With direct Docker publishing, nginx is not involved for Minecraft. Bedrock clients connect to:
+Do not copy a Minecraft config into `/etc/nginx/sites-available` or link it under `/etc/nginx/sites-enabled`. Those directories are HTTP virtual hosts, but Minecraft Bedrock is UDP traffic.
+
+Bedrock clients connect to:
 
 ```text
 Server Address: minecraft.yourdomain.com
 Port: 19132
 ```
 
-Optional nginx stream proxying is only needed if nginx must own the public UDP listener. In that case, configure a top-level nginx `stream {}` include and use a separate Docker backend port, such as public `19132/udp` to nginx and localhost backend `19133/udp` to the container. Do not have nginx and Docker both bind public `19132/udp`.
+### Player flow
+
+When using an official Bedrock server with a self-contained BedWars map:
+
+```text
+Player joins minecraft.yourdomain.com:19132
+Player spawns in the downloaded map lobby
+Players use the map's built-in buttons, NPCs, signs, or selectors
+No /bedwars command is used
+```
 
 ## Repository layout
 

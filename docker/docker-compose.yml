@@ -231,22 +231,29 @@ services:
     volumes:
       - ../grav:/var/www/html:rw
 
-  # --- Minecraft Bedrock BedWars (PocketMine-MP) ---
+  # --- Minecraft Bedrock BedWars (official Bedrock Dedicated Server) ---
   minecraft-bedwars:
-    image: ghcr.io/pmmp/pocketmine-mp:${MINECRAFT_BEDWARS_POCKETMINE_TAG}
+    image: itzg/minecraft-bedrock-server:${MINECRAFT_BEDROCK_IMAGE_TAG}
     container_name: minecraft-bedwars
-    tty: true
     stdin_open: true
+    tty: true
     environment:
-      # Optional Poggit auto-downloads. Leave blank if using a manually downloaded .phar.
-      POCKETMINE_PLUGINS: ${MINECRAFT_BEDWARS_POCKETMINE_PLUGINS}
+      EULA: "TRUE"
+      SERVER_NAME: ${MINECRAFT_BEDWARS_SERVER_NAME}
+      GAMEMODE: ${MINECRAFT_BEDWARS_GAMEMODE}
+      DIFFICULTY: ${MINECRAFT_BEDWARS_DIFFICULTY}
+      MAX_PLAYERS: ${MINECRAFT_BEDWARS_MAX_PLAYERS}
+      ONLINE_MODE: ${MINECRAFT_BEDWARS_ONLINE_MODE}
+      ALLOW_CHEATS: ${MINECRAFT_BEDWARS_ALLOW_CHEATS}
+      LEVEL_NAME: ${MINECRAFT_BEDWARS_LEVEL_NAME}
+      ALLOW_LIST: ${MINECRAFT_BEDWARS_ALLOW_LIST}
+      ALLOW_LIST_USERS: ${MINECRAFT_BEDWARS_ALLOW_LIST_USERS}
       TZ: America/Denver
     ports:
       # Minecraft Bedrock uses UDP. Keep the container side at 19132.
       - "${MINECRAFT_BEDWARS_PORT}:19132/udp"
     volumes:
-      - ../minecraft/bedwars/data:/data
-      - ../minecraft/bedwars/plugins:/plugins
+      - ../minecraft/bedrock:/data
     restart: unless-stopped
 
   # --- ERPNext / Frappe HR ---
