@@ -553,9 +553,17 @@ The staged backup contains:
 - Logical SQL dumps for all Postgres and MariaDB databases
 - Tar archives of the important non-database Docker volumes
 - Tar archives of bind-mounted directories and certificate files
+- The Minecraft Bedrock server bind mount, including `server.properties`, allow-list files, worlds, behavior packs, resource packs, and player/world state
 - Copies of `.env` and `docker/docker-compose.yml`
 - A SHA-256 manifest for integrity checking
 - A `latest` symlink pointing to the newest timestamped backup directory
+
+For Minecraft, the backup script archives `minecraft/bedrock` by default. Because Bedrock worlds use an active LevelDB database, the script stops `minecraft-bedwars` before archiving the folder and starts it again afterward. You can override this only if you intentionally accept live-world backup risk:
+
+```text
+MINECRAFT_BEDROCK_DATA_PATH=/home/rootedops/rootedops/minecraft/bedrock
+MINECRAFT_BACKUP_STOP_CONTAINER=true
+```
 
 Suggested defaults used by the script:
 
@@ -587,6 +595,8 @@ After upload, the script applies retention on the remote backup set:
 - for older backups in the **current month**, keep only the newest backup from each ISO week
 - for backups from **earlier months**, keep only the newest backup from each calendar month
 
+The pruning logic must receive the remote timestamp directory list on Python stdin. Older versions of this script used `python3 -` with a heredoc, which caused Python to consume stdin as the script body instead of the rclone directory list. If old Google Drive backups were not being deleted, use the repaired script in this repo and run one backup; pruning happens after the new backup uploads.
+
 Then it removes the local staged backup directory.
 
 ### 10.2 Run a manual test backup first
@@ -600,6 +610,12 @@ Inspect the remote backup set:
 
 ```bash
 rclone lsf rootedops-gdrive:RootedOpsBackups/rootedops/
+```
+
+To verify that Minecraft is included, inspect a completed backup for:
+
+```text
+bind_mounts/minecraft-bedrock.tgz
 ```
 
 If you also keep the Google Drive mounted, you can inspect it there too. The `latest` link will be represented remotely via rclone link translation, not as a native Google Drive symlink. citeturn328202view0

@@ -23,6 +23,12 @@ RCLONE_REMOTE="${RCLONE_REMOTE:-rootedops-gdrive}"
 REMOTE_BACKUP_ROOT="${REMOTE_BACKUP_ROOT:-${RCLONE_REMOTE}:RootedOpsBackups}"
 REMOTE_PREFIX_PATH="${REMOTE_BACKUP_ROOT%/}/${BACKUP_PREFIX}"
 DOCKER_BIN="${DOCKER_BIN:-sudo docker}"
+COMPOSE_SH=(sudo docker compose --env-file "$ENV_FILE" -f "$COMPOSE_FILE")
+MINECRAFT_BEDROCK_DATA_PATH="${MINECRAFT_BEDROCK_DATA_PATH:-$REPO_ROOT/minecraft/bedrock}"
+if [[ "$MINECRAFT_BEDROCK_DATA_PATH" != /* ]]; then
+  MINECRAFT_BEDROCK_DATA_PATH="$REPO_ROOT/${MINECRAFT_BEDROCK_DATA_PATH#./}"
+fi
+MINECRAFT_BACKUP_STOP_CONTAINER="${MINECRAFT_BACKUP_STOP_CONTAINER:-true}"
 KEEP_DAILY_DAYS="${KEEP_DAILY_DAYS:-7}"
 
 mkdir -p "$LOCAL_STAGING_PARENT"
@@ -106,6 +112,34 @@ backup_bind_path() {
   fi
 }
 
+container_is_running() {
+  local container="$1"
+  [[ "$($DOCKER_BIN inspect -f '{{.State.Running}}' "$container" 2>/dev/null || true)" == "true" ]]
+}
+
+backup_minecraft_bedrock() {
+  local src="$1" archive_name="$2"
+  local was_running=false
+
+  if [[ ! -e "$src" ]]; then
+    log "Skipping missing Minecraft Bedrock data path $src"
+    return 0
+  fi
+
+  if [[ "$MINECRAFT_BACKUP_STOP_CONTAINER" == "true" ]] && container_is_running minecraft-bedwars; then
+    was_running=true
+    log "Stopping minecraft-bedwars for a consistent Bedrock world backup"
+    "${COMPOSE_SH[@]}" stop minecraft-bedwars
+  fi
+
+  backup_bind_path "$src" "$archive_name"
+
+  if [[ "$was_running" == "true" ]]; then
+    log "Restarting minecraft-bedwars after backup"
+    "${COMPOSE_SH[@]}" up -d minecraft-bedwars
+  fi
+}
+
 pg_dump_container signaturegate-postgres "$SIG_DB_USER" "$SIG_DB_NAME" "$SIG_DB_PASSWORD" \
   "$BACKUP_DIR/db/signaturegate-postgres.sql.gz"
 pg_dump_container mushroomprocess-bridge-postgres "$MP_BRIDGE_DB_USER" "$MP_BRIDGE_DB_NAME" "$MP_BRIDGE_DB_PASSWORD" \
@@ -133,6 +167,7 @@ backup_bind_path "$REPO_ROOT/documenso/certs" documenso-certs.tgz
 backup_bind_path "$REPO_ROOT/grav" grav.tgz
 backup_bind_path "$REPO_ROOT/nginx" nginx.tgz
 backup_bind_path "$REPO_ROOT/LINODE_SETUP.md" linode-setup-md.tgz
+backup_minecraft_bedrock "$MINECRAFT_BEDROCK_DATA_PATH" minecraft-bedrock.tgz
 
 (
   cd "$BACKUP_DIR"
@@ -169,7 +204,7 @@ prune_remote_backups() {
   fi
 
   mapfile -t to_delete < <(
-    printf '%s\n' "${entries[@]}" | python3 - "$daily_cutoff" "$current_month_start" <<'PY'
+    printf '%s\n' "${entries[@]}" | python3 -c '
 import datetime as dt
 import sys
 
@@ -186,17 +221,17 @@ weekly = {}
 monthly = {}
 for name, epoch, ts in parsed:
     if epoch >= daily_cutoff:
-      keep.add(name)
+        keep.add(name)
     elif epoch >= current_month_start:
-      weekly[(ts.isocalendar().year, ts.isocalendar().week)] = name
+        weekly[(ts.isocalendar().year, ts.isocalendar().week)] = name
     else:
-      monthly[(ts.year, ts.month)] = name
+        monthly[(ts.year, ts.month)] = name
 keep.update(weekly.values())
 keep.update(monthly.values())
 for name, _, _ in parsed:
     if name not in keep:
-      print(name)
-PY
+        print(name)
+' "$daily_cutoff" "$current_month_start"
   )
 
   if [[ ${#to_delete[@]} -eq 0 ]]; then

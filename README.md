@@ -178,7 +178,7 @@ No /bedwars command is used
 - `docker/` - Compose stack and custom Dockerfiles
 - `nginx/` - Example reverse proxy site configs
 - `grav/` - Grav site files and content
-- `backup/` - Backup, restore, and rclone service helpers
+- `backup/` - Backup, restore, and rclone service helpers. The backup script includes the Minecraft Bedrock bind mount as `bind_mounts/minecraft-bedrock.tgz` and temporarily stops `minecraft-bedwars` for a consistent world archive by default.
 - `LINODE_SETUP.md` - Practical host bootstrap and deployment notes
 - `linode_bootstrap.sh` - Convenience bootstrap script for a new Ubuntu host
 
