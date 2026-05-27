@@ -92,17 +92,19 @@ restore_volume erpnext_redis_queue_data erpnext_redis_queue_data.tgz
 log "Restoring bind-mounted content"
 restore_bind_archive documenso-certs.tgz "$REPO_ROOT/documenso"
 restore_bind_archive grav.tgz "$REPO_ROOT"
+restore_bind_archive listmonk.tgz "$REPO_ROOT"
 restore_bind_archive nginx.tgz "$REPO_ROOT"
 restore_bind_archive minecraft-bedrock.tgz "$REPO_ROOT/minecraft"
 
 log "Starting database containers only"
-"${COMPOSE_SH[@]}" up -d signaturegate-postgres mushroomprocess-bridge-postgres nocodb-meta-postgres documenso-postgres erpnext-db
+"${COMPOSE_SH[@]}" up -d signaturegate-postgres mushroomprocess-bridge-postgres listmonk-postgres nocodb-meta-postgres documenso-postgres erpnext-db
 
 log "Waiting briefly for databases to become ready"
 sleep 20
 
 restore_postgres_dump signaturegate-postgres.sql.gz signaturegate-postgres "$SIG_DB_USER" "$SIG_DB_NAME" "$SIG_DB_PASSWORD"
 restore_postgres_dump mushroomprocess-bridge-postgres.sql.gz mushroomprocess-bridge-postgres "$MP_BRIDGE_DB_USER" "$MP_BRIDGE_DB_NAME" "$MP_BRIDGE_DB_PASSWORD"
+restore_postgres_dump listmonk-postgres.sql.gz listmonk-postgres "$LISTMONK_DB_USER" "$LISTMONK_DB_NAME" "$LISTMONK_DB_PASSWORD"
 restore_postgres_dump nocodb-meta-postgres.sql.gz nocodb-meta-postgres "$NC_DB_USER" "$NC_DB_NAME" "$NC_DB_PASSWORD"
 restore_postgres_dump documenso-postgres.sql.gz documenso-postgres "$DOCUMENSO_DB_USER" "$DOCUMENSO_DB_NAME" "$DOCUMENSO_DB_PASSWORD"
 

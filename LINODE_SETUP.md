@@ -9,7 +9,7 @@ This is intentionally practical rather than exhaustive. It assumes Ubuntu 22.04 
 - Enable Linode backups.
 - Add an SSH key during provisioning and disable password SSH.
 - Size the Linode for the combined workload. With Appsmith, NocoDB, Documenso, Grav, PostgreSQL, MariaDB, Redis, n8n, and ERPNext/Frappe HR on one host, start closer to an 8 GB / 4 vCPU plan than a minimal instance.
-- Add a DNS A record for each subdomain you intend to proxy.
+- Add a DNS A record for each subdomain you intend to proxy
 
 ## 1. Baseline hardening
 - Create a non-root user and add it to sudo:
@@ -79,6 +79,7 @@ This repo includes example NGINX site configs under:
 - `nginx/nocodb.conf`
 - `nginx/appsmith.conf`
 - `nginx/documenso.conf`
+- `nginx/listmonk.conf`
 - `nginx/grav.conf`
 - `nginx/erpnext.conf`
 
@@ -86,11 +87,12 @@ Install the HTTP site configs like this:
 
 ```bash
 sudo apt-get install -y nginx certbot python3-certbot-nginx
-sudo cp nginx/n8n.conf nginx/nocodb.conf nginx/appsmith.conf nginx/documenso.conf nginx/grav.conf nginx/erpnext.conf /etc/nginx/sites-available/
+sudo cp nginx/n8n.conf nginx/nocodb.conf nginx/appsmith.conf nginx/documenso.conf nginx/listmonk.conf nginx/grav.conf nginx/erpnext.conf /etc/nginx/sites-available/
 sudo ln -sf /etc/nginx/sites-available/n8n.conf /etc/nginx/sites-enabled/n8n.conf
 sudo ln -sf /etc/nginx/sites-available/nocodb.conf /etc/nginx/sites-enabled/nocodb.conf
 sudo ln -sf /etc/nginx/sites-available/appsmith.conf /etc/nginx/sites-enabled/appsmith.conf
 sudo ln -sf /etc/nginx/sites-available/documenso.conf /etc/nginx/sites-enabled/documenso.conf
+sudo ln -sf /etc/nginx/sites-available/listmonk.conf /etc/nginx/sites-enabled/listmonk.conf
 sudo ln -sf /etc/nginx/sites-available/grav.conf /etc/nginx/sites-enabled/grav.conf
 sudo ln -sf /etc/nginx/sites-available/erpnext.conf /etc/nginx/sites-enabled/erpnext.conf
 sudo nginx -t
@@ -107,12 +109,13 @@ sudo certbot --nginx \
   -d nocodb.yourdomain.com \
   -d appsmith.yourdomain.com \
   -d documenso.yourdomain.com \
+  -d listmonk.yourdomain.com \
   -d erp.yourdomain.com \
   -d www.yourdomain.com \
   -d yourdomain.com
 ```
 
-Update `.env` values so each service knows its public URL.
+Update `.env` values so each service knows its public URL
 
 
 
@@ -145,6 +148,7 @@ Before defining backups, it helps to identify what actually needs to be preserve
 ### Databases
 - `signaturegate-postgres` → `signaturegate_pgdata`
 - `mushroomprocess-bridge-postgres` → `mushroomprocess_bridge_pgdata`
+- `listmonk-postgres` → `listmonk_pgdata`
 - `nocodb-meta-postgres` → `nocodb_meta_pgdata`
 - `documenso-postgres` → `documenso_pgdata`
 - `erpnext-db` (MariaDB) → `erpnext_db_data`
@@ -166,15 +170,55 @@ These Redis volumes can still be backed up if you want a more literal snapshot, 
 ### Bind-mounted paths to preserve
 - `documenso/certs/cert.p12`
 - `grav/`
+- `listmonk/uploads/` - Listmonk media uploads; configure Listmonk Media path to `/listmonk/uploads`
 - `minecraft/bedrock/` - official Bedrock Dedicated Server config, worlds, players, allow list, and map data
 - `.env`
 - `nginx/`
 
-## 6. Documenso (self-hosted signing)
+
+## 6. Listmonk (self-hosted newsletters)
+
+Listmonk runs on localhost port `9000` and is proxied by NGINX at `listmonk.yourdomain.com`. The official Docker image is `listmonk/listmonk`, and this stack uses `LISTMONK_IMAGE_TAG` to choose the tag.
+
+### 6.1 Configure environment variables
+
+Set these in `.env` before first startup:
+
+- `LISTMONK_PUBLIC_URL=https://listmonk.yourdomain.com`
+- `LISTMONK_ADMIN_USER`
+- `LISTMONK_ADMIN_PASSWORD`
+- `LISTMONK_DB_PASSWORD`
+
+Then start Listmonk:
+
+```bash
+sudo docker compose --env-file ./.env -f docker/docker-compose.yml up -d listmonk-postgres listmonk
+```
+
+Open `https://listmonk.yourdomain.com`, log in, and complete the initial setup. In Listmonk Admin -> Settings -> Media, set the upload path to:
+
+```text
+/listmonk/uploads
+```
+
+Create an API token in Listmonk and update `.env`:
+
+```bash
+LISTMONK_API_USER=admin
+LISTMONK_API_TOKEN=<token created in Listmonk>
+```
+
+These API values are exposed to n8n as environment variables for the later SignatureGate -> Listmonk sync workflow.
+
+### 6.2 Operational model
+
+Use SignatureGate as the source of truth for people, emails, consent, membership, and unsubscribe state. Use Listmonk for campaign delivery, list membership, templates, unsubscribe links, and bounce handling. The integration should be implemented separately in SignatureGate/n8n after the base service is running.
+
+## 7. Documenso (self-hosted signing)
 
 Documenso runs as a Docker container exposed on localhost port `3002` and proxied by NGINX.
 
-### 6.1 Configure environment variables
+### 7.1 Configure environment variables
 Set these in `.env`:
 - `DOCUMENSO_PUBLIC_URL=https://documenso.yourdomain.com`
 - `DOCUMENSO_NEXTAUTH_SECRET`
@@ -185,7 +229,7 @@ Set these in `.env`:
 
 Documenso needs SMTP to send signing links.
 
-### 6.2 Build documenso
+### 7.2 Build documenso
 The documenso docker container must be built.  After the build, the build artifacts and cache may 
 be deleted to free up space.
 

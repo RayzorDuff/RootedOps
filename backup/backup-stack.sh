@@ -144,6 +144,8 @@ pg_dump_container signaturegate-postgres "$SIG_DB_USER" "$SIG_DB_NAME" "$SIG_DB_
   "$BACKUP_DIR/db/signaturegate-postgres.sql.gz"
 pg_dump_container mushroomprocess-bridge-postgres "$MP_BRIDGE_DB_USER" "$MP_BRIDGE_DB_NAME" "$MP_BRIDGE_DB_PASSWORD" \
   "$BACKUP_DIR/db/mushroomprocess-bridge-postgres.sql.gz"
+pg_dump_container listmonk-postgres "$LISTMONK_DB_USER" "$LISTMONK_DB_NAME" "$LISTMONK_DB_PASSWORD" \
+  "$BACKUP_DIR/db/listmonk-postgres.sql.gz"
 pg_dump_container nocodb-meta-postgres "$NC_DB_USER" "$NC_DB_NAME" "$NC_DB_PASSWORD" \
   "$BACKUP_DIR/db/nocodb-meta-postgres.sql.gz"
 pg_dump_container documenso-postgres "$DOCUMENSO_DB_USER" "$DOCUMENSO_DB_NAME" "$DOCUMENSO_DB_PASSWORD" \
@@ -165,6 +167,7 @@ backup_volume erpnext_redis_queue_data erpnext_redis_queue_data.tgz
 # Repo bind mounts and config required for a full restore.
 backup_bind_path "$REPO_ROOT/documenso/certs" documenso-certs.tgz
 backup_bind_path "$REPO_ROOT/grav" grav.tgz
+backup_bind_path "$REPO_ROOT/listmonk" listmonk.tgz
 backup_bind_path "$REPO_ROOT/nginx" nginx.tgz
 backup_bind_path "$REPO_ROOT/LINODE_SETUP.md" linode-setup-md.tgz
 backup_minecraft_bedrock "$MINECRAFT_BEDROCK_DATA_PATH" minecraft-bedrock.tgz

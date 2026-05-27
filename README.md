@@ -14,6 +14,7 @@ RootedOps currently manages:
 - n8n for cross-system automation and webhooks
 - Appsmith for internal operational interfaces
 - Documenso for self-hosted document signing
+- Listmonk for self-hosted newsletters and mailing-list management
 - ERPNext + HRMS for accounting, payroll, purchasing, sales, and HR operations
 - Grav for lightweight public/static site hosting
 - NGINX reverse-proxy templates for HTTP services
@@ -64,6 +65,12 @@ n8n is the workflow automation layer. The `.env.example` shows the integration s
 - scheduled/reporting email destinations
 
 The repository currently includes an n8n workflow export for bank CSV upload into ERPNext. Additional n8n workflows can be imported into the running n8n instance and should be documented when they become part of the operational baseline.
+
+### Listmonk
+
+Listmonk is included as the self-hosted mailing-list and newsletter manager. It runs as `listmonk` with its own `listmonk-postgres` database and a bind-mounted media upload directory at `listmonk/uploads`. RootedOps operates Listmonk and backs up its database/uploads; SignatureGate should remain the source of truth for identity, consent, and member status, with n8n or future SignatureGate integration syncing subscribers into Listmonk.
+
+After first login, configure Listmonk Admin -> Settings -> Media to use `/listmonk/uploads`, then create an API token and place it in `.env` for n8n/SignatureGate sync workflows.
 
 ### Appsmith
 
@@ -136,12 +143,14 @@ Local service ports:
 | ERPNext | `http://localhost:8086` |
 | Grav | `http://localhost:8085` |
 | Documenso | `http://localhost:3002` |
+| Listmonk | `http://localhost:9000` |
 | Minecraft Bedrock | UDP `19132` |
 
 ## Repository layout
 
 ```text
 docker/              Compose stack and custom Dockerfiles
+listmonk/uploads/    Bind-mounted Listmonk media upload directory
 nginx/               HTTP reverse-proxy site configs
 backup/              Backup, restore, and rclone service helpers
 erpnext/             ERPNext/HRMS templates, scripts, and handoff notes
@@ -168,9 +177,10 @@ RootedOps includes backup and restore scripts under `backup/`.
 
 The backup script handles:
 
-- PostgreSQL logical dumps for SignatureGate, MushroomProcess bridge, NocoDB metadata, and Documenso
+- PostgreSQL logical dumps for SignatureGate, MushroomProcess bridge, Listmonk, NocoDB metadata, and Documenso
 - MariaDB dump for ERPNext
 - Docker volume archives for NocoDB, n8n, Appsmith, ERPNext sites/apps/logs, and other persistent service state
+- bind-mounted Listmonk media uploads
 - bind-mounted operational files such as `.env`, nginx configs, Grav files, Documenso certificate material, and optional Minecraft Bedrock data
 - upload/copy to an rclone remote such as Google Drive
 - retention pruning for old remote backup directories

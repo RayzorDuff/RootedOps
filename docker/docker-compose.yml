@@ -83,6 +83,50 @@ services:
       - nocodb_data:/usr/app/data
     restart: unless-stopped
 
+  # --- Listmonk Postgres ---
+  listmonk-postgres:
+    image: postgres:17-alpine
+    container_name: listmonk-postgres
+    environment:
+      POSTGRES_DB: ${LISTMONK_DB_NAME}
+      POSTGRES_USER: ${LISTMONK_DB_USER}
+      POSTGRES_PASSWORD: ${LISTMONK_DB_PASSWORD}
+    volumes:
+      - listmonk_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${LISTMONK_DB_USER} -d ${LISTMONK_DB_NAME}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
+  # --- Listmonk mailing list manager ---
+  listmonk:
+    image: listmonk/listmonk:${LISTMONK_IMAGE_TAG}
+    container_name: listmonk
+    depends_on:
+      - listmonk-postgres
+    command: [sh, -c, "./listmonk --install --idempotent --yes --config '' && ./listmonk --upgrade --yes --config '' && ./listmonk --config ''"]
+    environment:
+      LISTMONK_app__address: 0.0.0.0:9000
+      LISTMONK_db__host: ${LISTMONK_DB_HOST}
+      LISTMONK_db__port: ${LISTMONK_DB_PORT}
+      LISTMONK_db__user: ${LISTMONK_DB_USER}
+      LISTMONK_db__password: ${LISTMONK_DB_PASSWORD}
+      LISTMONK_db__database: ${LISTMONK_DB_NAME}
+      LISTMONK_db__ssl_mode: disable
+      LISTMONK_db__max_open: 25
+      LISTMONK_db__max_idle: 25
+      LISTMONK_db__max_lifetime: 300s
+      LISTMONK_ADMIN_USER: ${LISTMONK_ADMIN_USER}
+      LISTMONK_ADMIN_PASSWORD: ${LISTMONK_ADMIN_PASSWORD}
+      TZ: America/Denver
+    ports:
+      - "${LISTMONK_HTTP_PORT}:9000"
+    volumes:
+      - ../listmonk/uploads:/listmonk/uploads:rw
+    restart: unless-stopped
+
   n8n:
     image: n8nio/n8n:latest
     container_name: n8n
@@ -103,6 +147,10 @@ services:
       DOCUMENSO_API_TOKEN: ${DOCUMENSO_API_TOKEN}
       NOCODB_BASE_URL: ${NC_PUBLIC_URL}
       NOCODB_API_TOKEN: ${NOCODB_API_TOKEN}
+      LISTMONK_PUBLIC_URL: ${LISTMONK_PUBLIC_URL}
+      LISTMONK_API_BASE_URL: ${LISTMONK_API_BASE_URL}
+      LISTMONK_API_USER: ${LISTMONK_API_USER}
+      LISTMONK_API_TOKEN: ${LISTMONK_API_TOKEN}
       AIRTABLE_BASE_ID: ${AIRTABLE_BASE_ID}
       AIRTABLE_API_TOKEN: ${AIRTABLE_API_TOKEN}
       AIRTABLE_PRODUCTS_TABLE_ID: ${AIRTABLE_PRODUCTS_TABLE_ID}
@@ -491,6 +539,7 @@ services:
 volumes:
   signaturegate_pgdata:
   mushroomprocess_bridge_pgdata:
+  listmonk_pgdata:
   nocodb_meta_pgdata:
   nocodb_data:
   documenso_pgdata:
