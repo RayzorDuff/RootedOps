@@ -1215,6 +1215,17 @@ def custom_salary_slip_save_mode():
             SalarySlip.pull_sal_struct = originals["pull_sal_struct"]
 
 
+def get_company_default_letter_head(company):
+    if not company:
+        return None
+
+    return frappe.db.get_value(
+        "Company",
+        company,
+        "default_letter_head",
+    )
+
+
 def ensure_draft_salary_slip(employee, start_date, end_date, payroll_frequency="Weekly", company=None):
     submitted = get_existing_submitted_slip(employee, start_date, end_date)
     if submitted:
@@ -1229,12 +1240,14 @@ def ensure_draft_salary_slip(employee, start_date, end_date, payroll_frequency="
     payroll_context = get_employee_payroll_context(employee, company=company)
     assignment = get_active_salary_structure_assignment(employee, start_date)
     summary = attendance_summary(employee, start_date, end_date)
+    letter_head = get_company_default_letter_head(payroll_context["company"])
 
     slip = frappe.get_doc(
         {
             "doctype": "Salary Slip",
             "employee": employee,
             "company": payroll_context["company"],
+            "letter_head": letter_head,
             "start_date": start_date,
             "end_date": end_date,
             "payroll_frequency": payroll_frequency,
@@ -1270,6 +1283,7 @@ def set_context_fields_on_slip(slip, employee, start_date, end_date, payroll_fre
 
     slip.employee = employee
     slip.company = payroll_context["company"]
+    slip.letter_head = get_company_default_letter_head(payroll_context["company"])
     slip.start_date = start_date
     slip.end_date = end_date
     slip.payroll_frequency = payroll_frequency
