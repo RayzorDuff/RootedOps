@@ -1,208 +1,195 @@
 # RootedOps
-Infrastructure, reverse proxy, container orchestration, backups, and shared service hosting for Rooted Psyche, Dank Mushrooms, MushroomProcess, and SignatureGate.
 
-This repository is the standalone operations and deployment project that was split out from SignatureGate. It is responsible for host setup and shared service infrastructure. Application repositories such as SignatureGate and MushroomProcess should keep their own application code and database schema, while this repository provides the host-level stack they can run against.
+RootedOps is the shared operations and deployment repository for the Rooted Psyche / Dank Mushrooms business software stack. It provides the host-level services, reverse proxy configs, persistence, backup tooling, and deployment notes used by business applications such as **MushroomProcess** and **SignatureGate**.
 
-## What this repository contains
+This repository is business infrastructure first. Application code and application-specific schema migrations belong in their own repositories; RootedOps supplies the common runtime they depend on.
 
-- Docker Compose stack for shared services and databases
-- NGINX reverse proxy configurations
-- Grav website hosting
-- Documenso hosting
-- ERPNext + HRMS hosting
-- Backup and restore scripts
-- Linode host setup guidance
+## What this repository manages
 
-## What this repository does not contain
+RootedOps currently manages:
+
+- Docker Compose orchestration for the shared service stack
+- PostgreSQL and MariaDB database containers used by hosted applications and tools
+- NocoDB for table-based administration and transition workflows
+- n8n for cross-system automation and webhooks
+- Appsmith for internal operational interfaces
+- Documenso for self-hosted document signing
+- ERPNext + HRMS for accounting, payroll, purchasing, sales, and HR operations
+- Grav for lightweight public/static site hosting
+- NGINX reverse-proxy templates for HTTP services
+- Backup and restore scripts, including Google Drive/rclone retention pruning
+- Optional Minecraft Bedrock server hosting as a sidecar/family service
+
+## What this repository does not manage
+
+RootedOps intentionally does not contain:
 
 - SignatureGate application code or release history
 - MushroomProcess application code or release history
-- Application-specific deployment architecture that belongs inside those repos
+- Appsmith application exports, unless intentionally staged here for deployment support
+- Application-specific PostgreSQL schema migrations that belong in the application repositories
+- Airtable/NocoDB/Appsmith parity testing artifacts, except where they are needed as infrastructure notes
 
-## Quick start (Docker Compose)
+## Service overview
 
-1. Copy environment file:
-   ```bash
-   cp .env.example .env
-   ```
-2. Review and edit `.env` for your hostnames, passwords, API tokens, and backup settings.
-3. Start services:
-   ```bash
-   docker compose --env-file ./.env -f docker/docker-compose.yml up -d
-   ```
-4. Open local service ports as needed:
-   - NocoDB: http://localhost:8080
-   - n8n: http://localhost:5678
-   - Appsmith: http://localhost:8081
-   - ERPNext: http://localhost:8086
-   - Grav: http://localhost:8085
-   - Documenso: http://localhost:3002
+### SignatureGate database
 
+`signaturegate-postgres` is a dedicated PostgreSQL service for the SignatureGate application stack. SignatureGate itself remains a separate application repository, while RootedOps provides the database container, credentials, backups, and network location it can run against.
 
+SignatureGate-related automation also appears in the RootedOps environment because n8n workflows may need access to shared infrastructure, Documenso, and operational reporting destinations.
 
-## Minecraft Bedrock BedWars service
+### MushroomProcess bridge database
 
-RootedOps can run a Minecraft: Bedrock Edition BedWars server using the official Bedrock Dedicated Server runtime through the `itzg/minecraft-bedrock-server` Docker image. This is the recommended runtime for self-contained Bedrock `.mcworld` minigame maps that rely on command blocks, behavior packs, resource packs, or built-in lobby controls.
+`mushroomprocess-bridge-postgres` is the RootedOps-hosted PostgreSQL bridge/database service for MushroomProcess-related integration work. MushroomProcess application code, Appsmith exports, schema files, and release history live outside this repository, but this stack gives the project a local Postgres endpoint that can be used by NocoDB, Appsmith, n8n, and transition workflows.
 
-This service does **not** use PocketMine or PocketMine `.phar` plugins. Do not install `BedwarsPM`, do not use `/bedwars`, and do not configure a PocketMine lobby/arena workflow for this mode. BedWars is provided by the downloaded Bedrock map itself.
+This separation keeps MushroomProcess development and parity testing in the MushroomProcess repository while allowing RootedOps to operate the shared database and automation layer.
 
-Minecraft Bedrock is not an HTTP service. It uses UDP, normally on port `19132`, so it does not use the normal nginx `sites-enabled` HTTP reverse-proxy pattern used by NocoDB, n8n, Appsmith, Grav, Documenso, and ERPNext.
+### NocoDB
 
-### Configure environment
+NocoDB runs with its own metadata PostgreSQL database and is configured to allow connections to local external databases. In this stack it acts as a low-code/admin data interface for operational databases such as SignatureGate and MushroomProcess bridge data.
 
-Set these values in `.env`:
+NocoDB persistent data is stored in the `nocodb_data` Docker volume, while metadata is stored in `nocodb_meta_pgdata`.
 
-```env
-MINECRAFT_BEDWARS_HOST=minecraft.yourdomain.com
-MINECRAFT_BEDWARS_PORT=19132
-MINECRAFT_BEDROCK_IMAGE_TAG=latest
-MINECRAFT_BEDWARS_SERVER_NAME=Rooted BedWars
-MINECRAFT_BEDWARS_LEVEL_NAME=bedwars_minigame
-MINECRAFT_BEDWARS_GAMEMODE=adventure
-MINECRAFT_BEDWARS_DIFFICULTY=normal
-MINECRAFT_BEDWARS_MAX_PLAYERS=8
-MINECRAFT_BEDWARS_ONLINE_MODE=true
-MINECRAFT_BEDWARS_ALLOW_CHEATS=true
-MINECRAFT_BEDWARS_ALLOW_LIST=true
-MINECRAFT_BEDWARS_ALLOW_LIST_USERS=PlayerOneName,PlayerTwoName
-```
+### n8n automation
 
-`MINECRAFT_BEDWARS_LEVEL_NAME` must match the folder name of the installed world under `minecraft/bedrock/worlds/`. For example:
+n8n is the workflow automation layer. The `.env.example` shows the integration surface currently expected by RootedOps, including:
 
-```text
-minecraft/bedrock/worlds/bedwars_minigame/
-```
+- Documenso API access
+- NocoDB API access
+- temporary Airtable access for MushroomProcess migration/transition workflows
+- Givebutter webhook signature validation
+- ERPNext API access
+- Ecwid webhook/API integration
+- Clover API integration
+- scheduled/reporting email destinations
 
-### Install a Bedrock BedWars map
+The repository currently includes an n8n workflow export for bank CSV upload into ERPNext. Additional n8n workflows can be imported into the running n8n instance and should be documented when they become part of the operational baseline.
 
-Create the persistent Bedrock server directories from the RootedOps repository root:
+### Appsmith
 
-```bash
-mkdir -p minecraft/bedrock/worlds
-```
+Appsmith is included as the internal UI/runtime layer for operational tools. The container persists its state in `appsmith_stacks`. RootedOps operates the Appsmith service, while complex application exports and test-pass artifacts should remain with the application project that owns them.
 
-Download a Bedrock `.mcworld` BedWars map. A `.mcworld` file is a zip archive. Extract it into a world folder under `minecraft/bedrock/worlds/`:
+### Documenso
 
-```bash
-mkdir -p /tmp/bedwars_minigame
-unzip "/path/to/Bedwars Mini-Game.mcworld" -d /tmp/bedwars_minigame
-mv /tmp/bedwars_minigame minecraft/bedrock/worlds/bedwars_minigame
-```
+Documenso provides self-hosted document signing. RootedOps includes:
 
-After extraction, confirm the world folder contains `level.dat` directly inside the configured folder:
+- a custom Documenso Dockerfile
+- a dedicated Documenso PostgreSQL database
+- NGINX proxy configuration
+- signing certificate mount support at `documenso/certs/cert.p12`
+- environment variables for SMTP, signing, encryption, and public URL configuration
 
-```text
-minecraft/bedrock/worlds/bedwars_minigame/level.dat
-```
+Operational setup details are in `LINODE_SETUP.md`.
 
-If the map download includes separate `.mcpack` or `.mcaddon` behavior/resource packs, install those into the appropriate Bedrock server data folders and make sure the world references them. Some maps will load visually but will not function correctly if required packs are missing.
+### ERPNext + HRMS
 
-### Start and inspect the server
+ERPNext is the business accounting and HR platform in this stack. RootedOps builds a custom ERPNext image that includes HRMS, Employee Self Service, and the RootedOps payroll app support files.
 
-From the RootedOps repository root:
+The `erpnext/` directory contains the current living implementation notes, data templates, and scripts for:
 
-```bash
-sudo docker compose --env-file .env -f docker/docker-compose.yml up -d minecraft-bedwars
-sudo docker logs -f minecraft-bedwars
-```
+- multi-company ERPNext setup
+- accounting master data
+- suppliers, projects, cost centers, departments, employees, designations, and asset categories
+- HRMS installation and site initialization
+- attendance-driven hourly payroll support
+- payroll entry UI support
+- salary-slip hours support
+- bank and payroll account setup/audit helpers
 
-If launching the full stack instead of only Minecraft:
+For ERPNext continuation work, start with:
 
-```bash
-sudo docker compose --env-file .env -f docker/docker-compose.yml up -d
-```
-
-The `itzg/minecraft-bedrock-server` image accepts the Minecraft EULA with `EULA=TRUE`, maps server properties from environment variables, and publishes Bedrock on UDP `19132`.
-
-### Private invite-only access
-
-The Compose service enables the Bedrock allow list when `MINECRAFT_BEDWARS_ALLOW_LIST=true`. Add invited Bedrock/Xbox gamertags to:
-
-```env
-MINECRAFT_BEDWARS_ALLOW_LIST_USERS=PlayerOneName,PlayerTwoName
-```
-
-If an allow-listed player is rejected, check the container logs while they attempt to connect. Bedrock names and XUID-related details may appear in the logs and can be used to correct the allow list.
-
-To grant operator/admin permissions, attach to the server console:
-
-```bash
-sudo docker attach minecraft-bedwars
-```
-
-Then run:
-
-```text
-op PlayerOneName
-```
-
-Detach without stopping the container with `Ctrl-p`, then `Ctrl-q`.
-
-### DNS, firewall, and nginx
-
-Point `minecraft.yourdomain.com` to the Linode with an `A` record. Open Bedrock's UDP port on the host firewall:
-
-```bash
-sudo ufw allow 19132/udp
-```
-
-nginx is not used for Minecraft in the recommended RootedOps setup. Let Docker publish UDP directly:
-
-```yaml
-ports:
-  - "${MINECRAFT_BEDWARS_PORT}:19132/udp"
-```
-
-Do not copy a Minecraft config into `/etc/nginx/sites-available` or link it under `/etc/nginx/sites-enabled`. Those directories are HTTP virtual hosts, but Minecraft Bedrock is UDP traffic.
-
-Bedrock clients connect to:
-
-```text
-Server Address: minecraft.yourdomain.com
-Port: 19132
-```
-
-### Player flow
-
-When using an official Bedrock server with a self-contained BedWars map:
-
-```text
-Player joins minecraft.yourdomain.com:19132
-Player spawns in the downloaded map lobby
-Players use the map's built-in buttons, NPCs, signs, or selectors
-No /bedwars command is used
-```
-
-## Repository layout
-
-- `docker/` - Compose stack and custom Dockerfiles
-- `nginx/` - Example reverse proxy site configs
-- `grav/` - Grav site files and content
-- `backup/` - Backup, restore, and rclone service helpers. The backup script includes the Minecraft Bedrock bind mount as `bind_mounts/minecraft-bedrock.tgz` and temporarily stops `minecraft-bedwars` for a consistent world archive by default.
-- `LINODE_SETUP.md` - Practical host bootstrap and deployment notes
-- `linode_bootstrap.sh` - Convenience bootstrap script for a new Ubuntu host
-
-## Relationship to SignatureGate and MushroomProcess
-
-Recommended use: keep Rooted Psyche and Dank Mushrooms as separate ERPNext Companies within one ERPNext site, while leaving SignatureGate and MushroomProcess on their own application databases. Those application repositories should contain their own schema and app-layer assets; this repository supplies the shared operational environment.
-
-## License
-
-This repository is licensed under **GNU GPL v3.0** (see `LICENSE`).
-
-Rationale: MushroomProcess and SignatureGate are GPL; choosing GPLv3 here keeps license compatibility to allow for shared code or common modules between projects.
-
-
-## ERPNext operational note
-The `erpnext/` directory now contains a living implementation and documentation set for:
-- attendance-driven hourly payroll
-- batched payroll processing
-- Payroll Entry UI integration
-- multi-company payroll support
-- hybrid overnight compensation support
-
-When continuing ERPNext work in a new session, start with:
 - `erpnext/README.md`
 - `erpnext/CHATGPT_HANDOFF.md`
 - `erpnext/CHATGPT_HANDOFF.json`
-- `erpnext/scripts/README_SCRIPTS.md`
+- `erpnext/README_SCRIPTS.md`
+
+### Grav
+
+Grav is included for lightweight website hosting. The repository includes a minimal Grav content/theme scaffold and an NGINX config for public HTTP/TLS routing.
+
+### Minecraft Bedrock
+
+Minecraft Bedrock hosting is supported as an optional sidecar service, not a core business component. It uses the official Bedrock Dedicated Server runtime and downloaded Bedrock `.mcworld` maps.
+
+Detailed Minecraft setup has been moved out of this README to keep RootedOps focused on business operations:
+
+- `README_MINECRAFT.md`
+
+## Quick start
+
+From the repository root:
+
+```bash
+cp .env.example .env
+nano .env
+sudo docker compose --env-file ./.env -f docker/docker-compose.yml up -d
+sudo docker ps
+```
+
+Local service ports:
+
+| Service | Local URL / port |
+| --- | --- |
+| NocoDB | `http://localhost:8080` |
+| n8n | `http://localhost:5678` |
+| Appsmith | `http://localhost:8081` |
+| ERPNext | `http://localhost:8086` |
+| Grav | `http://localhost:8085` |
+| Documenso | `http://localhost:3002` |
+| Minecraft Bedrock | UDP `19132` |
+
+## Repository layout
+
+```text
+docker/              Compose stack and custom Dockerfiles
+nginx/               HTTP reverse-proxy site configs
+backup/              Backup, restore, and rclone service helpers
+erpnext/             ERPNext/HRMS templates, scripts, and handoff notes
+n8n/                 Workflow exports that are part of this ops baseline
+grav/                Grav bind-mount target
+grav.mysite/         Starter Grav site/theme/content scaffold
+doc/                 RootedOps changelog and repository notes
+README_MINECRAFT.md  Optional Minecraft Bedrock sidecar service notes
+LINODE_SETUP.md      Practical Linode deployment guide
+linode_bootstrap.sh  Convenience bootstrap script for a new Ubuntu host
+```
+
+## Deployment notes
+
+The main deployment guide is:
+
+- `LINODE_SETUP.md`
+
+That guide covers host provisioning, firewall, Docker installation, NGINX, Certbot, persistent data, Documenso setup, Grav setup, ERPNext initialization, Google Drive/rclone backup mount setup, backup execution, restore procedure, and maintenance notes.
+
+## Backups
+
+RootedOps includes backup and restore scripts under `backup/`.
+
+The backup script handles:
+
+- PostgreSQL logical dumps for SignatureGate, MushroomProcess bridge, NocoDB metadata, and Documenso
+- MariaDB dump for ERPNext
+- Docker volume archives for NocoDB, n8n, Appsmith, ERPNext sites/apps/logs, and other persistent service state
+- bind-mounted operational files such as `.env`, nginx configs, Grav files, Documenso certificate material, and optional Minecraft Bedrock data
+- upload/copy to an rclone remote such as Google Drive
+- retention pruning for old remote backup directories
+
+Minecraft Bedrock data is included as `bind_mounts/minecraft-bedrock.tgz` when `MINECRAFT_BEDROCK_DATA_PATH` is configured. The script stops `minecraft-bedwars` during that archive by default to avoid copying an active Bedrock LevelDB world.
+
+## Relationship to MushroomProcess and SignatureGate
+
+Recommended use:
+
+- Keep RootedOps as the shared infrastructure and deployment repository.
+- Keep MushroomProcess schema, Appsmith exports, release notes, issue tracking, and parity testing artifacts in the MushroomProcess repository.
+- Keep SignatureGate app code, release notes, and application schema in the SignatureGate repository.
+- Use RootedOps for shared databases, n8n automation, reverse proxy, backups, and deployment documentation.
+
+This division keeps the operational stack stable while allowing MushroomProcess and SignatureGate to evolve independently.
+
+## License
+
+This repository is licensed under **GNU GPL v3.0**. See `LICENSE`.
+
+Rationale: MushroomProcess and SignatureGate are GPL; choosing GPLv3 here keeps license compatibility for shared code or common operational modules between projects.
