@@ -337,6 +337,25 @@ Accomplished:
 Known follow-up:
 - restart/bootstrap logs still showed `erpnext-apps-init` shell syntax error and `erpnext-configurator` `mkdir: missing operand` during one restart cycle; runtime recovered, but Docker bootstrap flow should still be kept under observation.
 
+### Phase 6E — Quarterly payroll tax reporting
+Implemented; validate against the Q2 2026 filings for both payroll companies.
+
+Accomplished:
+- standard ERPNext Script Report `Quarterly Payroll Tax Report` added to the `RootedOps Payroll` module
+- filters added for Company, Year, Quarter, and Salary Slip status
+- report reads top-level Salary Slip totals and pivots deduction child rows for:
+  - Federal Withholding
+  - Colorado Withholding
+  - employee Social Security
+  - employee Medicare
+- quarter totals and an exportable TOTAL row added
+- the same report supports Dank Mushrooms, LLC and Raymond Danks household/nanny payroll by changing the Company filter
+
+Operational note:
+- use `Submitted` for filed totals
+- use `Draft and Submitted` only for reconciliation and confirm that draft/test slips should be included
+- quarter assignment is based on Salary Slip `posting_date`
+
 Result:
 - UI-driven payroll is now the primary intended operator workflow.
 - Salary Slip submit and PDF values are no longer expected to require bench intervention once the patched app code is loaded.

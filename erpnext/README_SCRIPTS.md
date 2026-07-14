@@ -405,4 +405,25 @@ If a future session needs to resume work quickly, open these first:
 - `README.md`
 - `CHATGPT_HANDOFF.md`
 - `../docker/docker-compose.yml`
+---
+
+# Quarterly Payroll Tax Report
+
+The version-controlled report is located at:
+
+```text
+erpnext/apps/rootedops_payroll/rootedops_payroll/rootedops_payroll/report/quarterly_payroll_tax_report/
+```
+
+Deploy report metadata and code with:
+
+```bash
+sudo docker cp -a erpnext/apps/rootedops_payroll erpnext-backend:/home/frappe/frappe-bench/apps/
+sudo docker compose --env-file ./.env -f docker/docker-compose.yml exec erpnext-backend \
+  bash -lc "bench --site erp.danks.store migrate"
+sudo docker compose --env-file ./.env -f docker/docker-compose.yml exec erpnext-backend \
+  bash -lc "bench --site erp.danks.store clear-cache"
+```
+
+Search ERPNext for `Quarterly Payroll Tax Report`. Run one report per Company. For tax filing totals, use `Submitted`; use `Draft and Submitted` only for deliberate reconciliation. The quarter is selected from Salary Slip `posting_date`.
 

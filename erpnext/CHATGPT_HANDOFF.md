@@ -107,6 +107,16 @@ Completed enough for normal use.
   - `submit_custom_salary_slip(...)`
   - `repair_salary_slip_totals(...)`
 
+#### 6E — Quarterly payroll tax reporting
+Implemented in app code; live validation remains.
+- standard Script Report: `Quarterly Payroll Tax Report`
+- filters: Company, Year, Quarter, Salary Slip status
+- reports Gross Pay, Federal Withholding, Colorado Withholding, employee Social Security, employee Medicare, Total Deductions, and Net Pay
+- includes report summary values and an exportable TOTAL row
+- designed for separate runs for Dank Mushrooms, LLC and Raymond Danks household/nanny payroll
+- uses Salary Slip `posting_date` to assign slips to a quarter
+- default status is `Submitted`; `Draft and Submitted` is available for reconciliation
+
 ## Verified current UI operator workflow
 For a saved Payroll Entry:
 1. `Preview Attendance Payroll`
@@ -165,7 +175,8 @@ For a saved Payroll Entry:
 
 ## Next starting point
 The major Phase 6 work is now in place. The next session should start by:
-1. confirming one more clean UI-only payroll cycle after the latest `repair_salary_slip_totals(...)` patch,
-2. deciding whether to add `create_tax_remittance_draft_journal_entry(...)`,
-3. cleaning any remaining Docker init/bootstrap warnings,
-4. and then stabilizing docs / rebuild instructions for a future clean-room install.
+1. running `Quarterly Payroll Tax Report` for Q2 2026 for both payroll companies and reconciling the totals to the submitted Salary Slips,
+2. confirming one more clean UI-only payroll cycle after the latest `repair_salary_slip_totals(...)` patch,
+3. deciding whether to add `create_tax_remittance_draft_journal_entry(...)`,
+4. cleaning any remaining Docker init/bootstrap warnings,
+5. and then stabilizing docs / rebuild instructions for a future clean-room install.
