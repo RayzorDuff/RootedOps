@@ -168,16 +168,26 @@ frappe.ui.form.on("Payroll Entry", {
             freeze_message: step.freeze_message
           });
 
+          const data = r.message || {};
+
           results.push({
             label: step.label,
-            data: r.message || {}
+            data
           });
+
+          if (
+            step.label === "Create Consolidated Draft JE"
+            && data.journal_entry_skipped
+          ) {
+            break;
+          }
         }
 
         const submitData = results.find(r => r.label === "Submit Draft Salary Slips")?.data || {};
         const consolidatedData = results.find(r => r.label === "Create Consolidated Draft JE")?.data || {};
         const paymentData = results.find(r => r.label === "Create Employee Payment Draft JE")?.data || {};
         const reserveData = results.find(r => r.label === "Create Tax Reserve Transfer Draft JE")?.data || {};
+        const noJournalEntriesRequired = Boolean(consolidatedData.journal_entry_skipped);
 
         const submitted = submitData.submitted_salary_slip_names || [];
         const alreadySubmitted = submitData.already_submitted_salary_slip_names || [];
@@ -196,9 +206,17 @@ frappe.ui.form.on("Payroll Entry", {
             <p>${salarySlipLinks(alreadySubmitted) || "None"}</p>
 
             <hr>
-            <p><b>Consolidated JE:</b> ${journalEntryLink(consolidatedData.journal_entry)}</p>
-            <p><b>Employee Payment JE:</b> ${journalEntryLink(paymentData.journal_entry)}</p>
-            <p><b>Tax Reserve Transfer JE:</b> ${journalEntryLink(reserveData.journal_entry)}</p>
+            ${noJournalEntriesRequired ? `
+              <p><b>Journal Entries:</b> Not required</p>
+              <p>${frappe.utils.escape_html(
+                consolidatedData.skip_reason
+                || "No wages, deductions, or employer taxes were due for this payroll period."
+              )}</p>
+            ` : `
+              <p><b>Consolidated JE:</b> ${journalEntryLink(consolidatedData.journal_entry)}</p>
+              <p><b>Employee Payment JE:</b> ${journalEntryLink(paymentData.journal_entry)}</p>
+              <p><b>Tax Reserve Transfer JE:</b> ${journalEntryLink(reserveData.journal_entry)}</p>
+            `}
           `
         });
 
