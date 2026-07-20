@@ -418,6 +418,28 @@ def create_consolidated_draft_journal_entry(payroll_entry_name: str):
         frappe.throw(_("No payroll results were generated for this Payroll Entry."))
 
     je_preview = result.get("consolidated_journal_entry_preview") or {}
+
+    # A payroll period with no payable wages or taxes is valid. Preserve the
+    # submitted Salary Slips and Payroll Entry summary, but do not create an
+    # empty Journal Entry.
+    total_debit = float(je_preview.get("total_debit") or 0)
+    total_credit = float(je_preview.get("total_credit") or 0)
+    if (
+        not je_preview.get("accounts")
+        and total_debit == 0
+        and total_credit == 0
+        and not je_preview.get("missing_accounts")
+    ):
+        _write_payroll_entry_summary(pe, result)
+        return {
+            "payroll_entry": pe.name,
+            "employees": employees,
+            "journal_entry": None,
+            "journal_entry_skipped": True,
+            "skip_reason": _("No wages, deductions, or employer taxes were due for this payroll period."),
+            "salary_slip_names": result.get("salary_slip_names", []),
+        }
+
     if not je_preview or not je_preview.get("is_ready_to_create"):
         frappe.throw(_("Consolidated Journal Entry preview is not ready to create."))
 

@@ -111,12 +111,23 @@ frappe.ui.form.on("Payroll Entry", {
         freeze_message: "Creating consolidated Journal Entry draft..."
       }).then((r) => {
         const data = r.message || {};
-        frappe.msgprint({
-          title: "Consolidated JE Draft Created",
-          message: `
-            <p><b>Journal Entry:</b> ${journalEntryLink(data.journal_entry)}</p>
-          `
-        });
+        if (data.journal_entry_skipped) {
+          frappe.msgprint({
+            title: "Payroll Completed — No JE Required",
+            indicator: "green",
+            message: `
+              <p>${frappe.utils.escape_html(data.skip_reason || "No accounting entry was required for this payroll period.")}</p>
+              <p><b>Salary Slips:</b> ${(data.salary_slip_names || []).length}</p>
+            `
+          });
+        } else {
+          frappe.msgprint({
+            title: "Consolidated JE Draft Created",
+            message: `
+              <p><b>Journal Entry:</b> ${journalEntryLink(data.journal_entry)}</p>
+            `
+          });
+        }
         frm.reload_doc();
       });
     }, "RootedOps Payroll");
