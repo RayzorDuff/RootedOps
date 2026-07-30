@@ -12,7 +12,21 @@ Filters:
 - Quarter
 - Salary Slip Status (`Submitted`, `Draft`, or `Draft and Submitted`)
 
-The report provides quarter totals for Gross Pay, Federal Withholding, Colorado Withholding, employee Social Security, employee Medicare, Total Deductions, and Net Pay. Run it separately for each payroll company. For filed returns, use submitted Salary Slips unless a specific reconciliation requires draft records.
+The report provides quarter totals for Gross Pay, Federal Withholding, Colorado Withholding, employee Social Security, employee Medicare, employer Social Security, employer Medicare, Colorado UI gross/excess/taxable wages, Colorado UI premium, Total Deductions, Employer Tax Total, and Net Pay. Run it separately for each payroll company. For filed returns, use submitted Salary Slips unless a specific reconciliation requires draft records.
+
+### Colorado unemployment insurance
+
+Colorado UI is an employer-paid payroll tax. It is accrued in the consolidated payroll Journal Entry through the existing Payroll Tax Expense and Payroll Tax Payable accounts and is included in the tax-reserve transfer amount. It does not appear as an employee deduction on Salary Slips.
+
+After migration, configure each Colorado employer in **Company → Colorado Unemployment Insurance**:
+
+- Accrue Colorado UI: enabled
+- Colorado UI Employer Account
+- Colorado UI Total Rate (%), such as `3.05`
+- Colorado UI Annual Wage Base, such as `30600`
+- Colorado UI Effective Date
+
+The rate field stores the total rate shown by CDLE. The payroll engine applies it to employee wages up to the annual wage base and tracks excess wages separately.
 
 The report is installed or updated by:
 

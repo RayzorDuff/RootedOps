@@ -36,6 +36,7 @@ SS_WAGE_BASE_2026 = 184500.0
 SS_RATE = 0.062
 MEDICARE_RATE = 0.0145
 COLORADO_RATE_2026 = 0.044
+DEFAULT_COLORADO_UI_WAGE_BASE_2026 = 30600.0
 
 PAY_MODEL_STANDARD_HOURLY = "standard_hourly"
 PAY_MODEL_HYBRID_OVERNIGHT = "hybrid_overnight"
@@ -121,6 +122,52 @@ FEDERAL_WEEKLY_TABLES_2026 = {
         ],
     },
 }
+
+COMPANY_UI_CUSTOM_FIELDS = {
+    "Company": [
+        {
+            "fieldname": "rootedops_colorado_ui_section",
+            "label": "Colorado Unemployment Insurance",
+            "fieldtype": "Section Break",
+            "insert_after": "registration_details",
+            "collapsible": 1,
+        },
+        {
+            "fieldname": "rootedops_colorado_ui_enabled",
+            "label": "Accrue Colorado UI",
+            "fieldtype": "Check",
+            "insert_after": "rootedops_colorado_ui_section",
+            "default": "0",
+        },
+        {
+            "fieldname": "rootedops_colorado_ui_employer_account",
+            "label": "Colorado UI Employer Account",
+            "fieldtype": "Data",
+            "insert_after": "rootedops_colorado_ui_enabled",
+        },
+        {
+            "fieldname": "rootedops_colorado_ui_rate",
+            "label": "Colorado UI Total Rate (%)",
+            "fieldtype": "Percent",
+            "insert_after": "rootedops_colorado_ui_employer_account",
+            "precision": "4",
+        },
+        {
+            "fieldname": "rootedops_colorado_ui_wage_base",
+            "label": "Colorado UI Annual Wage Base",
+            "fieldtype": "Currency",
+            "insert_after": "rootedops_colorado_ui_rate",
+            "default": "30600",
+        },
+        {
+            "fieldname": "rootedops_colorado_ui_effective_date",
+            "label": "Colorado UI Effective Date",
+            "fieldtype": "Date",
+            "insert_after": "rootedops_colorado_ui_wage_base",
+        },
+    ]
+}
+
 
 EMPLOYEE_TAX_CUSTOM_FIELDS = {
     "Employee": [
@@ -248,6 +295,7 @@ EMPLOYEE_TAX_CUSTOM_FIELDS = {
 
 def ensure_employee_tax_profile_custom_fields():
     create_custom_fields(EMPLOYEE_TAX_CUSTOM_FIELDS, update=True)
+    create_custom_fields(COMPANY_UI_CUSTOM_FIELDS, update=True)
     frappe.db.commit()
     return True
 
@@ -931,6 +979,64 @@ def ss_employer_amount(current_gross, ytd_before):
 
 def medicare_employer_amount(current_gross):
     return flt(flt(current_gross) * MEDICARE_RATE, 2)
+
+
+def colorado_ui_company_profile(company, as_of_date=None):
+    company_doc = frappe.get_doc("Company", company)
+    effective_date = getattr(company_doc, "rootedops_colorado_ui_effective_date", None)
+    as_of_date = getdate(as_of_date) if as_of_date else None
+    enabled = cint(getattr(company_doc, "rootedops_colorado_ui_enabled", 0))
+    if enabled and effective_date and as_of_date and as_of_date < getdate(effective_date):
+        enabled = 0
+
+    return {
+        "enabled": enabled,
+        "employer_account": getattr(company_doc, "rootedops_colorado_ui_employer_account", None),
+        "rate_percent": flt(getattr(company_doc, "rootedops_colorado_ui_rate", 0.0), 4),
+        "wage_base": flt(
+            getattr(company_doc, "rootedops_colorado_ui_wage_base", 0.0)
+            or DEFAULT_COLORADO_UI_WAGE_BASE_2026,
+            2,
+        ),
+        "effective_date": effective_date,
+    }
+
+
+def ytd_ui_gross_before_period(employee, start_date, exclude_slip_name=None):
+    start_date = getdate(start_date)
+    year_start = start_date.replace(month=1, day=1)
+    rows = frappe.get_all(
+        "Salary Slip",
+        filters={
+            "employee": employee,
+            "docstatus": 1,
+            "end_date": ["between", [year_start, start_date]],
+        },
+        fields=["name", "gross_pay", "end_date"],
+    )
+
+    total = 0.0
+    for row in rows:
+        if exclude_slip_name and row.name == exclude_slip_name:
+            continue
+        if getdate(row.end_date) >= start_date:
+            continue
+        total += flt(row.gross_pay)
+    return flt(total, 2)
+
+
+def colorado_ui_amount(current_gross, ytd_before, rate_percent, wage_base):
+    gross = max(0.0, flt(current_gross, 2))
+    taxable_remaining = max(0.0, flt(wage_base, 2) - flt(ytd_before, 2))
+    taxable_wages = min(gross, taxable_remaining)
+    excess_wages = max(0.0, gross - taxable_wages)
+    amount = flt(taxable_wages * flt(rate_percent) / 100.0, 2)
+    return {
+        "gross_wages": gross,
+        "taxable_wages": flt(taxable_wages, 2),
+        "excess_wages": flt(excess_wages, 2),
+        "amount": amount,
+    }
 
 
 def lookup_federal_weekly_row_2026(adjusted_wage_amount, filing_status, step2_checked):
@@ -1726,6 +1832,7 @@ def summarize_payroll_liabilities(payroll_result):
     employer_taxes = {
         "social_security_employer": flt(payroll_result.get("ss_employer", 0.0), 2),
         "medicare_employer": flt(payroll_result.get("medicare_employer", 0.0), 2),
+        "colorado_ui_employer": flt(payroll_result.get("colorado_ui_employer", 0.0), 2),
     }
 
     employee_tax_total = flt(sum(employee_taxes.values()), 2)
@@ -1947,6 +2054,7 @@ def build_consolidated_payroll_register(payroll_results):
         "colorado_withholding": 0.0,
         "ss_employer": 0.0,
         "medicare_employer": 0.0,
+        "colorado_ui_employer": 0.0,
         "employee_tax_total": 0.0,
         "employer_tax_total": 0.0,
         "total_payroll_expense": 0.0,
@@ -1977,6 +2085,7 @@ def summarize_consolidated_payroll_liabilities(payroll_results):
         "employer_taxes": {
             "social_security_employer": 0.0,
             "medicare_employer": 0.0,
+            "colorado_ui_employer": 0.0,
         },
         "employer_tax_total": 0.0,
         "total_payroll_expense": 0.0,
@@ -2348,7 +2457,8 @@ def build_payroll_cash_flow_preview(
         + liability["employee_taxes"]["colorado_withholding"],
         2,
     )
-    total_tax_reserve = flt(ss_total + medicare_total + withholding_total, 2)
+    colorado_ui_total = flt(liability["employer_taxes"].get("colorado_ui_employer", 0.0), 2)
+    total_tax_reserve = flt(ss_total + medicare_total + withholding_total + colorado_ui_total, 2)
 
     employee_payment_preview = build_simple_journal_preview(
         company=company,
@@ -2535,7 +2645,8 @@ def build_consolidated_payroll_cash_flow_preview(
         + liability["employee_taxes"]["colorado_withholding"],
         2,
     )
-    total_tax_reserve = flt(ss_total + medicare_total + withholding_total, 2)
+    colorado_ui_total = flt(liability["employer_taxes"].get("colorado_ui_employer", 0.0), 2)
+    total_tax_reserve = flt(ss_total + medicare_total + withholding_total + colorado_ui_total, 2)
 
     employee_payment_preview = build_simple_journal_preview(
         company=company,
@@ -3014,6 +3125,7 @@ def payroll_register_row(payroll_result):
         "colorado_withholding": liability["employee_taxes"]["colorado_withholding"],
         "ss_employer": liability["employer_taxes"]["social_security_employer"],
         "medicare_employer": liability["employer_taxes"]["medicare_employer"],
+        "colorado_ui_employer": liability["employer_taxes"]["colorado_ui_employer"],
         "employee_tax_total": liability["employee_tax_total"],
         "employer_tax_total": liability["employer_tax_total"],
         "total_payroll_expense": liability["total_payroll_expense"],
@@ -3196,6 +3308,17 @@ def rebuild_hourly_salary_slip(
     medicare_employee = medicare_employee_amount(gross)
     ss_employer = ss_employer_amount(gross, ytd_before)
     medicare_employer = medicare_employer_amount(gross)
+    colorado_ui_profile = colorado_ui_company_profile(slip.company, end_date)
+    colorado_ui_ytd_before = ytd_ui_gross_before_period(
+        employee, start_date, exclude_slip_name=slip.name
+    )
+    colorado_ui_detail = colorado_ui_amount(
+        gross,
+        colorado_ui_ytd_before,
+        colorado_ui_profile["rate_percent"] if colorado_ui_profile["enabled"] else 0.0,
+        colorado_ui_profile["wage_base"],
+    )
+    colorado_ui_employer = colorado_ui_detail["amount"]
 
     federal_detail = None
     colorado_detail = None
@@ -3273,6 +3396,11 @@ def rebuild_hourly_salary_slip(
         "colorado_withholding": flt(colorado_withholding, 2),
         "ss_employer": ss_employer,
         "medicare_employer": medicare_employer,
+        "colorado_ui_employer": colorado_ui_employer,
+        "colorado_ui_taxable_wages": colorado_ui_detail["taxable_wages"],
+        "colorado_ui_excess_wages": colorado_ui_detail["excess_wages"],
+        "colorado_ui_ytd_before_period": colorado_ui_ytd_before,
+        "colorado_ui_profile": colorado_ui_profile,
         "ytd_gross_before_period": ytd_before,
         "salary_structure_used": assignment.salary_structure,
         "salary_structure_assignment_used": assignment.name,

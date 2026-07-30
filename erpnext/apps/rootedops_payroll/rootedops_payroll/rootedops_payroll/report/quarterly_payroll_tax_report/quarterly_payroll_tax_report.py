@@ -7,6 +7,15 @@ import frappe
 from frappe import _
 from frappe.utils import cint, flt
 
+from rootedops_payroll.services.payroll_engine import (
+    MEDICARE_RATE,
+    colorado_ui_amount,
+    colorado_ui_company_profile,
+    ss_employer_amount,
+    ytd_gross_before_period,
+    ytd_ui_gross_before_period,
+)
+
 
 QUARTER_START_MONTH = {
     "Q1": 1,
@@ -116,9 +125,24 @@ def _get_rows(company, start_date, end_date, docstatus_filter):
         if key:
             deduction_map[row.parent][key] = flt(row.amount)
 
+    ui_profile = colorado_ui_company_profile(company, end_date)
     data = []
     for slip in slips:
         component_values = deduction_map.get(slip.name, {})
+        ui_ytd_before = ytd_ui_gross_before_period(
+            slip.employee, slip.start_date, exclude_slip_name=slip.name
+        )
+        fica_ytd_before = ytd_gross_before_period(
+            slip.employee, slip.start_date, exclude_slip_name=slip.name
+        )
+        employer_social_security = ss_employer_amount(slip.gross_pay, fica_ytd_before)
+        employer_medicare = flt(slip.gross_pay * MEDICARE_RATE, 2)
+        ui_detail = colorado_ui_amount(
+            slip.gross_pay,
+            ui_ytd_before,
+            ui_profile["rate_percent"] if ui_profile["enabled"] else 0.0,
+            ui_profile["wage_base"],
+        )
         data.append(
             {
                 "salary_slip": slip.name,
@@ -133,6 +157,18 @@ def _get_rows(company, start_date, end_date, docstatus_filter):
                 "colorado_withholding": flt(component_values.get("colorado_withholding")),
                 "social_security_employee": flt(component_values.get("social_security_employee")),
                 "medicare_employee": flt(component_values.get("medicare_employee")),
+                "social_security_employer": employer_social_security,
+                "medicare_employer": employer_medicare,
+                "colorado_ui_gross_wages": ui_detail["gross_wages"],
+                "colorado_ui_excess_wages": ui_detail["excess_wages"],
+                "colorado_ui_taxable_wages": ui_detail["taxable_wages"],
+                "colorado_ui_employer": ui_detail["amount"],
+                "employer_tax_total": flt(
+                    employer_social_security
+                    + employer_medicare
+                    + ui_detail["amount"],
+                    2,
+                ),
                 "total_deduction": flt(slip.total_deduction),
                 "net_pay": flt(slip.net_pay),
             }
@@ -147,6 +183,13 @@ def _build_total_row(rows):
         "colorado_withholding",
         "social_security_employee",
         "medicare_employee",
+        "social_security_employer",
+        "medicare_employer",
+        "colorado_ui_gross_wages",
+        "colorado_ui_excess_wages",
+        "colorado_ui_taxable_wages",
+        "colorado_ui_employer",
+        "employer_tax_total",
         "total_deduction",
         "net_pay",
     )
@@ -172,6 +215,18 @@ def _get_report_summary(rows, start_date, end_date):
             "value": totals.get("colorado_withholding", 0),
             "indicator": "Orange",
             "label": _("Colorado Withholding"),
+            "datatype": "Currency",
+        },
+        {
+            "value": totals.get("colorado_ui_employer", 0),
+            "indicator": "Red",
+            "label": _("Colorado UI"),
+            "datatype": "Currency",
+        },
+        {
+            "value": totals.get("employer_tax_total", 0),
+            "indicator": "Purple",
+            "label": _("Employer Taxes"),
             "datatype": "Currency",
         },
         {
@@ -272,6 +327,48 @@ def _get_columns():
             "label": _("Medicare"),
             "fieldtype": "Currency",
             "width": 105,
+        },
+        {
+            "fieldname": "social_security_employer",
+            "label": _("Employer Social Security"),
+            "fieldtype": "Currency",
+            "width": 155,
+        },
+        {
+            "fieldname": "medicare_employer",
+            "label": _("Employer Medicare"),
+            "fieldtype": "Currency",
+            "width": 135,
+        },
+        {
+            "fieldname": "colorado_ui_gross_wages",
+            "label": _("CO UI Gross Wages"),
+            "fieldtype": "Currency",
+            "width": 135,
+        },
+        {
+            "fieldname": "colorado_ui_excess_wages",
+            "label": _("CO UI Excess Wages"),
+            "fieldtype": "Currency",
+            "width": 140,
+        },
+        {
+            "fieldname": "colorado_ui_taxable_wages",
+            "label": _("CO UI Taxable Wages"),
+            "fieldtype": "Currency",
+            "width": 145,
+        },
+        {
+            "fieldname": "colorado_ui_employer",
+            "label": _("Colorado UI"),
+            "fieldtype": "Currency",
+            "width": 115,
+        },
+        {
+            "fieldname": "employer_tax_total",
+            "label": _("Employer Tax Total"),
+            "fieldtype": "Currency",
+            "width": 140,
         },
         {
             "fieldname": "total_deduction",

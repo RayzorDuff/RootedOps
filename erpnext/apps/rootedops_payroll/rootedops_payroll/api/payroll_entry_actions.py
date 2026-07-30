@@ -12,6 +12,9 @@ from rootedops_payroll.services.payroll_engine import (
     get_employee_payroll_context,
     get_employees_with_attendance_in_period,
     medicare_employer_amount,
+    colorado_ui_amount,
+    colorado_ui_company_profile,
+    ytd_ui_gross_before_period,
     repair_salary_slip_totals,
     run_batched_hourly_payroll,
     ss_employer_amount,
@@ -176,7 +179,18 @@ def _build_payroll_result_from_existing_slip(slip_name: str):
     employee_tax_total = round(
         ss_employee + medicare_employee + federal_withholding + colorado_withholding, 2
     )
-    employer_tax_total = round(ss_employer + medicare_employer, 2)
+    colorado_ui_profile = colorado_ui_company_profile(slip.company, slip.end_date)
+    colorado_ui_ytd_before = ytd_ui_gross_before_period(
+        slip.employee, slip.start_date, exclude_slip_name=slip.name
+    )
+    colorado_ui_detail = colorado_ui_amount(
+        gross,
+        colorado_ui_ytd_before,
+        colorado_ui_profile["rate_percent"] if colorado_ui_profile["enabled"] else 0.0,
+        colorado_ui_profile["wage_base"],
+    )
+    colorado_ui_employer = colorado_ui_detail["amount"]
+    employer_tax_total = round(ss_employer + medicare_employer + colorado_ui_employer, 2)
 
     return {
         "employee": slip.employee,
@@ -202,6 +216,10 @@ def _build_payroll_result_from_existing_slip(slip_name: str):
         "employee_tax_total": round(employee_tax_total, 2),
         "ss_employer": round(ss_employer, 2),
         "medicare_employer": round(medicare_employer, 2),
+        "colorado_ui_employer": round(colorado_ui_employer, 2),
+        "colorado_ui_taxable_wages": colorado_ui_detail["taxable_wages"],
+        "colorado_ui_excess_wages": colorado_ui_detail["excess_wages"],
+        "colorado_ui_profile": colorado_ui_profile,
         "employer_tax_total": round(employer_tax_total, 2),
         "total_payroll_expense": round(gross + employer_tax_total, 2),
         "payroll_payable_account": payroll_ctx.get("payroll_payable_account"),
