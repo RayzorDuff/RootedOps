@@ -129,7 +129,7 @@ COMPANY_UI_CUSTOM_FIELDS = {
             "fieldname": "rootedops_colorado_ui_section",
             "label": "Colorado Unemployment Insurance",
             "fieldtype": "Section Break",
-            "insert_after": "registration_details",
+            "insert_after": "tax_id",
             "collapsible": 1,
         },
         {
