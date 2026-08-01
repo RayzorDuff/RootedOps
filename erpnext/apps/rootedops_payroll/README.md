@@ -43,6 +43,12 @@ bench --site erp.danks.store migrate
 bench --site erp.danks.store clear-cache
 ```
 
+## Payroll tax liability reconciliation
+
+The **Payroll Tax Liability Reconciliation** report compares submitted Salary Slip liabilities with draft and submitted tax-payment Journal Entries for Federal Payroll Tax, Colorado Withholding, Colorado UI, and Colorado FAMLI. Its **Create Tax Payment Draft** action creates a tagged, balanced Bank Entry for the full quarterly liability and prevents a second non-cancelled draft for the same company, quarter, and tax type.
+
+Payment drafts use the withholding bank account when one is configured, otherwise the default checking account. Review the bank and liability lines in ERPNext before submitting. Interest and penalties remain separate manual expense lines and are not included in the calculated tax liability.
+
 ### Installation
 
 You can install this app using the [bench](https://github.com/frappe/bench) CLI:

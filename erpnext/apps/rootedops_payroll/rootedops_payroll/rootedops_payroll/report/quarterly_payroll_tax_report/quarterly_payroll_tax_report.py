@@ -46,6 +46,15 @@ def execute(filters=None):
         end_date=end_date,
         docstatus_filter=docstatus_filter,
     )
+
+
+def get_quarter_tax_totals(company, year, quarter):
+    """Return submitted Salary Slip tax totals for one company quarter."""
+    start_date, end_date = _get_quarter_dates(
+        frappe._dict(company=company, year=year, quarter=quarter)
+    )
+    rows = _get_rows(company, start_date, end_date, (1,))
+    return _build_total_row(rows) if rows else {}
     total_row = _build_total_row(rows)
     data = rows + ([total_row] if rows else [])
 
