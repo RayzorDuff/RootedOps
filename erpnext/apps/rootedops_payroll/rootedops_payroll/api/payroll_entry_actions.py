@@ -5,6 +5,7 @@ from frappe.utils import getdate, now_datetime
 from rootedops_payroll.services.payroll_engine import (
     build_consolidated_payroll_cash_flow_preview,
     build_consolidated_payroll_journal_entry_preview,
+    calculate_colorado_famli_premium,
     create_consolidated_employee_payment_journal_entry_draft,
     create_consolidated_payroll_journal_entry_draft,
     create_consolidated_tax_reserve_transfer_journal_entry_draft,
@@ -156,6 +157,7 @@ def _build_payroll_result_from_existing_slip(slip_name: str):
     medicare_employee = _salary_component_amount(slip, "Medicare")
     federal_withholding = _salary_component_amount(slip, "Federal Withholding")
     colorado_withholding = _salary_component_amount(slip, "Colorado Withholding")
+    colorado_famli_employee = _salary_component_amount(slip, "Colorado FAMLI")
 
     ytd_before = ytd_gross_before_period(
         slip.employee,
@@ -165,6 +167,9 @@ def _build_payroll_result_from_existing_slip(slip_name: str):
 
     ss_employer = ss_employer_amount(gross, ytd_before)
     medicare_employer = medicare_employer_amount(gross)
+    colorado_famli = calculate_colorado_famli_premium(
+        slip.company, gross, ytd_before, slip.end_date
+    )
 
     hourly_wage = _salary_component_amount(slip, "Hourly Wage")
     overnight_shift_pay = _salary_component_amount(slip, "Overnight Shift Pay")
@@ -177,7 +182,8 @@ def _build_payroll_result_from_existing_slip(slip_name: str):
         overnight_shift_count = int(round(overnight_shift_pay / default_flat))
 
     employee_tax_total = round(
-        ss_employee + medicare_employee + federal_withholding + colorado_withholding, 2
+        ss_employee + medicare_employee + federal_withholding + colorado_withholding
+        + colorado_famli_employee, 2
     )
     colorado_ui_profile = colorado_ui_company_profile(slip.company, slip.end_date)
     colorado_ui_ytd_before = ytd_ui_gross_before_period(
@@ -190,7 +196,10 @@ def _build_payroll_result_from_existing_slip(slip_name: str):
         colorado_ui_profile["wage_base"],
     )
     colorado_ui_employer = colorado_ui_detail["amount"]
-    employer_tax_total = round(ss_employer + medicare_employer + colorado_ui_employer, 2)
+    employer_tax_total = round(
+        ss_employer + medicare_employer + colorado_ui_employer
+        + colorado_famli["employer_expense"], 2
+    )
 
     return {
         "employee": slip.employee,
@@ -213,6 +222,7 @@ def _build_payroll_result_from_existing_slip(slip_name: str):
         "medicare_employee": round(medicare_employee, 2),
         "federal_withholding": round(federal_withholding, 2),
         "colorado_withholding": round(colorado_withholding, 2),
+        "colorado_famli_employee": round(colorado_famli_employee, 2),
         "employee_tax_total": round(employee_tax_total, 2),
         "ss_employer": round(ss_employer, 2),
         "medicare_employer": round(medicare_employer, 2),
@@ -220,6 +230,12 @@ def _build_payroll_result_from_existing_slip(slip_name: str):
         "colorado_ui_taxable_wages": colorado_ui_detail["taxable_wages"],
         "colorado_ui_excess_wages": colorado_ui_detail["excess_wages"],
         "colorado_ui_profile": colorado_ui_profile,
+        "colorado_famli_employer": colorado_famli["employer_expense"],
+        "colorado_famli_statutory_employer": colorado_famli["statutory_employer_premium"],
+        "colorado_famli_employee_premium": colorado_famli["employee_premium"],
+        "colorado_famli_gross_wages": colorado_famli["gross_wages"],
+        "colorado_famli_taxable_wages": colorado_famli["taxable_wages"],
+        "colorado_famli_excess_wages": colorado_famli["excess_wages"],
         "employer_tax_total": round(employer_tax_total, 2),
         "total_payroll_expense": round(gross + employer_tax_total, 2),
         "payroll_payable_account": payroll_ctx.get("payroll_payable_account"),

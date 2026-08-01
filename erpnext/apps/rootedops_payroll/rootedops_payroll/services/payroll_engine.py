@@ -292,12 +292,56 @@ EMPLOYEE_TAX_CUSTOM_FIELDS = {
     ]
 }
 
+COMPANY_FAMLI_CUSTOM_FIELDS = {
+    "Company": [
+        {"fieldname": "rootedops_colorado_famli_section", "label": "Colorado FAMLI", "fieldtype": "Section Break", "insert_after": "rootedops_colorado_ui_effective_date", "collapsible": 1},
+        {"fieldname": "rootedops_colorado_famli_enabled", "label": "Accrue Colorado FAMLI", "fieldtype": "Check", "insert_after": "rootedops_colorado_famli_section", "default": "0"},
+        {"fieldname": "rootedops_colorado_famli_employee_rate", "label": "FAMLI Employee Rate (%)", "fieldtype": "Percent", "insert_after": "rootedops_colorado_famli_enabled", "default": "0.44"},
+        {"fieldname": "rootedops_colorado_famli_employer_rate", "label": "FAMLI Employer Rate (%)", "fieldtype": "Percent", "insert_after": "rootedops_colorado_famli_employee_rate", "default": "0"},
+        {"fieldname": "rootedops_colorado_famli_wage_base", "label": "FAMLI Annual Wage Base", "fieldtype": "Currency", "insert_after": "rootedops_colorado_famli_employer_rate", "default": "184500"},
+        {"fieldname": "rootedops_colorado_famli_employer_pays_employee", "label": "Employer Pays Employee FAMLI Share", "fieldtype": "Check", "insert_after": "rootedops_colorado_famli_wage_base", "default": "0"},
+        {"fieldname": "rootedops_colorado_famli_effective_date", "label": "FAMLI Effective Date", "fieldtype": "Date", "insert_after": "rootedops_colorado_famli_employer_pays_employee", "default": "2026-01-01"},
+    ]
+}
 
 def ensure_employee_tax_profile_custom_fields():
     create_custom_fields(EMPLOYEE_TAX_CUSTOM_FIELDS, update=True)
     create_custom_fields(COMPANY_UI_CUSTOM_FIELDS, update=True)
+    create_custom_fields(COMPANY_FAMLI_CUSTOM_FIELDS, update=True)
+    ensure_colorado_famli_salary_component()
     frappe.db.commit()
     return True
+
+
+def ensure_colorado_famli_salary_component():
+    if frappe.db.exists("Salary Component", "Colorado FAMLI"):
+        return "Colorado FAMLI"
+
+    component = frappe.get_doc({
+        "doctype": "Salary Component",
+        "salary_component": "Colorado FAMLI",
+        "salary_component_abbr": "COFAMLI",
+        "type": "Deduction",
+    })
+    component.insert(ignore_permissions=True)
+    return component.name
+
+def get_company_colorado_famli_settings(company):
+    values = frappe.db.get_value(
+        "Company", company,
+        ["rootedops_colorado_famli_enabled", "rootedops_colorado_famli_employee_rate",
+         "rootedops_colorado_famli_employer_rate", "rootedops_colorado_famli_wage_base",
+         "rootedops_colorado_famli_employer_pays_employee",
+         "rootedops_colorado_famli_effective_date"], as_dict=True,
+    ) or {}
+    return {
+        "enabled": cint(values.get("rootedops_colorado_famli_enabled") or 0),
+        "employee_rate": flt(values.get("rootedops_colorado_famli_employee_rate") or 0, 6),
+        "employer_rate": flt(values.get("rootedops_colorado_famli_employer_rate") or 0, 6),
+        "wage_base": flt(values.get("rootedops_colorado_famli_wage_base") or 0, 2),
+        "employer_pays_employee_share": cint(values.get("rootedops_colorado_famli_employer_pays_employee") or 0),
+        "effective_date": values.get("rootedops_colorado_famli_effective_date"),
+    }
 
 
 def employee_tax_custom_fieldnames():
@@ -1039,6 +1083,33 @@ def colorado_ui_amount(current_gross, ytd_before, rate_percent, wage_base):
     }
 
 
+def calculate_colorado_famli_premium(company, current_gross, ytd_before, payroll_date):
+    settings = get_company_colorado_famli_settings(company)
+    effective_date = settings.get("effective_date")
+    enabled = settings["enabled"] and (not effective_date or getdate(payroll_date) >= getdate(effective_date))
+    taxable_remaining = max(0.0, settings["wage_base"] - flt(ytd_before)) if settings["wage_base"] else 0.0
+    taxable_wages = min(flt(current_gross), taxable_remaining) if enabled else 0.0
+    employee_premium = flt(taxable_wages * settings["employee_rate"] / 100.0, 2)
+    statutory_employer_premium = flt(taxable_wages * settings["employer_rate"] / 100.0, 2)
+    employer_paid_employee_share = employee_premium if settings["employer_pays_employee_share"] else 0.0
+    employee_withholding = 0.0 if settings["employer_pays_employee_share"] else employee_premium
+    employer_expense = flt(statutory_employer_premium + employer_paid_employee_share, 2)
+
+    return {
+        "enabled": bool(enabled),
+        "gross_wages": flt(current_gross, 2) if enabled else 0.0,
+        "taxable_wages": flt(taxable_wages, 2),
+        "excess_wages": flt(max(0.0, flt(current_gross) - taxable_wages), 2) if enabled else 0.0,
+        "employee_premium": employee_premium,
+        "employee_withholding": employee_withholding,
+        "statutory_employer_premium": statutory_employer_premium,
+        "employer_paid_employee_share": employer_paid_employee_share,
+        "employer_expense": employer_expense,
+        "total_remittance": flt(employee_premium + statutory_employer_premium, 2),
+        "settings": settings,
+    }
+
+
 def lookup_federal_weekly_row_2026(adjusted_wage_amount, filing_status, step2_checked):
     schedule_key = "step2" if cint(step2_checked) else "standard"
     rows = FEDERAL_WEEKLY_TABLES_2026[schedule_key][filing_status]
@@ -1442,7 +1513,13 @@ def build_earnings_rows(hourly_gross, overnight_flat_pay=0.0):
     return rows
 
 
-def build_deduction_rows(ss_employee, medicare_employee, federal_withholding=0.0, colorado_withholding=0.0):
+def build_deduction_rows(
+    ss_employee,
+    medicare_employee,
+    federal_withholding=0.0,
+    colorado_withholding=0.0,
+    colorado_famli_employee=0.0,
+):
     rows = [
         {
             "salary_component": "Social Security",
@@ -1478,6 +1555,17 @@ def build_deduction_rows(ss_employee, medicare_employee, federal_withholding=0.0
                 "abbr": "COWH",
                 "amount": flt(colorado_withholding, 2),
                 "default_amount": flt(colorado_withholding, 2),
+                "depends_on_payment_days": 0,
+            }
+        )
+
+    if flt(colorado_famli_employee):
+        rows.append(
+            {
+                "salary_component": "Colorado FAMLI",
+                "abbr": "COFAMLI",
+                "amount": flt(colorado_famli_employee, 2),
+                "default_amount": flt(colorado_famli_employee, 2),
                 "depends_on_payment_days": 0,
             }
         )
@@ -1827,12 +1915,14 @@ def summarize_payroll_liabilities(payroll_result):
         "medicare_employee": flt(payroll_result.get("medicare_employee", 0.0), 2),
         "federal_withholding": flt(payroll_result.get("federal_withholding", 0.0), 2),
         "colorado_withholding": flt(payroll_result.get("colorado_withholding", 0.0), 2),
+        "colorado_famli_employee": flt(payroll_result.get("colorado_famli_employee", 0.0), 2),
     }
 
     employer_taxes = {
         "social_security_employer": flt(payroll_result.get("ss_employer", 0.0), 2),
         "medicare_employer": flt(payroll_result.get("medicare_employer", 0.0), 2),
         "colorado_ui_employer": flt(payroll_result.get("colorado_ui_employer", 0.0), 2),
+        "colorado_famli_employer": flt(payroll_result.get("colorado_famli_employer", 0.0), 2),
     }
 
     employee_tax_total = flt(sum(employee_taxes.values()), 2)
@@ -2052,9 +2142,14 @@ def build_consolidated_payroll_register(payroll_results):
         "medicare_employee": 0.0,
         "federal_withholding": 0.0,
         "colorado_withholding": 0.0,
+        "colorado_famli_employee": 0.0,
         "ss_employer": 0.0,
         "medicare_employer": 0.0,
         "colorado_ui_employer": 0.0,
+        "colorado_famli_employer": 0.0,
+        "colorado_famli_gross_wages": 0.0,
+        "colorado_famli_taxable_wages": 0.0,
+        "colorado_famli_excess_wages": 0.0,
         "employee_tax_total": 0.0,
         "employer_tax_total": 0.0,
         "total_payroll_expense": 0.0,
@@ -2080,12 +2175,14 @@ def summarize_consolidated_payroll_liabilities(payroll_results):
             "medicare_employee": 0.0,
             "federal_withholding": 0.0,
             "colorado_withholding": 0.0,
+            "colorado_famli_employee": 0.0,
         },
         "employee_tax_total": 0.0,
         "employer_taxes": {
             "social_security_employer": 0.0,
             "medicare_employer": 0.0,
             "colorado_ui_employer": 0.0,
+            "colorado_famli_employer": 0.0,
         },
         "employer_tax_total": 0.0,
         "total_payroll_expense": 0.0,
@@ -2117,6 +2214,10 @@ def summarize_consolidated_payroll_liabilities(payroll_results):
                 2,
             )
 
+        for key in (
+            "colorado_famli_gross_wages", "colorado_famli_taxable_wages", "colorado_famli_excess_wages",
+        ):
+            summary[key] = flt(summary.get(key, 0.0) + flt(payroll_result.get(key, 0.0)), 2)
     return summary
 
 
@@ -2266,6 +2367,17 @@ def build_consolidated_payroll_journal_entry_preview(
             remark=f"Colorado withholding payable for {slip.name}",
         )
 
+        add_line(
+            account_map["payroll_tax_payable_account"],
+            credit=flt(
+                liability["employer_taxes"]["colorado_ui_employer"]
+                + liability["employee_taxes"]["colorado_famli_employee"]
+                + liability["employer_taxes"]["colorado_famli_employer"],
+                2,
+            ),
+            cost_center=cost_center,
+            remark=f"Colorado UI and FAMLI payable for {slip.name}",
+        )
     lines = []
     for _, row in sorted(aggregated.items(), key=lambda item: (item[0][0], item[0][1])):
         line = {
@@ -2458,7 +2570,15 @@ def build_payroll_cash_flow_preview(
         2,
     )
     colorado_ui_total = flt(liability["employer_taxes"].get("colorado_ui_employer", 0.0), 2)
-    total_tax_reserve = flt(ss_total + medicare_total + withholding_total + colorado_ui_total, 2)
+    colorado_famli_total = flt(
+        liability["employee_taxes"].get("colorado_famli_employee", 0.0)
+        + liability["employer_taxes"].get("colorado_famli_employer", 0.0),
+        2,
+    )
+    total_tax_reserve = flt(
+        ss_total + medicare_total + withholding_total + colorado_ui_total + colorado_famli_total,
+        2,
+    )
 
     employee_payment_preview = build_simple_journal_preview(
         company=company,
@@ -2537,6 +2657,7 @@ def build_payroll_cash_flow_preview(
             "medicare_payable_account": account_map["medicare_payable_account"],
             "federal_withholding_payable_account": account_map["federal_withholding_payable_account"],
             "colorado_withholding_payable_account": account_map["colorado_withholding_payable_account"],
+            "payroll_tax_payable_account": account_map["payroll_tax_payable_account"],
             "withholding_bank_account": withholding_bank_account,
         }.items() if not account],
         account_map=account_map,
@@ -2575,6 +2696,13 @@ def build_payroll_cash_flow_preview(
                 "credit_in_account_currency": 0.0,
                 "cost_center": cost_center,
                 "user_remark": f"Clear Colorado withholding payable for {slip.name}",
+            },
+            {
+                "account": account_map["payroll_tax_payable_account"],
+                "debit_in_account_currency": flt(colorado_ui_total + colorado_famli_total, 2),
+                "credit_in_account_currency": 0.0,
+                "cost_center": cost_center,
+                "user_remark": f"Clear Colorado UI and FAMLI payable for {slip.name}",
             },
             {
                 "account": withholding_bank_account,
@@ -2646,7 +2774,15 @@ def build_consolidated_payroll_cash_flow_preview(
         2,
     )
     colorado_ui_total = flt(liability["employer_taxes"].get("colorado_ui_employer", 0.0), 2)
-    total_tax_reserve = flt(ss_total + medicare_total + withholding_total + colorado_ui_total, 2)
+    colorado_famli_total = flt(
+        liability["employee_taxes"].get("colorado_famli_employee", 0.0)
+        + liability["employer_taxes"].get("colorado_famli_employer", 0.0),
+        2,
+    )
+    total_tax_reserve = flt(
+        ss_total + medicare_total + withholding_total + colorado_ui_total + colorado_famli_total,
+        2,
+    )
 
     employee_payment_preview = build_simple_journal_preview(
         company=company,
@@ -2728,6 +2864,12 @@ def build_consolidated_payroll_cash_flow_preview(
                 "debit_in_account_currency": liability["employee_taxes"]["colorado_withholding"],
                 "credit_in_account_currency": 0.0,
                 "user_remark": f"Clear consolidated Colorado withholding payable for {company}",
+            },
+            {
+                "account": account_map["payroll_tax_payable_account"],
+                "debit_in_account_currency": flt(colorado_ui_total + colorado_famli_total, 2),
+                "credit_in_account_currency": 0.0,
+                "user_remark": f"Clear consolidated Colorado UI and FAMLI payable for {company}",
             },
             {
                 "account": withholding_bank_account,
@@ -3054,6 +3196,16 @@ def build_payroll_journal_entry_preview(payroll_result, account_overrides=None):
         remark=f"Colorado withholding payable for {slip.name}",
     )
 
+    add_line(
+        account_map["payroll_tax_payable_account"],
+        credit=flt(
+            liability["employer_taxes"]["colorado_ui_employer"]
+            + liability["employee_taxes"]["colorado_famli_employee"]
+            + liability["employer_taxes"]["colorado_famli_employer"],
+            2,
+        ),
+        remark=f"Colorado UI and FAMLI payable for {slip.name}",
+    )
     total_debit = flt(sum(flt(d.get("debit_in_account_currency", 0.0)) for d in lines), 2)
     total_credit = flt(sum(flt(d.get("credit_in_account_currency", 0.0)) for d in lines), 2)
 
@@ -3123,9 +3275,14 @@ def payroll_register_row(payroll_result):
         "medicare_employee": liability["employee_taxes"]["medicare_employee"],
         "federal_withholding": liability["employee_taxes"]["federal_withholding"],
         "colorado_withholding": liability["employee_taxes"]["colorado_withholding"],
+        "colorado_famli_employee": liability["employee_taxes"]["colorado_famli_employee"],
         "ss_employer": liability["employer_taxes"]["social_security_employer"],
         "medicare_employer": liability["employer_taxes"]["medicare_employer"],
         "colorado_ui_employer": liability["employer_taxes"]["colorado_ui_employer"],
+        "colorado_famli_employer": liability["employer_taxes"]["colorado_famli_employer"],
+        "colorado_famli_gross_wages": flt(payroll_result.get("colorado_famli_gross_wages", 0.0), 2),
+        "colorado_famli_taxable_wages": flt(payroll_result.get("colorado_famli_taxable_wages", 0.0), 2),
+        "colorado_famli_excess_wages": flt(payroll_result.get("colorado_famli_excess_wages", 0.0), 2),
         "employee_tax_total": liability["employee_tax_total"],
         "employer_tax_total": liability["employer_tax_total"],
         "total_payroll_expense": liability["total_payroll_expense"],
@@ -3319,6 +3476,9 @@ def rebuild_hourly_salary_slip(
         colorado_ui_profile["wage_base"],
     )
     colorado_ui_employer = colorado_ui_detail["amount"]
+    colorado_famli = calculate_colorado_famli_premium(
+        slip.company, gross, ytd_before, end_date
+    )
 
     federal_detail = None
     colorado_detail = None
@@ -3357,6 +3517,7 @@ def rebuild_hourly_salary_slip(
         medicare_employee=medicare_employee,
         federal_withholding=federal_withholding,
         colorado_withholding=colorado_withholding,
+        colorado_famli_employee=colorado_famli["employee_withholding"],
     )
 
     replace_child_table(slip, "earnings", earnings_rows)
@@ -3394,6 +3555,7 @@ def rebuild_hourly_salary_slip(
         "medicare_employee": medicare_employee,
         "federal_withholding": flt(federal_withholding, 2),
         "colorado_withholding": flt(colorado_withholding, 2),
+        "colorado_famli_employee": colorado_famli["employee_withholding"],
         "ss_employer": ss_employer,
         "medicare_employer": medicare_employer,
         "colorado_ui_employer": colorado_ui_employer,
@@ -3401,6 +3563,14 @@ def rebuild_hourly_salary_slip(
         "colorado_ui_excess_wages": colorado_ui_detail["excess_wages"],
         "colorado_ui_ytd_before_period": colorado_ui_ytd_before,
         "colorado_ui_profile": colorado_ui_profile,
+        "colorado_famli_employer": colorado_famli["employer_expense"],
+        "colorado_famli_statutory_employer": colorado_famli["statutory_employer_premium"],
+        "colorado_famli_employee_premium": colorado_famli["employee_premium"],
+        "colorado_famli_employer_paid_employee_share": colorado_famli["employer_paid_employee_share"],
+        "colorado_famli_gross_wages": colorado_famli["gross_wages"],
+        "colorado_famli_taxable_wages": colorado_famli["taxable_wages"],
+        "colorado_famli_excess_wages": colorado_famli["excess_wages"],
+        "colorado_famli_detail": colorado_famli,
         "ytd_gross_before_period": ytd_before,
         "salary_structure_used": assignment.salary_structure,
         "salary_structure_assignment_used": assignment.name,

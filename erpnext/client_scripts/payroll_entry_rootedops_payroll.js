@@ -28,6 +28,8 @@ frappe.ui.form.on("Payroll Entry", {
         const summary = data.summary || {};
         const liability = summary.consolidated_liability_summary || {};
         const jePreview = summary.consolidated_journal_entry_preview || {};
+        const employeeTaxes = liability.employee_taxes || {};
+        const employerTaxes = liability.employer_taxes || {};
 
         frappe.msgprint({
           title: "Attendance Payroll Preview",
@@ -35,7 +37,18 @@ frappe.ui.form.on("Payroll Entry", {
             <p><b>Employees:</b> ${summary.employee_count || 0}</p>
             <p><b>Gross Wages:</b> ${formatMoney(liability.gross_wages)}</p>
             <p><b>Net Pay:</b> ${formatMoney(liability.net_pay)}</p>
+            <hr><p><b>Employee taxes and withholding</b></p>
+            <p>Social Security: ${formatMoney(employeeTaxes.social_security_employee)}</p>
+            <p>Medicare: ${formatMoney(employeeTaxes.medicare_employee)}</p>
+            <p>Federal Withholding: ${formatMoney(employeeTaxes.federal_withholding)}</p>
+            <p>Colorado Withholding: ${formatMoney(employeeTaxes.colorado_withholding)}</p>
+            <p>Colorado FAMLI: ${formatMoney(employeeTaxes.colorado_famli_employee)}</p>
             <p><b>Employee Taxes:</b> ${formatMoney(liability.employee_tax_total)}</p>
+            <hr><p><b>Employer taxes</b></p>
+            <p>Social Security: ${formatMoney(employerTaxes.social_security_employer)}</p>
+            <p>Medicare: ${formatMoney(employerTaxes.medicare_employer)}</p>
+            <p>Colorado UI: ${formatMoney(employerTaxes.colorado_ui_employer)}</p>
+            <p>Colorado FAMLI: ${formatMoney(employerTaxes.colorado_famli_employer)}</p>
             <p><b>Employer Taxes:</b> ${formatMoney(liability.employer_tax_total)}</p>
             <p><b>Total Payroll Expense:</b> ${formatMoney(liability.total_payroll_expense)}</p>
             <p><b>JE Balanced:</b> ${jePreview.is_balanced ? "Yes" : "No"}</p>
@@ -59,6 +72,8 @@ frappe.ui.form.on("Payroll Entry", {
         const payment = cf.employee_payment_preview || {};
         const reserve = cf.tax_reserve_transfer_preview || {};
         const remit = cf.tax_remittance_preview || {};
+        const employeeTaxes = liability.employee_taxes || {};
+        const employerTaxes = liability.employer_taxes || {};
 
         frappe.msgprint({
           title: "Payroll Cash Flow Preview",
@@ -71,7 +86,12 @@ frappe.ui.form.on("Payroll Entry", {
             <p><b>Net Pay to Employees:</b> ${formatMoney(liability.net_pay)}</p>
             <p><b>Total Tax Reserve Transfer:</b> ${formatMoney(liability.total_liability_before_cash)}</p>
             <p><b>Employee Taxes:</b> ${formatMoney(liability.employee_tax_total)}</p>
+            <p>Employee Colorado FAMLI: ${formatMoney(employeeTaxes.colorado_famli_employee)}</p>
             <p><b>Employer Taxes:</b> ${formatMoney(liability.employer_tax_total)}</p>
+            <p>Employer Social Security: ${formatMoney(employerTaxes.social_security_employer)}</p>
+            <p>Employer Medicare: ${formatMoney(employerTaxes.medicare_employer)}</p>
+            <p>Colorado UI: ${formatMoney(employerTaxes.colorado_ui_employer)}</p>
+            <p>Employer Colorado FAMLI: ${formatMoney(employerTaxes.colorado_famli_employer)}</p>
             <hr>
             <p><b>Employee Payment JE Balanced:</b> ${payment.is_balanced ? "Yes" : "No"}</p>
             <p><b>Tax Reserve Transfer JE Balanced:</b> ${reserve.is_balanced ? "Yes" : "No"}</p>

@@ -12,7 +12,7 @@ Filters:
 - Quarter
 - Salary Slip Status (`Submitted`, `Draft`, or `Draft and Submitted`)
 
-The report provides quarter totals for Gross Pay, Federal Withholding, Colorado Withholding, employee Social Security, employee Medicare, employer Social Security, employer Medicare, Colorado UI gross/excess/taxable wages, Colorado UI premium, Total Deductions, Employer Tax Total, and Net Pay. Run it separately for each payroll company. For filed returns, use submitted Salary Slips unless a specific reconciliation requires draft records.
+The report provides quarter totals for Gross Pay, Federal Withholding, Colorado Withholding, Colorado FAMLI, employee and employer FICA, Colorado UI gross/excess/taxable wages, Colorado UI premium, employer taxes, Total Deductions, and Net Pay. Run it separately for each payroll company. For filed returns, use submitted Salary Slips unless a specific reconciliation requires draft records.
 
 ### Colorado unemployment insurance
 
@@ -27,6 +27,14 @@ After migration, configure each Colorado employer in **Company → Colorado Unem
 - Colorado UI Effective Date
 
 The rate field stores the total rate shown by CDLE. The payroll engine applies it to employee wages up to the annual wage base and tracks excess wages separately.
+
+## Colorado FAMLI (2026)
+
+RootedOps can withhold the employee FAMLI premium, accrue any employer premium, add both amounts to the payroll tax reserve, and show them on the Salary Slip, payroll previews, journal-entry previews, and Quarterly Payroll Tax Report.
+
+For a Colorado employer with nine or fewer employees using the state plan, enable FAMLI on Company with an employee rate of `0.44`, employer rate of `0`, annual wage base of `184500`, and effective date `2026-01-01`. Leave **Employer Pays Employee FAMLI Share** unchecked unless the company intentionally absorbs the employee premium.
+
+The rates and wage base are Company settings because FAMLI rates and the federal Social Security wage base can change by calendar year. Previously submitted Salary Slips are not rewritten automatically; reconcile any pre-installation payroll separately before filing.
 
 The report is installed or updated by:
 

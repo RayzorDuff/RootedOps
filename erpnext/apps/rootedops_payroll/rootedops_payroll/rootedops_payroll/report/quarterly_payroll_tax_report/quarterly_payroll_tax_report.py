@@ -9,6 +9,7 @@ from frappe.utils import cint, flt
 
 from rootedops_payroll.services.payroll_engine import (
     MEDICARE_RATE,
+    calculate_colorado_famli_premium,
     colorado_ui_amount,
     colorado_ui_company_profile,
     ss_employer_amount,
@@ -30,6 +31,7 @@ COMPONENT_COLUMNS = {
     "Colorado Withholding": "colorado_withholding",
     "Social Security": "social_security_employee",
     "Medicare": "medicare_employee",
+    "Colorado FAMLI": "colorado_famli_employee",
 }
 
 
@@ -143,6 +145,9 @@ def _get_rows(company, start_date, end_date, docstatus_filter):
             ui_profile["rate_percent"] if ui_profile["enabled"] else 0.0,
             ui_profile["wage_base"],
         )
+        colorado_famli = calculate_colorado_famli_premium(
+            company, slip.gross_pay, fica_ytd_before, slip.posting_date
+        )
         data.append(
             {
                 "salary_slip": slip.name,
@@ -157,16 +162,21 @@ def _get_rows(company, start_date, end_date, docstatus_filter):
                 "colorado_withholding": flt(component_values.get("colorado_withholding")),
                 "social_security_employee": flt(component_values.get("social_security_employee")),
                 "medicare_employee": flt(component_values.get("medicare_employee")),
+                "colorado_famli_employee": flt(component_values.get("colorado_famli_employee")),
                 "social_security_employer": employer_social_security,
                 "medicare_employer": employer_medicare,
                 "colorado_ui_gross_wages": ui_detail["gross_wages"],
                 "colorado_ui_excess_wages": ui_detail["excess_wages"],
                 "colorado_ui_taxable_wages": ui_detail["taxable_wages"],
                 "colorado_ui_employer": ui_detail["amount"],
+                "colorado_famli_employer": colorado_famli["employer_expense"],
+                "colorado_famli_total_remittance": colorado_famli["total_remittance"],
+                "colorado_famli_taxable_wages": colorado_famli["taxable_wages"],
                 "employer_tax_total": flt(
                     employer_social_security
                     + employer_medicare
-                    + ui_detail["amount"],
+                    + ui_detail["amount"]
+                    + colorado_famli["employer_expense"],
                     2,
                 ),
                 "total_deduction": flt(slip.total_deduction),
@@ -183,12 +193,16 @@ def _build_total_row(rows):
         "colorado_withholding",
         "social_security_employee",
         "medicare_employee",
+        "colorado_famli_employee",
         "social_security_employer",
         "medicare_employer",
         "colorado_ui_gross_wages",
         "colorado_ui_excess_wages",
         "colorado_ui_taxable_wages",
         "colorado_ui_employer",
+        "colorado_famli_employer",
+        "colorado_famli_total_remittance",
+        "colorado_famli_taxable_wages",
         "employer_tax_total",
         "total_deduction",
         "net_pay",
@@ -227,6 +241,12 @@ def _get_report_summary(rows, start_date, end_date):
             "value": totals.get("employer_tax_total", 0),
             "indicator": "Purple",
             "label": _("Employer Taxes"),
+            "datatype": "Currency",
+        },
+        {
+            "value": totals.get("colorado_famli_total_remittance", 0),
+            "indicator": "Orange",
+            "label": _("Colorado FAMLI Remittance"),
             "datatype": "Currency",
         },
         {
@@ -329,6 +349,12 @@ def _get_columns():
             "width": 105,
         },
         {
+            "fieldname": "colorado_famli_employee",
+            "label": _("Employee Colorado FAMLI"),
+            "fieldtype": "Currency",
+            "width": 160,
+        },
+        {
             "fieldname": "social_security_employer",
             "label": _("Employer Social Security"),
             "fieldtype": "Currency",
@@ -364,6 +390,9 @@ def _get_columns():
             "fieldtype": "Currency",
             "width": 115,
         },
+        {"fieldname": "colorado_famli_taxable_wages", "label": _("FAMLI Taxable Wages"), "fieldtype": "Currency", "width": 155},
+        {"fieldname": "colorado_famli_employer", "label": _("Employer Colorado FAMLI"), "fieldtype": "Currency", "width": 165},
+        {"fieldname": "colorado_famli_total_remittance", "label": _("FAMLI Remittance"), "fieldtype": "Currency", "width": 145},
         {
             "fieldname": "employer_tax_total",
             "label": _("Employer Tax Total"),
