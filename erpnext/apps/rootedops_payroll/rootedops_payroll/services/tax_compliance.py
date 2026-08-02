@@ -103,7 +103,12 @@ def get_tax_reconciliation(company, year, quarter):
     for line in payment_lines:
         lines_by_payment[line.parent].append(line)
 
-    by_type = defaultdict(lambda: {"draft": 0.0, "paid": 0.0, "entries": []})
+    by_type = defaultdict(lambda: {
+        "draft": 0.0,
+        "paid": 0.0,
+        "draft_entries": [],
+        "submitted_entries": [],
+    })
     for payment in payments:
         bucket = by_type[payment.rootedops_tax_type]
         key = "paid" if payment.docstatus == 1 else "draft"
@@ -118,7 +123,8 @@ def get_tax_reconciliation(company, year, quarter):
             if line.account in expected_accounts
         )
         bucket[key] += flt(cleared, 2)
-        bucket["entries"].append(payment.name)
+        entries_key = "submitted_entries" if payment.docstatus == 1 else "draft_entries"
+        bucket[entries_key].append(payment.name)
 
     rows = []
     for tax_type in TAX_TYPES:
@@ -127,13 +133,17 @@ def get_tax_reconciliation(company, year, quarter):
         payment = by_type[tax_type]
         paid = flt(payment["paid"], 2)
         draft = flt(payment["draft"], 2)
+        outstanding = flt(accrued - paid, 2)
+        projected_outstanding = flt(outstanding - draft, 2)
         rows.append({
             "tax_type": tax_type,
             "accrued": accrued,
             "draft_payments": draft,
             "paid": paid,
-            "outstanding": flt(accrued - paid, 2),
-            "payment_entries": ", ".join(payment["entries"]),
+            "outstanding": outstanding,
+            "projected_outstanding": projected_outstanding,
+            "draft_entries": ", ".join(payment["draft_entries"]),
+            "submitted_entries": ", ".join(payment["submitted_entries"]),
             "payable_accounts": ", ".join(account for account, _amount in parts),
             "missing_accounts": missing,
         })

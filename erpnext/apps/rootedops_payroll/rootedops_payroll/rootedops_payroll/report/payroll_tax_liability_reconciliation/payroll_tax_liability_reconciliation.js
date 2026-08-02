@@ -1,4 +1,19 @@
 frappe.query_reports["Payroll Tax Liability Reconciliation"] = {
+  formatter(value, row, column, data, default_formatter) {
+    if (["draft_entries", "submitted_entries"].includes(column.fieldname) && value) {
+      return value.split(", ").map((name) => {
+        const escaped = frappe.utils.escape_html(name);
+        return `<a href="/app/journal-entry/${encodeURIComponent(name)}">${escaped}</a>`;
+      }).join(", ");
+    }
+
+    const formatted = default_formatter(value, row, column, data);
+    if (column.fieldname === "projected_outstanding" && Number(value) < 0) {
+      return `<span class="text-danger">${formatted}</span>`;
+    }
+    return formatted;
+  },
+
   filters: [
     {
       fieldname: "company",

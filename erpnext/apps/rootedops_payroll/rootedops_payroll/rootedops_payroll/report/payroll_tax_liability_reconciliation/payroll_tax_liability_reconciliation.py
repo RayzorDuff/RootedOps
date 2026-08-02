@@ -19,14 +19,18 @@ def get_columns():
         {"fieldname": "draft_payments", "label": _("Draft Payments"), "fieldtype": "Currency", "width": 130},
         {"fieldname": "paid", "label": _("Submitted Payments"), "fieldtype": "Currency", "width": 145},
         {"fieldname": "outstanding", "label": _("Outstanding"), "fieldtype": "Currency", "width": 125},
+        {"fieldname": "projected_outstanding", "label": _("After Drafts"), "fieldtype": "Currency", "width": 125},
         {"fieldname": "payable_accounts", "label": _("Payable Accounts"), "fieldtype": "Data", "width": 230},
-        {"fieldname": "payment_entries", "label": _("Payment Entries"), "fieldtype": "Data", "width": 220},
+        {"fieldname": "draft_entries", "label": _("Draft Entries"), "fieldtype": "Data", "width": 190},
+        {"fieldname": "submitted_entries", "label": _("Submitted Entries"), "fieldtype": "Data", "width": 190},
     ]
 
 
 def get_summary(rows):
     return [
         {"value": sum(row["accrued"] for row in rows), "label": _("Total Accrued"), "datatype": "Currency", "indicator": "Blue"},
+        {"value": sum(row["draft_payments"] for row in rows), "label": _("Draft Payments"), "datatype": "Currency", "indicator": "Yellow"},
         {"value": sum(row["paid"] for row in rows), "label": _("Submitted Payments"), "datatype": "Currency", "indicator": "Green"},
         {"value": sum(row["outstanding"] for row in rows), "label": _("Outstanding"), "datatype": "Currency", "indicator": "Orange"},
+        {"value": sum(row["projected_outstanding"] for row in rows), "label": _("After Drafts"), "datatype": "Currency", "indicator": "Blue"},
     ]
