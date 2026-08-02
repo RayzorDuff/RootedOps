@@ -151,6 +151,71 @@ def get_tax_reconciliation(company, year, quarter):
 
 
 @frappe.whitelist()
+def link_existing_tax_payment(company, year, quarter, tax_type, journal_entry):
+    frappe.has_permission("Journal Entry", "write", throw=True)
+    year = cint(year)
+    if quarter not in ("Q1", "Q2", "Q3", "Q4"):
+        frappe.throw(_("Select a valid quarter."))
+    if tax_type not in TAX_TYPES:
+        frappe.throw(_("Select a valid payroll tax type."))
+
+    je = frappe.get_doc("Journal Entry", journal_entry)
+    if je.company != company:
+        frappe.throw(_("Journal Entry {0} belongs to {1}, not {2}.").format(je.name, je.company, company))
+    if je.docstatus == 2:
+        frappe.throw(_("Cancelled Journal Entries cannot be linked as tax payments."))
+
+    key = _payment_key(company, year, quarter, tax_type)
+    if je.rootedops_tax_payment_key and je.rootedops_tax_payment_key != key:
+        frappe.throw(
+            _("Journal Entry {0} is already linked to a different payroll tax obligation.").format(je.name)
+        )
+    existing = frappe.db.get_value(
+        "Journal Entry",
+        {
+            "rootedops_tax_payment_key": key,
+            "docstatus": ["!=", 2],
+            "name": ["!=", je.name],
+        },
+        "name",
+    )
+    if existing:
+        frappe.throw(_("A non-cancelled payment Journal Entry already exists for this obligation: {0}").format(existing))
+
+    totals = get_quarter_tax_totals(company, year, quarter)
+    account_map = get_payroll_account_map(company)
+    parts, missing = _combine_parts(_liability_parts(totals, account_map)[tax_type])
+    if missing or not parts:
+        frappe.throw(_("The liability account mapping for {0} is incomplete or the calculated liability is zero.").format(tax_type))
+
+    expected_accounts = {account for account, _amount in parts}
+    cleared = flt(sum(
+        flt(row.debit_in_account_currency, 2)
+        for row in je.accounts
+        if row.account in expected_accounts
+    ), 2)
+    if cleared <= 0:
+        frappe.throw(
+            _("Journal Entry {0} does not debit the expected liability account(s): {1}").format(
+                je.name,
+                ", ".join(sorted(expected_accounts)),
+            )
+        )
+
+    je.db_set({
+        "rootedops_tax_type": tax_type,
+        "rootedops_tax_year": year,
+        "rootedops_tax_quarter": quarter,
+        "rootedops_tax_payment_key": key,
+    })
+    return {
+        "journal_entry": je.name,
+        "amount": cleared,
+        "status": "Submitted" if je.docstatus == 1 else "Draft",
+    }
+
+
+@frappe.whitelist()
 def create_tax_payment_draft(company, year, quarter, tax_type, posting_date, reference_no):
     frappe.has_permission("Journal Entry", "create", throw=True)
     year = cint(year)

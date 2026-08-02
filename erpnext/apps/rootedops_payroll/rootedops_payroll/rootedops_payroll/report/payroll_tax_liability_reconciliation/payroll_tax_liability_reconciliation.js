@@ -41,6 +41,52 @@ frappe.query_reports["Payroll Tax Liability Reconciliation"] = {
   ],
 
   onload(report) {
+    report.page.add_inner_button(__("Link Existing Payment"), () => {
+      const filters = report.get_values();
+      const dialog = new frappe.ui.Dialog({
+        title: __("Link Existing Tax Payment"),
+        fields: [
+          {
+            fieldname: "journal_entry",
+            label: __("Journal Entry"),
+            fieldtype: "Link",
+            options: "Journal Entry",
+            reqd: 1,
+            get_query: () => ({filters: {company: filters.company, docstatus: ["in", [0, 1]]}}),
+          },
+          {
+            fieldname: "tax_type",
+            label: __("Tax Type"),
+            fieldtype: "Select",
+            options: ["Federal Payroll Tax", "Colorado Withholding", "Colorado UI", "Colorado FAMLI"],
+            reqd: 1,
+          },
+        ],
+        primary_action_label: __("Link Payment"),
+        primary_action(values) {
+          frappe.call({
+            method: "rootedops_payroll.services.tax_compliance.link_existing_tax_payment",
+            args: {...filters, ...values},
+            freeze: true,
+            freeze_message: __("Linking payment Journal Entry..."),
+            callback(response) {
+              if (!response.message) return;
+              dialog.hide();
+              frappe.show_alert({
+                message: __("Linked {0} as a {1} tax payment", [
+                  response.message.journal_entry,
+                  response.message.status,
+                ]),
+                indicator: "green",
+              });
+              report.refresh();
+            },
+          });
+        },
+      });
+      dialog.show();
+    }, __("Actions"));
+
     report.page.add_inner_button(__("Create Tax Payment Draft"), () => {
       const filters = report.get_values();
       const dialog = new frappe.ui.Dialog({
@@ -72,6 +118,6 @@ frappe.query_reports["Payroll Tax Liability Reconciliation"] = {
         },
       });
       dialog.show();
-    });
+    }, __("Actions"));
   },
 };
