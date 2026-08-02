@@ -6,6 +6,10 @@ frappe.query_reports["Payroll Tax Liability Reconciliation"] = {
         return `<a href="/app/journal-entry/${encodeURIComponent(name)}">${escaped}</a>`;
       }).join(", ");
     }
+    if (column.fieldname === "confirmation_attachment" && value) {
+      const escaped = frappe.utils.escape_html(value);
+      return `<a href="${escaped}" target="_blank" rel="noopener">${__("Open")}</a>`;
+    }
 
     const formatted = default_formatter(value, row, column, data);
     if (column.fieldname === "projected_outstanding" && Number(value) < 0) {
@@ -41,6 +45,55 @@ frappe.query_reports["Payroll Tax Liability Reconciliation"] = {
   ],
 
   onload(report) {
+    report.page.add_inner_button(__("Record Filing Confirmation"), () => {
+      const filters = report.get_values();
+      const dialog = new frappe.ui.Dialog({
+        title: __("Record Tax Filing Confirmation"),
+        fields: [
+          {
+            fieldname: "tax_type", label: __("Tax Type"), fieldtype: "Select",
+            options: ["Federal Payroll Tax", "Colorado Withholding", "Colorado UI", "Colorado FAMLI"], reqd: 1,
+          },
+          {
+            fieldname: "journal_entry", label: __("Linked Journal Entry"), fieldtype: "Link",
+            options: "Journal Entry", reqd: 1,
+            get_query: () => ({filters: {
+              company: filters.company,
+              rootedops_tax_year: filters.year,
+              rootedops_tax_quarter: filters.quarter,
+              docstatus: ["in", [0, 1]],
+            }}),
+          },
+          {
+            fieldname: "filing_status", label: __("Filing Status"), fieldtype: "Select",
+            options: ["Not Filed", "Filed", "Accepted"], default: "Accepted", reqd: 1,
+          },
+          {fieldname: "filing_date", label: __("Filing Date"), fieldtype: "Date", default: frappe.datetime.get_today()},
+          {fieldname: "confirmation_number", label: __("Confirmation Number"), fieldtype: "Data"},
+          {fieldname: "confirmation_attachment", label: __("Confirmation Attachment"), fieldtype: "Attach"},
+        ],
+        primary_action_label: __("Save Confirmation"),
+        primary_action(values) {
+          frappe.call({
+            method: "rootedops_payroll.services.tax_compliance.record_tax_filing_confirmation",
+            args: {...filters, ...values},
+            freeze: true,
+            freeze_message: __("Saving filing confirmation..."),
+            callback(response) {
+              if (!response.message) return;
+              dialog.hide();
+              frappe.show_alert({
+                message: __("Recorded {0} status for {1}", [response.message.filing_status, response.message.journal_entry]),
+                indicator: "green",
+              });
+              report.refresh();
+            },
+          });
+        },
+      });
+      dialog.show();
+    }, __("Actions"));
+
     report.page.add_inner_button(__("Link Existing Payment"), () => {
       const filters = report.get_values();
       const dialog = new frappe.ui.Dialog({

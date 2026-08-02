@@ -31,6 +31,10 @@ JOURNAL_ENTRY_TAX_PAYMENT_CUSTOM_FIELDS = {
         {"fieldname": "rootedops_tax_year", "label": "Tax Year", "fieldtype": "Int", "insert_after": "rootedops_tax_type", "read_only": 1},
         {"fieldname": "rootedops_tax_quarter", "label": "Tax Quarter", "fieldtype": "Select", "options": "\nQ1\nQ2\nQ3\nQ4", "insert_after": "rootedops_tax_year", "read_only": 1},
         {"fieldname": "rootedops_tax_payment_key", "label": "Tax Payment Key", "fieldtype": "Data", "insert_after": "rootedops_tax_quarter", "read_only": 1, "unique": 1, "no_copy": 1},
+        {"fieldname": "rootedops_filing_status", "label": "Filing Status", "fieldtype": "Select", "options": "\nNot Filed\nFiled\nAccepted", "insert_after": "rootedops_tax_payment_key", "read_only": 1, "no_copy": 1},
+        {"fieldname": "rootedops_filing_date", "label": "Filing Date", "fieldtype": "Date", "insert_after": "rootedops_filing_status", "read_only": 1, "no_copy": 1},
+        {"fieldname": "rootedops_confirmation_number", "label": "Confirmation Number", "fieldtype": "Data", "insert_after": "rootedops_filing_date", "read_only": 1, "no_copy": 1},
+        {"fieldname": "rootedops_confirmation_attachment", "label": "Confirmation Attachment", "fieldtype": "Attach", "insert_after": "rootedops_confirmation_number", "read_only": 1, "no_copy": 1},
     ]
 }
 
@@ -90,7 +94,11 @@ def get_tax_reconciliation(company, year, quarter):
             "rootedops_tax_type": ["in", list(TAX_TYPES)],
             "docstatus": ["in", [0, 1]],
         },
-        fields=["name", "rootedops_tax_type", "docstatus", "posting_date"],
+        fields=[
+            "name", "rootedops_tax_type", "docstatus", "posting_date",
+            "rootedops_filing_status", "rootedops_filing_date",
+            "rootedops_confirmation_number", "rootedops_confirmation_attachment",
+        ],
         order_by="posting_date asc, creation asc",
     )
     payment_names = [payment.name for payment in payments]
@@ -108,6 +116,10 @@ def get_tax_reconciliation(company, year, quarter):
         "paid": 0.0,
         "draft_entries": [],
         "submitted_entries": [],
+        "filing_status": "Not Filed",
+        "filing_date": None,
+        "confirmation_number": None,
+        "confirmation_attachment": None,
     })
     for payment in payments:
         bucket = by_type[payment.rootedops_tax_type]
@@ -125,6 +137,11 @@ def get_tax_reconciliation(company, year, quarter):
         bucket[key] += flt(cleared, 2)
         entries_key = "submitted_entries" if payment.docstatus == 1 else "draft_entries"
         bucket[entries_key].append(payment.name)
+        if payment.rootedops_filing_status:
+            bucket["filing_status"] = payment.rootedops_filing_status
+            bucket["filing_date"] = payment.rootedops_filing_date
+            bucket["confirmation_number"] = payment.rootedops_confirmation_number
+            bucket["confirmation_attachment"] = payment.rootedops_confirmation_attachment
 
     rows = []
     for tax_type in TAX_TYPES:
@@ -144,10 +161,50 @@ def get_tax_reconciliation(company, year, quarter):
             "projected_outstanding": projected_outstanding,
             "draft_entries": ", ".join(payment["draft_entries"]),
             "submitted_entries": ", ".join(payment["submitted_entries"]),
+            "filing_status": payment["filing_status"],
+            "filing_date": payment["filing_date"],
+            "confirmation_number": payment["confirmation_number"],
+            "confirmation_attachment": payment["confirmation_attachment"],
             "payable_accounts": ", ".join(account for account, _amount in parts),
             "missing_accounts": missing,
         })
     return rows
+
+
+@frappe.whitelist()
+def record_tax_filing_confirmation(
+    company, year, quarter, tax_type, journal_entry, filing_status,
+    filing_date=None, confirmation_number=None, confirmation_attachment=None,
+):
+    frappe.has_permission("Journal Entry", "write", throw=True)
+    year = cint(year)
+    if quarter not in ("Q1", "Q2", "Q3", "Q4"):
+        frappe.throw(_("Select a valid quarter."))
+    if tax_type not in TAX_TYPES:
+        frappe.throw(_("Select a valid payroll tax type."))
+    if filing_status not in ("Not Filed", "Filed", "Accepted"):
+        frappe.throw(_("Select a valid filing status."))
+    if filing_status != "Not Filed" and not filing_date:
+        frappe.throw(_("Filing date is required once a return has been filed."))
+    if filing_status == "Accepted" and not confirmation_number:
+        frappe.throw(_("Confirmation number is required for an accepted filing."))
+    if confirmation_attachment and not confirmation_attachment.startswith(("/files/", "/private/files/")):
+        frappe.throw(_("Confirmation attachment must be an uploaded ERPNext file."))
+
+    je = frappe.get_doc("Journal Entry", journal_entry)
+    expected_key = _payment_key(company, year, quarter, tax_type)
+    if je.company != company or je.rootedops_tax_payment_key != expected_key:
+        frappe.throw(_("Journal Entry {0} is not linked to the selected payroll tax obligation.").format(je.name))
+    if je.docstatus == 2:
+        frappe.throw(_("Cancelled Journal Entries cannot hold an active filing confirmation."))
+
+    je.db_set({
+        "rootedops_filing_status": filing_status,
+        "rootedops_filing_date": getdate(filing_date) if filing_date else None,
+        "rootedops_confirmation_number": confirmation_number or None,
+        "rootedops_confirmation_attachment": confirmation_attachment or None,
+    })
+    return {"journal_entry": je.name, "filing_status": filing_status}
 
 
 @frappe.whitelist()

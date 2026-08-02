@@ -23,6 +23,10 @@ def get_columns():
         {"fieldname": "payable_accounts", "label": _("Payable Accounts"), "fieldtype": "Data", "width": 230},
         {"fieldname": "draft_entries", "label": _("Draft Entries"), "fieldtype": "Data", "width": 190},
         {"fieldname": "submitted_entries", "label": _("Submitted Entries"), "fieldtype": "Data", "width": 190},
+        {"fieldname": "filing_status", "label": _("Filing Status"), "fieldtype": "Data", "width": 110},
+        {"fieldname": "filing_date", "label": _("Filing Date"), "fieldtype": "Date", "width": 105},
+        {"fieldname": "confirmation_number", "label": _("Confirmation No."), "fieldtype": "Data", "width": 145},
+        {"fieldname": "confirmation_attachment", "label": _("Evidence"), "fieldtype": "Data", "width": 90},
     ]
 
 
