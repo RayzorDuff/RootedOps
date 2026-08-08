@@ -205,3 +205,5 @@ This division keeps the operational stack stable while allowing MushroomProcess 
 This repository is licensed under **GNU GPL v3.0**. See `LICENSE`.
 
 Rationale: MushroomProcess and SignatureGate are GPL; choosing GPLv3 here keeps license compatibility for shared code or common operational modules between projects.
+
+QR Product routing also passes `MP_APP_PRODUCTS_URL` and `MP_REGULATED_BUSINESS_URL` into n8n; see `LINODE_SETUP.md`.

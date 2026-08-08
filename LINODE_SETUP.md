@@ -663,3 +663,14 @@ Then validate in the UI:
 RootedOps provides the Linode infrastructure. SignatureGate is an Appsmith application layer with a PostgreSQL schema that can run on top of that infrastructure, and MushroomProcess may do the same with its own databases and services.
 
 This repository is that separate infrastructure project required by SignatureGate and MushroomProcess. SignatureGate and MushroomProcess should reference RootedOps for deployment architecture rather than carrying host-level infrastructure in their own repositories.
+
+### QR Product routing environment
+
+Set these additional values in RootedOps `.env` before recreating n8n:
+
+```dotenv
+MP_APP_PRODUCTS_URL=https://appsmith.danks.store/app/mushroomprocess/products
+MP_REGULATED_BUSINESS_URL=https://rootedpsyche.org
+```
+
+`MP_APP_PRODUCTS_URL` should use the Appsmith static Products URL. Fresh/freezer tray scans deep-link there. `MP_REGULATED_BUSINESS_URL` is the base public website used for regulated freeze-dried mushroom/capsule Products that cannot resolve to ecommerce.
