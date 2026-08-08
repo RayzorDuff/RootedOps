@@ -17,6 +17,7 @@ RootedOps currently manages:
 - Listmonk for self-hosted newsletters and mailing-list management
 - ERPNext + HRMS for accounting, payroll, purchasing, sales, and HR operations
 - Grav for lightweight public/static site hosting
+- Stable MushroomProcess QR routing at `qr.danks.store` via NGINX → n8n
 - NGINX reverse-proxy templates for HTTP services
 - Backup and restore scripts, including Google Drive/rclone retention pruning
 - Optional Minecraft Bedrock server hosting as a sidecar/family service
@@ -152,6 +153,7 @@ Local service ports:
 docker/              Compose stack and custom Dockerfiles
 listmonk/uploads/    Bind-mounted Listmonk media upload directory
 nginx/               HTTP reverse-proxy site configs
+                      Includes `qr.conf` for the stable MushroomProcess QR resolver
 backup/              Backup, restore, and rclone service helpers
 erpnext/             ERPNext/HRMS templates, scripts, and handoff notes
 n8n/                 Workflow exports that are part of this ops baseline

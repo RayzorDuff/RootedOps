@@ -82,12 +82,13 @@ This repo includes example NGINX site configs under:
 - `nginx/listmonk.conf`
 - `nginx/grav.conf`
 - `nginx/erpnext.conf`
+- `nginx/qr.conf` — stable MushroomProcess Product/Lot QR resolver at `qr.danks.store`
 
 Install the HTTP site configs like this:
 
 ```bash
 sudo apt-get install -y nginx certbot python3-certbot-nginx
-sudo cp nginx/n8n.conf nginx/nocodb.conf nginx/appsmith.conf nginx/documenso.conf nginx/listmonk.conf nginx/grav.conf nginx/erpnext.conf /etc/nginx/sites-available/
+sudo cp nginx/n8n.conf nginx/nocodb.conf nginx/appsmith.conf nginx/documenso.conf nginx/listmonk.conf nginx/grav.conf nginx/erpnext.conf nginx/qr.conf /etc/nginx/sites-available/
 sudo ln -sf /etc/nginx/sites-available/n8n.conf /etc/nginx/sites-enabled/n8n.conf
 sudo ln -sf /etc/nginx/sites-available/nocodb.conf /etc/nginx/sites-enabled/nocodb.conf
 sudo ln -sf /etc/nginx/sites-available/appsmith.conf /etc/nginx/sites-enabled/appsmith.conf
@@ -95,6 +96,7 @@ sudo ln -sf /etc/nginx/sites-available/documenso.conf /etc/nginx/sites-enabled/d
 sudo ln -sf /etc/nginx/sites-available/listmonk.conf /etc/nginx/sites-enabled/listmonk.conf
 sudo ln -sf /etc/nginx/sites-available/grav.conf /etc/nginx/sites-enabled/grav.conf
 sudo ln -sf /etc/nginx/sites-available/erpnext.conf /etc/nginx/sites-enabled/erpnext.conf
+sudo ln -sf /etc/nginx/sites-available/qr.conf /etc/nginx/sites-enabled/qr.conf
 sudo nginx -t
 sudo systemctl reload nginx
 ```
@@ -116,6 +118,30 @@ sudo certbot --nginx \
 ```
 
 Update `.env` values so each service knows its public URL
+
+### MushroomProcess QR resolver
+
+After `qr.danks.store` DNS points to this host, install/enable `nginx/qr.conf` as shown above and request its certificate separately:
+
+```bash
+sudo certbot --nginx -d qr.danks.store
+```
+
+Set `MP_APP_LOTS_URL` in `.env` to the exact published Appsmith **Lots** page URL, then recreate n8n so the environment variable is available to the QR workflow:
+
+```bash
+sudo docker compose --env-file ./.env -f docker/docker-compose.yml up -d n8n
+```
+
+Import and publish `MushroomProcess - QR Resolver - PGSQL` from the MushroomProcess repository. The public contract is:
+
+```text
+https://qr.danks.store/r?i=PROD-...
+https://qr.danks.store/r?i=LOT-...
+```
+
+NGINX proxies only `/r` to the internal n8n production webhook. Do not print the n8n webhook URL on labels.
+
 
 
 
