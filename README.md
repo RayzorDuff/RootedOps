@@ -1,5 +1,9 @@
 # RootedOps
 
+Current version: **1.1.0**.
+
+See [`doc/RELEASE_PROCESS.md`](doc/RELEASE_PROCESS.md) for the repeatable release workflow.
+
 RootedOps is the shared operations and deployment repository for the Rooted Psyche / Dank Mushrooms business software stack. It provides the host-level services, reverse proxy configs, persistence, backup tooling, and deployment notes used by business applications such as **MushroomProcess** and **SignatureGate**.
 
 This repository is business infrastructure first. Application code and application-specific schema migrations belong in their own repositories; RootedOps supplies the common runtime they depend on.

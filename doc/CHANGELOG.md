@@ -4,6 +4,36 @@ All notable changes to this project will be documented in this file.
 
 ---
 
+## [1.1.0] - 2026-08-13
+
+### Added
+
+- ERPNext quarterly payroll-tax reporting and liability reconciliation.
+- Colorado FAMLI, wage-withholding, and unemployment-insurance breakdowns, including employer UI accrual.
+- Payroll treasury projections, links to existing tax-payment journal entries, and tax-filing confirmation tracking.
+- Listmonk service configuration for newsletters and member communications.
+- Stable MushroomProcess QR resolver exposure and Product destination configuration.
+- Minecraft-aware backup/restore support and corrected Google Drive retention pruning.
+- Canonical release metadata, versioned release notes, and repeatable preparation/validation commands.
+
+### Changed
+
+- Improved Appsmith reverse-proxy performance configuration.
+- Kept Minecraft operational detail in `README_MINECRAFT.md` so the primary README remains focused on business infrastructure.
+- Established this release as the pre-integration baseline before ERPNext becomes authoritative for vendor purchases and purchased inventory.
+
+### Fixed
+
+- Completed zero-dollar payroll without creating unnecessary journal entries.
+- Corrected payroll UI placement for Colorado tax fields.
+
+### Notes
+
+- ERPNext purchasing/inventory authority and the new SignatureGate/MushroomProcess integration endpoints remain future work.
+- Coordinated with MushroomProcess `v1.2.0`, SignatureGate `v1.1.0`, and BookWorks `bookworks-v3.3.0`.
+
+---
+
 ## [1.0.0] - 2026-04-22
 
 ### 🎉 Initial Release
