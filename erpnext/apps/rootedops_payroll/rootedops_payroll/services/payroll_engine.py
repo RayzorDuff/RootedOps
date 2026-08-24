@@ -571,6 +571,88 @@ def checkin_diagnostics(employee, start_date, end_date):
     }
 
 
+def standard_hourly_checkin_summary(employee, start_date, end_date):
+    """Resolve standard-hourly payroll time from explicit IN/OUT pairs.
+
+    ERPNext Attendance can be configured to calculate working hours from the
+    first IN to the last OUT. That overstates split-shift days because unpaid
+    gaps between separate work sessions are included. RootedOps standard-hourly
+    payroll therefore sums each explicit IN -> OUT pair when checkins exist.
+
+    Attendance remains useful for status/visibility, but checkins are the
+    authoritative source for paid hours when an employee clocks in and out.
+    """
+    checkins = checkin_diagnostics(employee, start_date, end_date)
+    rows = [
+        row for row in checkins["rows"]
+        if not cint(row.get("skip_auto_attendance") or 0)
+    ]
+
+    sessions = []
+    issues = []
+    open_in = None
+
+    for row in rows:
+        log_type = (row.get("log_type") or "").upper()
+        when = frappe.utils.get_datetime(row.get("time"))
+
+        if log_type == "IN":
+            if open_in is not None:
+                issues.append(
+                    f"Unmatched IN checkin {open_in.get('name')} before {row.get('name')}."
+                )
+            open_in = row
+            continue
+
+        if log_type == "OUT":
+            if open_in is None:
+                issues.append(f"OUT checkin {row.get('name')} has no preceding IN.")
+                continue
+
+            start_dt = frappe.utils.get_datetime(open_in.get("time"))
+            if when <= start_dt:
+                issues.append(
+                    f"OUT checkin {row.get('name')} is not after IN {open_in.get('name')}."
+                )
+                open_in = None
+                continue
+
+            hours = (when - start_dt).total_seconds() / 3600.0
+            sessions.append({
+                "in_name": open_in.get("name"),
+                "out_name": row.get("name"),
+                "start": start_dt,
+                "end": when,
+                "hours": flt(hours, 2),
+                "shift": open_in.get("shift") or row.get("shift"),
+            })
+            open_in = None
+            continue
+
+        issues.append(
+            f"Checkin {row.get('name')} has unsupported log type {row.get('log_type')!r}."
+        )
+
+    if open_in is not None:
+        issues.append(f"IN checkin {open_in.get('name')} has no following OUT.")
+
+    paid_dates = {str(getdate(session["start"])) for session in sessions}
+    total_hours = flt(sum(flt(session["hours"]) for session in sessions), 2)
+    total_working_days = date_diff(getdate(end_date), getdate(start_date)) + 1
+    payment_days = len(paid_dates)
+
+    return {
+        "rows": sessions,
+        "checkin_count": checkins["count"],
+        "paired_session_count": len(sessions),
+        "hours": total_hours,
+        "payment_days": flt(payment_days, 2),
+        "total_working_days": flt(total_working_days, 2),
+        "absent_days": flt(max(0, total_working_days - payment_days), 2),
+        "issues": issues,
+    }
+
+
 def get_checkin_sessions_assigned_by_start_date(employee, start_date, end_date):
     """Build paired IN/OUT sessions from a widened window.
 
@@ -3323,11 +3405,26 @@ def payroll_prerequisite_issues(
             )
         taxable_base = hybrid["gross"]
     else:
-        if checkins["count"] and summary["hours"] <= 0:
-            issues.append(
-                f"Employee {employee} has {checkins['count']} checkins in the pay period but attendance resolved to 0.0 hours."
-            )
-        taxable_base = summary["hours"] * flt(hourly_rate or 0.0)
+        standard_checkins = standard_hourly_checkin_summary(employee, start_date, end_date)
+        if checkins["count"]:
+            if standard_checkins["issues"]:
+                issues.extend(
+                    f"Employee {employee} checkin pairing error: {issue}"
+                    for issue in standard_checkins["issues"]
+                )
+            if standard_checkins["hours"] <= 0:
+                issues.append(
+                    f"Employee {employee} has {checkins['count']} checkins in the pay period but paired checkins resolved to 0.0 hours."
+                )
+            if abs(flt(summary["hours"]) - flt(standard_checkins["hours"])) >= 0.02:
+                issues.append(
+                    f"Employee {employee} attendance reports {flt(summary['hours'], 2)} hours "
+                    f"but paired checkins resolve to {flt(standard_checkins['hours'], 2)} hours; "
+                    "RootedOps will use paired checkin hours for standard-hourly payroll."
+                )
+            taxable_base = standard_checkins["hours"] * flt(hourly_rate or 0.0)
+        else:
+            taxable_base = summary["hours"] * flt(hourly_rate or 0.0)
         hybrid = None
 
     if taxable_base > 0 and not effective_federal.get("filing_status"):
@@ -3418,7 +3515,9 @@ def rebuild_hourly_salary_slip(
     for issue in prerequisite_diagnostics["issues"]:
         if "skip_auto_attendance=1" in issue:
             blocking_issues.append(issue)
-        elif effective_pay_model != PAY_MODEL_HYBRID_OVERNIGHT and "attendance resolved to 0.0 hours" in issue:
+        elif effective_pay_model != PAY_MODEL_HYBRID_OVERNIGHT and "paired checkins resolved to 0.0 hours" in issue:
+            blocking_issues.append(issue)
+        elif effective_pay_model != PAY_MODEL_HYBRID_OVERNIGHT and "checkin pairing error:" in issue:
             blocking_issues.append(issue)
 
     if blocking_issues:
@@ -3455,6 +3554,13 @@ def rebuild_hourly_salary_slip(
         overnight_flat_pay = hybrid_summary["overnight_flat_pay"]
         gross = hybrid_summary["gross"]
     else:
+        standard_checkins = standard_hourly_checkin_summary(employee, start_date, end_date)
+        if standard_checkins["checkin_count"]:
+            summary["hours"] = standard_checkins["hours"]
+            summary["hourly_hours"] = standard_checkins["hours"]
+            summary["payment_days"] = standard_checkins["payment_days"]
+            summary["total_working_days"] = standard_checkins["total_working_days"]
+            summary["absent_days"] = standard_checkins["absent_days"]
         hourly_gross = flt(summary["hours"] * flt(hourly_rate), 2)
         overnight_flat_pay = 0.0
         gross = hourly_gross
@@ -3585,6 +3691,11 @@ def rebuild_hourly_salary_slip(
             **diagnose_salary_slip_math(slip.name),
             "attendance_summary": prerequisite_diagnostics["attendance_summary"],
             "checkins": prerequisite_diagnostics["checkins"],
+            "standard_hourly_checkin_summary": (
+                standard_hourly_checkin_summary(employee, start_date, end_date)
+                if effective_pay_model != PAY_MODEL_HYBRID_OVERNIGHT
+                else None
+            ),
         },
     }
 
@@ -3614,6 +3725,7 @@ __all__ = [
     "process_auto_attendance_for_employees",
     "attendance_summary",
     "checkin_diagnostics",
+    "standard_hourly_checkin_summary",
     "get_checkin_sessions_assigned_by_start_date",
     "get_checkin_sessions",
     "is_full_overnight_session",

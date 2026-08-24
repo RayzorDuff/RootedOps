@@ -78,3 +78,17 @@ Pre-commit is configured to use the following tools for checking and formatting 
 ### License
 
 gpl-3.0
+
+
+### Split-shift checkins
+
+Standard-hourly payroll treats explicit Employee Checkin `IN` → `OUT` pairs as the
+authoritative source for paid hours whenever checkins exist in the payroll
+period. This avoids overstating a day when an employee clocks out and later
+clocks back in: the unpaid gap between sessions is not paid.
+
+ERPNext `Day Shift` should also use **Every Valid Check-in and Check-out** for its
+Attendance working-hours calculation so the Attendance UI agrees with payroll.
+RootedOps reports a diagnostic warning when Attendance hours and paired-checkin
+hours differ, and blocks payroll when the checkin sequence itself is malformed
+(for example, an unmatched `IN` or `OUT`).

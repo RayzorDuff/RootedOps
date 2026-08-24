@@ -37,7 +37,7 @@ def ensure_shift():
 
     doc.enable_auto_attendance = 1
     doc.determine_check_in_and_check_out = "Strictly based on Log Type in Employee Checkin"
-    doc.working_hours_calculation_based_on = "First Check-in and Last Check-out"
+    doc.working_hours_calculation_based_on = "Every Valid Check-in and Check-out"
     doc.begin_check_in_before_shift_start_time = 60
     doc.allow_check_out_after_shift_end_time = 60
     doc.process_attendance_after = "2026-03-14"
