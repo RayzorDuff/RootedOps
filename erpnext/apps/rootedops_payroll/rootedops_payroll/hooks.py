@@ -148,6 +148,15 @@ doctype_js = {
 # 	}
 # }
 
+doc_events = {
+    "Journal Entry": {
+        "on_cancel": (
+            "rootedops_payroll.services.tax_compliance."
+            "release_tax_payment_key_on_cancel"
+        ),
+    },
+}
+
 # Scheduled Tasks
 # ---------------
 

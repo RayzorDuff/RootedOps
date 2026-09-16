@@ -48,6 +48,25 @@ def _payment_key(company, year, quarter, tax_type):
     return f"{company}|{cint(year)}|{quarter}|{tax_type}"
 
 
+def release_tax_payment_key_on_cancel(doc, method=None):
+    """Release the active-only tax payment key when a Journal Entry is cancelled.
+
+    The canonical key is unique at the database level so that only one active
+    Journal Entry can represent a company/year/quarter/tax-type obligation.
+    Cancelled Journal Entries retain their RootedOps tax and filing metadata
+    for audit history, but must release the unique key so that an amended or
+    replacement Journal Entry can claim it.
+    """
+    key = getattr(doc, "rootedops_tax_payment_key", None)
+    if not key:
+        return
+
+    if getattr(doc, "docstatus", None) != 2:
+        return
+
+    doc.db_set("rootedops_tax_payment_key", None, update_modified=False)
+
+
 def _liability_parts(totals, account_map):
     return {
         "Federal Payroll Tax": [
