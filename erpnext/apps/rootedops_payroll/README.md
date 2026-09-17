@@ -51,7 +51,7 @@ Payment drafts use the withholding bank account when one is configured, otherwis
 
 ## Plaid historical bank-transaction staging
 
-RootedOps includes a non-destructive Plaid historical staging utility for the 2026 bank-history backfill. It creates a temporary Hosted Link Item with a 730-day Transactions request, verifies the existing production Item remains unchanged, waits for Plaid to report the historical pull complete, maps candidate accounts to the canonical ERPNext Bank Accounts, and produces a private deduplication dry run. It intentionally performs **zero Bank Transaction or accounting writes**. Operator commands and cleanup procedures are documented in `erpnext/README_SCRIPTS.md`.
+RootedOps includes a controlled Plaid historical utility for the 2026 bank-history backfill. Its staging/inspection phase creates a temporary Hosted Link Item with a 730-day Transactions request, verifies the existing production Item remains unchanged, waits for Plaid to report the historical pull complete, maps candidate accounts to the canonical ERPNext Bank Accounts, and produces a private deduplication dry run with **zero financial writes**. A separate deterministic prepare/commit gate can then create only reviewed historical native `Bank Transaction` records; it never creates accounting vouchers or performs reconciliation. Operator commands, rollback behavior, verification, receipts, and cleanup procedures are documented in `erpnext/README_SCRIPTS.md`.
 
 ### Installation
 

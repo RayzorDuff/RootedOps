@@ -2,8 +2,11 @@ from unittest import TestCase
 
 from rootedops_payroll.services.plaid_history_matching import (
     classify_transaction_overlap,
+    deterministic_plan_hash,
     match_candidate_accounts,
     plaid_bank_transaction_fields,
+    plaid_transaction_tags,
+    validate_backfill_classifications,
 )
 
 
@@ -187,3 +190,77 @@ class TestPlaidHistoryMatching(TestCase):
         )
 
         self.assertEqual(result[0]["status"], "new")
+
+
+class TestPlaidHistoryImportSafety(TestCase):
+    def test_native_plaid_tags_are_preserved(self):
+        self.assertEqual(
+            plaid_transaction_tags(
+                {
+                    "category": ["Service", "Utilities"],
+                    "category_id": "18068005",
+                }
+            ),
+            ["Service", "Utilities", "Plaid Cat. 18068005"],
+        )
+
+    def test_import_validation_requires_new_rows_before_coverage(self):
+        valid = validate_backfill_classifications(
+            [
+                {
+                    "bank_account": "Checking",
+                    "date": "2026-06-21",
+                    "deposit": "0.00",
+                    "withdrawal": "12.34",
+                    "transaction_id": "historical-1",
+                    "status": "new",
+                },
+                {
+                    "bank_account": "Checking",
+                    "date": "2026-06-22",
+                    "deposit": "0.00",
+                    "withdrawal": "10.00",
+                    "transaction_id": "replacement-id",
+                    "status": "strong_fallback_match",
+                },
+            ],
+            {"Checking": "2026-06-22"},
+        )
+        self.assertEqual(valid["new_count"], 1)
+
+        with self.assertRaisesRegex(ValueError, "not before existing coverage"):
+            validate_backfill_classifications(
+                [
+                    {
+                        "bank_account": "Checking",
+                        "date": "2026-06-22",
+                        "deposit": "0.00",
+                        "withdrawal": "12.34",
+                        "transaction_id": "unsafe-new",
+                        "status": "new",
+                    }
+                ],
+                {"Checking": "2026-06-22"},
+            )
+
+    def test_import_validation_rejects_weak_or_ambiguous_matches(self):
+        with self.assertRaisesRegex(ValueError, "Unsafe transaction classifications"):
+            validate_backfill_classifications(
+                [
+                    {
+                        "bank_account": "Checking",
+                        "date": "2026-06-22",
+                        "deposit": "0.00",
+                        "withdrawal": "12.34",
+                        "transaction_id": "candidate",
+                        "status": "ambiguous_amount_date_match",
+                    }
+                ],
+                {"Checking": "2026-06-22"},
+            )
+
+    def test_plan_hash_is_deterministic_for_key_order(self):
+        self.assertEqual(
+            deterministic_plan_hash({"b": 2, "a": {"y": 2, "x": 1}}),
+            deterministic_plan_hash({"a": {"x": 1, "y": 2}, "b": 2}),
+        )

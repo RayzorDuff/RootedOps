@@ -550,8 +550,63 @@ group multiplicity. Amount/date-only matches are deliberately marked ambiguous;
 they are never silently discarded because legitimate same-day same-amount
 transactions can exist.
 
-This stage still performs **zero Bank Transaction writes**. Historical ingestion
-must be implemented/reviewed separately after the dry-run population is accepted.
+`inspect_session` still performs **zero Bank Transaction writes**. After the dry-run
+population is accepted, use the separate prepare/commit gate below.
+
+## Prepare an exact historical import plan
+
+`prepare_import` re-fetches the candidate Item, reruns account mapping and overlap
+classification, and refuses to produce an import plan unless all of these are true:
+
+- Plaid still reports `HISTORICAL_UPDATE_COMPLETE`;
+- the production Item/token fingerprints remain unchanged;
+- every canonical account maps uniquely to the candidate Item;
+- Plaid automatic synchronization is disabled;
+- every candidate status is `new`, `exact_transaction_id_match`, or
+  `strong_fallback_match`;
+- every `new` row is strictly before the first existing Bank Transaction date for
+  that canonical account;
+- every existing match is on or after that coverage boundary;
+- every new provider transaction ID is present, unique within the plan, and absent
+  from ERPNext.
+
+Run:
+
+```bash
+bench --site erp.danks.store execute \
+  rootedops_payroll.services.plaid_history.prepare_import \
+  --kwargs '{"session_id":"SESSION_ID","start_date":"2026-01-01"}'
+```
+
+The command is read-only with respect to ERPNext financial records. It returns an
+exact `plan_hash`, `new_count`, status counts, and per-account date ranges. Review
+those values before committing.
+
+## Commit the reviewed historical import
+
+Only after the prepare output has been reviewed, call `commit_import` using the
+exact returned hash and expected count:
+
+```bash
+bench --site erp.danks.store execute \
+  rootedops_payroll.services.plaid_history.commit_import \
+  --kwargs '{"session_id":"SESSION_ID","plan_hash":"PLAN_HASH","expected_new_count":86,"confirm":true}'
+```
+
+Before the first insert, `commit_import` reruns the dry run using the exact reviewed
+date window. If the plan hash or count changed, it aborts with zero writes. It then
+creates only rows still classified `new`, using ERPNext v16 Plaid field polarity and
+category tags, inserts and submits native `Bank Transaction` documents, and creates
+no Journal Entry, Payment Entry, or reconciliation rows.
+
+After all inserts, the function verifies that every created Bank Transaction is
+submitted, `Unreconciled`, unallocated, and has no `Bank Transaction Payments`
+children; it also re-verifies the production Plaid Item/token/account IDs. Only then
+does it call `frappe.db.commit()`. Any exception before that verification calls
+`frappe.db.rollback()`.
+
+A non-secret private import receipt is retained after candidate cleanup so the
+created Bank Transaction names, plan hash, and per-account ranges remain auditable.
 
 ## Remove the temporary Item
 

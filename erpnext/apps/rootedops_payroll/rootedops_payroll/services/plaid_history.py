@@ -1,9 +1,9 @@
-"""Non-destructive Plaid historical-transaction staging for RootedOps.
+"""Controlled Plaid historical Bank Transaction backfill for RootedOps.
 
-This module intentionally does not create, submit, reconcile, or modify ERPNext
-Bank Transaction records. It creates a temporary Plaid Hosted Link Item, inspects
-its history, and produces a dry-run report against the existing native ERPNext
-Bank Transaction population.
+The default flow is read-only staging through a temporary Plaid Hosted Link Item.
+A separate prepare/commit gate can then create only reviewed historical native
+ERPNext Bank Transaction records. It never creates accounting vouchers or performs
+reconciliation, and it never replaces the production Plaid Item/token/account IDs.
 """
 
 from collections import Counter
@@ -17,12 +17,16 @@ from uuid import uuid4
 
 import frappe
 import requests
+from frappe.desk.doctype.tag.tag import add_tag
 from frappe.utils import getdate, today
 
 from rootedops_payroll.services.plaid_history_matching import (
     classify_transaction_overlap,
+    deterministic_plan_hash,
     match_candidate_accounts,
     plaid_bank_transaction_fields,
+    plaid_transaction_tags,
+    validate_backfill_classifications,
 )
 
 
@@ -108,6 +112,10 @@ def _session_path(session_id):
 
 def _report_path(session_id):
     return _session_dir() / f"{session_id}.dry_run.json"
+
+
+def _receipt_path(session_id):
+    return _session_dir() / f"{session_id}.import_receipt.json"
 
 
 def _atomic_private_json_write(path, payload):
@@ -373,6 +381,7 @@ def _candidate_record(bank_account, transaction):
         "pending": bool(transaction.get("pending")),
         "authorized_date": transaction.get("authorized_date"),
         "merchant_name": transaction.get("merchant_name"),
+        "tags": plaid_transaction_tags(transaction),
     }
 
 
@@ -615,6 +624,364 @@ def inspect_session(session_id, start_date=None, end_date=None):
     }
 
 
+
+def _load_dry_run_report(session_id):
+    path = _report_path(session_id)
+    if not path.exists():
+        raise PlaidHistoricalBackfillError(
+            "No dry-run report exists for this session; run inspect_session first"
+        )
+    with path.open("r", encoding="utf-8") as handle:
+        return json.load(handle)
+
+
+def _coverage_boundaries(profile):
+    boundaries = {}
+    for bank_account in profile["bank_accounts"]:
+        earliest = frappe.db.sql(
+            """
+            SELECT MIN(date)
+            FROM `tabBank Transaction`
+            WHERE bank_account = %s
+              AND docstatus != 2
+            """,
+            (bank_account,),
+        )[0][0]
+        if not earliest:
+            raise PlaidHistoricalBackfillError(
+                f"Canonical Bank Account {bank_account!r} has no existing Bank Transaction coverage"
+            )
+        boundaries[bank_account] = str(earliest)
+    return boundaries
+
+
+def _canonical_plan_transaction(row):
+    return {
+        "bank_account": row.get("bank_account"),
+        "date": str(row.get("date") or ""),
+        "deposit": str(row.get("deposit") or "0"),
+        "withdrawal": str(row.get("withdrawal") or "0"),
+        "currency": row.get("currency") or "",
+        "transaction_id": row.get("transaction_id") or "",
+        "transaction_type": row.get("transaction_type") or "",
+        "reference_number": row.get("reference_number") or "",
+        "description": row.get("description") or "",
+        "tags": sorted(row.get("tags") or []),
+        "status": row.get("status"),
+        "match_method": row.get("match_method"),
+        "existing_names": sorted(row.get("existing_names") or []),
+    }
+
+
+def _build_import_plan(session_id, report):
+    state = _load_state(session_id)
+    profile = _profile(state["profile"])
+
+    if not report.get("transactions_ready") or report.get("transactions_update_status") != "HISTORICAL_UPDATE_COMPLETE":
+        raise PlaidHistoricalBackfillError(
+            "Plaid historical Transactions are not confirmed complete for this session"
+        )
+
+    mappings = report.get("account_mappings") or []
+    mapping_accounts = {row.get("bank_account") for row in mappings}
+    expected_accounts = set(profile["bank_accounts"])
+    if mapping_accounts != expected_accounts or any(row.get("status") != "mapped" for row in mappings):
+        raise PlaidHistoricalBackfillError(
+            "Every canonical Bank Account must have exactly one mapped candidate account before import"
+        )
+
+    if frappe.db.get_single_value("Plaid Settings", "automatic_sync"):
+        raise PlaidHistoricalBackfillError(
+            "Disable Plaid automatic synchronization before preparing or committing a historical import"
+        )
+
+    boundaries = _coverage_boundaries(profile)
+    try:
+        validation = validate_backfill_classifications(
+            report.get("candidate_transactions") or [],
+            boundaries,
+        )
+    except ValueError as exc:
+        raise PlaidHistoricalBackfillError(str(exc)) from exc
+
+    new_ids = validation["new_transaction_ids"]
+    if new_ids:
+        collisions = frappe.db.get_all(
+            "Bank Transaction",
+            filters={"transaction_id": ["in", new_ids]},
+            fields=["name", "bank_account", "transaction_id"],
+            limit_page_length=0,
+        )
+        if collisions:
+            raise PlaidHistoricalBackfillError(
+                "A candidate transaction ID now exists in ERPNext; rerun the dry run before importing: "
+                + ", ".join(row.name for row in collisions[:10])
+            )
+
+    plan_transactions = sorted(
+        (_canonical_plan_transaction(row) for row in (report.get("candidate_transactions") or [])),
+        key=lambda row: (
+            row["bank_account"],
+            row["date"],
+            row["transaction_id"],
+            row["status"] or "",
+        ),
+    )
+    plan_payload = {
+        "schema_version": 1,
+        "session_id": session_id,
+        "profile": state["profile"],
+        "bank": profile["bank"],
+        "production_item_id_fingerprint": report.get("production_item_id_fingerprint"),
+        "candidate_item_id_fingerprint": report.get("candidate_item_id_fingerprint"),
+        "requested_range": report.get("requested_range"),
+        "transactions_update_status": report.get("transactions_update_status"),
+        "coverage_boundaries": boundaries,
+        "account_mappings": [
+            {
+                "bank_account": row.get("bank_account"),
+                "current_account_id": row.get("current_account_id"),
+                "candidate_account_id": row.get("candidate_account_id"),
+                "method": row.get("method"),
+            }
+            for row in sorted(mappings, key=lambda row: row.get("bank_account") or "")
+        ],
+        "status_counts": validation["status_counts"],
+        "per_account_status_counts": validation["per_account_status_counts"],
+        "new_count": validation["new_count"],
+        "transactions": plan_transactions,
+    }
+    plan_hash = deterministic_plan_hash(plan_payload)
+    new_rows = [row for row in (report.get("candidate_transactions") or []) if row.get("status") == "new"]
+    return plan_hash, plan_payload, new_rows
+
+
+def prepare_import(session_id, start_date=None, end_date=None):
+    """Recompute and validate a deterministic no-write import plan for operator review."""
+    inspect_session(session_id, start_date=start_date, end_date=end_date)
+    report = _load_dry_run_report(session_id)
+    plan_hash, plan, new_rows = _build_import_plan(session_id, report)
+    frappe.db.rollback()
+
+    account_new_counts = Counter(row.get("bank_account") for row in new_rows)
+    account_ranges = {}
+    for account in sorted(account_new_counts):
+        dates = sorted(str(row.get("date")) for row in new_rows if row.get("bank_account") == account)
+        account_ranges[account] = {
+            "new_count": account_new_counts[account],
+            "earliest_new_date": dates[0] if dates else None,
+            "latest_new_date": dates[-1] if dates else None,
+            "existing_coverage_begins": plan["coverage_boundaries"][account],
+        }
+
+    return {
+        "session_id": session_id,
+        "profile": plan["profile"],
+        "plan_hash": plan_hash,
+        "new_count": len(new_rows),
+        "requested_range": plan["requested_range"],
+        "status_counts": plan["status_counts"],
+        "per_account": account_ranges,
+        "production_item_unchanged": True,
+        "bank_transaction_writes": 0,
+        "next_step": (
+            "Review this exact plan hash/count. Then call commit_import with the same plan_hash, "
+            "expected_new_count, and confirm=true."
+        ),
+    }
+
+
+def _assert_production_plaid_unchanged(state, profile, context):
+    live_access_token, live_item = _current_live_item(profile, context)
+    if _fingerprint(live_access_token) != state.get("live_access_token_fingerprint"):
+        raise PlaidHistoricalBackfillError("Production Plaid access token changed during historical import")
+    if _fingerprint(live_item.get("item_id")) != state.get("live_item_id_fingerprint"):
+        raise PlaidHistoricalBackfillError("Production Plaid Item changed during historical import")
+    return live_item
+
+
+def commit_import(session_id, plan_hash, expected_new_count, confirm=False):
+    """Create and submit only the exact reviewed historical Bank Transaction plan, then commit."""
+    if str(confirm).lower() not in {"1", "true", "yes"}:
+        raise PlaidHistoricalBackfillError("commit_import requires confirm=True")
+    expected_new_count = int(expected_new_count)
+    if expected_new_count <= 0:
+        raise PlaidHistoricalBackfillError("expected_new_count must be greater than zero")
+
+    state = _load_state(session_id)
+    profile = _profile(state["profile"])
+    context = _plaid_context()
+
+    # Re-fetch and reclassify immediately before any write using the exact
+    # reviewed date window. This also verifies both production and candidate
+    # Plaid Items remain healthy.
+    reviewed_range = state.get("last_inspected_range") or {}
+    inspect_session(
+        session_id,
+        start_date=reviewed_range.get("start_date"),
+        end_date=reviewed_range.get("end_date"),
+    )
+    report = _load_dry_run_report(session_id)
+    current_hash, plan, new_rows = _build_import_plan(session_id, report)
+    if current_hash != str(plan_hash):
+        frappe.db.rollback()
+        raise PlaidHistoricalBackfillError(
+            f"Import plan changed: reviewed {plan_hash}, current {current_hash}. "
+            "Run prepare_import again and review the new plan."
+        )
+    if len(new_rows) != expected_new_count:
+        frappe.db.rollback()
+        raise PlaidHistoricalBackfillError(
+            f"Import count changed: expected {expected_new_count}, current {len(new_rows)}"
+        )
+
+    mapping_ids = {
+        row["bank_account"]: row["current_account_id"]
+        for row in plan["account_mappings"]
+    }
+    for bank_account, expected_integration_id in mapping_ids.items():
+        current_integration_id = frappe.db.get_value("Bank Account", bank_account, "integration_id")
+        if current_integration_id != expected_integration_id:
+            frappe.db.rollback()
+            raise PlaidHistoricalBackfillError(
+                f"Production Plaid account ID changed for {bank_account}; aborting import"
+            )
+
+    created_names = []
+    try:
+        for row in sorted(
+            new_rows,
+            key=lambda item: (item.get("bank_account") or "", str(item.get("date") or ""), item.get("transaction_id") or ""),
+        ):
+            doc = frappe.get_doc(
+                {
+                    "doctype": "Bank Transaction",
+                    "date": getdate(row["date"]),
+                    "bank_account": row["bank_account"],
+                    "deposit": row["deposit"],
+                    "withdrawal": row["withdrawal"],
+                    "currency": row["currency"],
+                    "transaction_id": row["transaction_id"],
+                    "transaction_type": row.get("transaction_type") or "",
+                    "reference_number": row.get("reference_number") or "",
+                    "description": row.get("description") or "",
+                }
+            )
+            doc.insert()
+            doc.submit()
+            for tag in row.get("tags") or []:
+                add_tag(tag, "Bank Transaction", doc.name)
+            created_names.append(doc.name)
+
+        if len(created_names) != expected_new_count:
+            raise PlaidHistoricalBackfillError(
+                f"Created {len(created_names)} Bank Transactions, expected {expected_new_count}"
+            )
+
+        created = frappe.db.get_all(
+            "Bank Transaction",
+            filters={"name": ["in", created_names]},
+            fields=[
+                "name",
+                "bank_account",
+                "date",
+                "deposit",
+                "withdrawal",
+                "transaction_id",
+                "docstatus",
+                "status",
+                "allocated_amount",
+            ],
+            limit_page_length=0,
+        )
+        if len(created) != expected_new_count:
+            raise PlaidHistoricalBackfillError(
+                f"Post-write verification found {len(created)} records, expected {expected_new_count}"
+            )
+        bad = [
+            row for row in created
+            if row.docstatus != 1 or row.status != "Unreconciled" or float(row.allocated_amount or 0) != 0.0
+        ]
+        if bad:
+            raise PlaidHistoricalBackfillError(
+                "Post-write verification found a historical Bank Transaction that is not submitted/unreconciled/unallocated: "
+                + ", ".join(row.name for row in bad[:10])
+            )
+
+        child_rows = frappe.db.count(
+            "Bank Transaction Payments",
+            filters={"parent": ["in", created_names]},
+        )
+        if child_rows:
+            raise PlaidHistoricalBackfillError(
+                f"Post-write verification found {child_rows} unexpected reconciliation child rows"
+            )
+
+        _assert_production_plaid_unchanged(state, profile, context)
+        for bank_account, expected_integration_id in mapping_ids.items():
+            if frappe.db.get_value("Bank Account", bank_account, "integration_id") != expected_integration_id:
+                raise PlaidHistoricalBackfillError(
+                    f"Production Plaid account ID changed for {bank_account} during import"
+                )
+
+        frappe.db.commit()
+    except Exception:
+        frappe.db.rollback()
+        raise
+
+    per_account = Counter(row.bank_account for row in created)
+    dates_by_account = {}
+    for account in sorted(per_account):
+        dates = sorted(str(row.date) for row in created if row.bank_account == account)
+        dates_by_account[account] = {
+            "created": per_account[account],
+            "earliest": dates[0],
+            "latest": dates[-1],
+        }
+
+    receipt = {
+        "schema_version": 1,
+        "session_id": session_id,
+        "profile": state["profile"],
+        "plan_hash": current_hash,
+        "created_count": len(created_names),
+        "created_names": sorted(created_names),
+        "per_account": dates_by_account,
+        "production_item_id_fingerprint": plan["production_item_id_fingerprint"],
+        "candidate_item_id_fingerprint": plan["candidate_item_id_fingerprint"],
+        "account_mappings": plan["account_mappings"],
+        "reconciliation_writes": 0,
+        "accounting_voucher_writes": 0,
+    }
+    receipt_path = _receipt_path(session_id)
+    receipt_warning = None
+    try:
+        _atomic_private_json_write(receipt_path, receipt)
+        state["import_receipt_path"] = str(receipt_path)
+        state["import_plan_hash"] = current_hash
+        state["imported_count"] = len(created_names)
+        _save_state(state)
+    except Exception as exc:
+        # The database commit has already succeeded. Never misrepresent a
+        # receipt-file failure as a rolled-back financial import.
+        receipt_warning = f"Bank Transactions committed, but private receipt write failed: {exc}"
+
+    return {
+        "session_id": session_id,
+        "profile": state["profile"],
+        "plan_hash": current_hash,
+        "created_count": len(created_names),
+        "per_account": dates_by_account,
+        "all_created_submitted_unreconciled": True,
+        "reconciliation_writes": 0,
+        "accounting_voucher_writes": 0,
+        "production_item_unchanged": True,
+        "receipt_path": str(receipt_path) if not receipt_warning else None,
+        "receipt_warning": receipt_warning,
+        "next_step": "Run post-import coverage verification, then cleanup_session to remove only the temporary Plaid Item.",
+    }
+
+
 def session_status(session_id):
     """Return non-secret local staging state and current Hosted Link completion status."""
     state = _load_state(session_id)
@@ -677,6 +1044,7 @@ def cleanup_session(session_id, confirm=False):
 
     session_path = _session_path(session_id)
     report_path = _report_path(session_id)
+    receipt_path = _receipt_path(session_id)
     if report_path.exists():
         report_path.unlink()
     if session_path.exists():
@@ -690,4 +1058,6 @@ def cleanup_session(session_id, confirm=False):
         "production_item_fingerprint": _fingerprint(live_item.get("item_id")),
         "production_item_unchanged": True,
         "local_session_files_removed": True,
+        "import_receipt_preserved": receipt_path.exists(),
+        "import_receipt_path": str(receipt_path) if receipt_path.exists() else None,
     }

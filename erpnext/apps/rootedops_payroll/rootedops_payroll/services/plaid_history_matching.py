@@ -1,10 +1,101 @@
-from collections import defaultdict
+from collections import Counter, defaultdict
+from datetime import date
 from decimal import Decimal, InvalidOperation
+import hashlib
+import json
 import re
 
 
 _WHITESPACE_RE = re.compile(r"\s+")
 _NON_WORD_RE = re.compile(r"[^\w]+", re.UNICODE)
+
+
+SAFE_IMPORT_MATCH_STATUSES = {
+    "exact_transaction_id_match",
+    "strong_fallback_match",
+}
+SAFE_IMPORT_STATUSES = SAFE_IMPORT_MATCH_STATUSES | {"new"}
+
+
+def plaid_transaction_tags(transaction):
+    """Return the tags added by ERPNext v16's native Plaid importer."""
+    category = transaction.get("category") or []
+    tags = list(category) if isinstance(category, (list, tuple)) else []
+    category_id = transaction.get("category_id")
+    if tags and category_id:
+        tags.append(f"Plaid Cat. {category_id}")
+    return tags
+
+
+def validate_backfill_classifications(classifications, coverage_boundaries):
+    """Validate that a classified overlap set is safe for a historical-only import.
+
+    New transactions must be strictly before the first existing transaction for the
+    canonical Bank Account. Existing matches must be on/after that boundary. Any
+    weaker or conflicting classification blocks the import.
+    """
+    rows = [dict(row) for row in classifications]
+    status_counts = Counter(row.get("status") for row in rows)
+    unsupported = sorted(set(status_counts) - SAFE_IMPORT_STATUSES)
+    if unsupported:
+        raise ValueError(
+            "Unsafe transaction classifications present: " + ", ".join(unsupported)
+        )
+
+    new_ids = set()
+    new_rows = []
+    per_account = defaultdict(lambda: Counter())
+
+    for row in rows:
+        account = row.get("bank_account")
+        if account not in coverage_boundaries:
+            raise ValueError(f"No existing-coverage boundary for {account!r}")
+        boundary = coverage_boundaries[account]
+        boundary = boundary if isinstance(boundary, date) else date.fromisoformat(str(boundary))
+        try:
+            transaction_date = date.fromisoformat(str(row.get("date") or ""))
+        except ValueError as exc:
+            raise ValueError(f"Invalid transaction date for {account!r}: {row.get('date')!r}") from exc
+
+        status = row.get("status")
+        per_account[account][status] += 1
+        if status == "new":
+            if transaction_date >= boundary:
+                raise ValueError(
+                    f"New transaction for {account!r} on {transaction_date} is not before "
+                    f"existing coverage {boundary}"
+                )
+            transaction_id = str(row.get("transaction_id") or "").strip()
+            if not transaction_id:
+                raise ValueError(f"New transaction for {account!r} has no provider transaction ID")
+            if transaction_id in new_ids:
+                raise ValueError(f"Duplicate candidate transaction ID in import set: {transaction_id}")
+            new_ids.add(transaction_id)
+            if money(row.get("deposit")) == 0 and money(row.get("withdrawal")) == 0:
+                raise ValueError(f"New transaction {transaction_id} has zero deposit and withdrawal")
+            new_rows.append(row)
+        elif transaction_date < boundary:
+            raise ValueError(
+                f"Existing match for {account!r} on {transaction_date} is before "
+                f"existing coverage {boundary}"
+            )
+
+    return {
+        "status_counts": dict(sorted(status_counts.items())),
+        "new_rows": new_rows,
+        "new_count": len(new_rows),
+        "new_transaction_ids": sorted(new_ids),
+        "per_account_status_counts": {
+            account: dict(sorted(counts.items()))
+            for account, counts in sorted(per_account.items())
+        },
+    }
+
+
+def deterministic_plan_hash(payload):
+    """Hash a JSON-compatible import plan using stable key/list ordering."""
+    encoded = json.dumps(payload, sort_keys=True, separators=(",", ":"), default=str).encode()
+    return hashlib.sha256(encoded).hexdigest()
 
 
 def normalize_text(value):
