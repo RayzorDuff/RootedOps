@@ -427,3 +427,148 @@ sudo docker compose --env-file ./.env -f docker/docker-compose.yml exec erpnext-
 
 Search ERPNext for `Quarterly Payroll Tax Report`. Run one report per Company. For tax filing totals, use `Submitted`; use `Draft and Submitted` only for deliberate reconciliation. The quarter is selected from Salary Slip `posting_date`.
 
+
+---
+
+# Plaid historical bank-transaction staging
+
+RootedOps includes a narrowly scoped staging utility for backfilling the missing
+2026 bank history through a **temporary Plaid Item**. The utility exists because
+the stock ERPNext v16 Plaid Link request initializes Transactions without an
+explicit historical window, while Plaid only honors `transactions.days_requested`
+when a new Item is created.
+
+Implementation:
+- `apps/rootedops_payroll/rootedops_payroll/services/plaid_history.py`
+- `apps/rootedops_payroll/rootedops_payroll/services/plaid_history_matching.py`
+
+Supported migration profiles:
+- `high_plains_2026`
+  - `High Plains Bank (HPBGO)`
+  - `Dank Mushrooms Checking - High Plains Bank`
+  - `Dank Mushrooms Withholding - High Plains Bank`
+- `elevations_2026`
+  - `Elevations Credit Union`
+  - `Raymond Danks Elevations Checking - Elevations Credit Union`
+  - `Raymond Danks Elevations Withholding Savings - Elevations Credit Union`
+
+## Safety boundary
+
+The staging utility **does not**:
+- replace `Bank.plaid_access_token`;
+- change `Bank Account.integration_id`;
+- change `Bank Account.last_integration_date`;
+- create, submit, cancel, or reconcile `Bank Transaction` records;
+- create Journal Entries or Payment Entries;
+- call ERPNext's stock `add_institution()` / `add_bank_accounts()` Plaid flow.
+
+It stores the temporary Link token and candidate access token in a mode-0600 JSON
+file below the site's private directory. Command output exposes only Item/token
+fingerprints, never the candidate or production access token.
+
+The overlap report is also written below the site private directory. It contains
+financial transaction detail and should remain private.
+
+## Stage one institution
+
+Start with High Plains Bank:
+
+```bash
+cd /home/frappe/frappe-bench
+
+bench --site erp.danks.store execute \
+  rootedops_payroll.services.plaid_history.create_hosted_link \
+  --kwargs '{"profile":"high_plains_2026"}'
+```
+
+The returned object contains:
+- a RootedOps `session_id`;
+- a Plaid `hosted_link_url`;
+- the Link expiration;
+- the fingerprint of the existing production Item.
+
+Open the Hosted Link URL in a browser and authorize the expected institution and
+canonical accounts. This is a temporary historical Item. Do not use ERPNext's
+**Reset Plaid Link** action for this procedure.
+
+The default request is 730 days of Transactions history. No production ERPNext
+Plaid record is changed when the Hosted Link session is created.
+
+## Check Hosted Link status
+
+```bash
+bench --site erp.danks.store execute \
+  rootedops_payroll.services.plaid_history.session_status \
+  --kwargs '{"session_id":"SESSION_ID"}'
+```
+
+`session_status` does not exchange or persist a candidate access token. Hosted
+Link session details are time-limited at Plaid, so proceed to `inspect_session`
+promptly after successful Link completion.
+
+## Exchange and inspect the temporary Item
+
+```bash
+bench --site erp.danks.store execute \
+  rootedops_payroll.services.plaid_history.inspect_session \
+  --kwargs '{"session_id":"SESSION_ID","start_date":"2026-01-01"}'
+```
+
+This command:
+1. verifies the original production Item/token fingerprint is unchanged;
+2. retrieves the completed Hosted Link result;
+3. verifies the linked institution matches the migration profile;
+4. exchanges the public token for a **temporary candidate** access token and
+   stores it only in the site's private staging file;
+5. verifies the temporary candidate Item is distinct from production;
+6. maps the candidate Plaid accounts to the canonical ERPNext Bank Accounts
+   using mask/type/subtype/name metadata, without changing ERPNext IDs;
+7. calls `/transactions/sync` only to inspect `transactions_update_status`;
+8. refuses to classify history until Plaid reports
+   `HISTORICAL_UPDATE_COMPLETE`;
+9. retrieves the requested history account-by-account with the account filter
+   retained on every `/transactions/get` page;
+10. writes a private dry-run report and returns summary counts.
+
+If Plaid reports `INITIAL_UPDATE_COMPLETE`, rerun `inspect_session` after the
+historical pull completes. Do **not** interpret the recent ~30-day population as
+the institution's maximum history while the historical pull is pending.
+
+## Deduplication classifications
+
+The dry run classifies candidate transactions as:
+- `exact_transaction_id_match`
+- `strong_fallback_match`
+- `secondary_fallback_match`
+- `ambiguous_amount_date_match`
+- `transaction_id_account_conflict`
+- `new`
+
+Fallback identity uses the canonical Bank Account plus date, ERPNext deposit /
+withdrawal polarity, normalized description/reference, transaction type, and
+group multiplicity. Amount/date-only matches are deliberately marked ambiguous;
+they are never silently discarded because legitimate same-day same-amount
+transactions can exist.
+
+This stage still performs **zero Bank Transaction writes**. Historical ingestion
+must be implemented/reviewed separately after the dry-run population is accepted.
+
+## Remove the temporary Item
+
+Once testing is complete, remove only the candidate Item and its local private
+state:
+
+```bash
+bench --site erp.danks.store execute \
+  rootedops_payroll.services.plaid_history.cleanup_session \
+  --kwargs '{"session_id":"SESSION_ID","confirm":true}'
+```
+
+Cleanup verifies the production token and Item fingerprints are unchanged and
+refuses to remove an Item if it resolves to the production Item. It can also
+exchange-and-remove a completed Hosted Link Item that accidentally connected the
+wrong institution.
+
+Do not manually delete the staging files before candidate cleanup if a temporary
+Plaid Item was successfully created; the private state contains the token needed
+to remove that temporary Item.

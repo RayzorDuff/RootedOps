@@ -49,6 +49,10 @@ The **Payroll Tax Liability Reconciliation** report compares submitted Salary Sl
 
 Payment drafts use the withholding bank account when one is configured, otherwise the default checking account. Review the bank and liability lines in ERPNext before submitting. Interest and penalties remain separate manual expense lines and are not included in the calculated tax liability.
 
+## Plaid historical bank-transaction staging
+
+RootedOps includes a non-destructive Plaid historical staging utility for the 2026 bank-history backfill. It creates a temporary Hosted Link Item with a 730-day Transactions request, verifies the existing production Item remains unchanged, waits for Plaid to report the historical pull complete, maps candidate accounts to the canonical ERPNext Bank Accounts, and produces a private deduplication dry run. It intentionally performs **zero Bank Transaction or accounting writes**. Operator commands and cleanup procedures are documented in `erpnext/README_SCRIPTS.md`.
+
 ### Installation
 
 You can install this app using the [bench](https://github.com/frappe/bench) CLI:
