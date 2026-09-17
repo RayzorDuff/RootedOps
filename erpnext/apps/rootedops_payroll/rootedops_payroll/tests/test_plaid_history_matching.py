@@ -1,6 +1,7 @@
 from unittest import TestCase
 
 from rootedops_payroll.services.plaid_history_matching import (
+    assign_db_safe_transaction_ids,
     classify_transaction_overlap,
     deterministic_plan_hash,
     match_candidate_accounts,
@@ -264,3 +265,68 @@ class TestPlaidHistoryImportSafety(TestCase):
             deterministic_plan_hash({"b": 2, "a": {"y": 2, "x": 1}}),
             deterministic_plan_hash({"a": {"x": 1, "y": 2}, "b": 2}),
         )
+
+
+class TestPlaidHistoryDatabaseSafeIds(TestCase):
+    def test_case_only_provider_ids_receive_distinct_deterministic_storage_ids(self):
+        first = "kQ4PDzRRw8Cm4w7NKdKpSwBB98yv9KC0rk14k"
+        second = "kQ4PDzRRw8Cm4w7NKdKpSwBB98yv9KC0rk14K"
+        result = assign_db_safe_transaction_ids(
+            [
+                {"transaction_id": first, "bank_account": "Checking"},
+                {"transaction_id": second, "bank_account": "Checking"},
+            ]
+        )
+
+        self.assertEqual(result["transformed_count"], 2)
+        self.assertEqual(len(result["collision_groups"]), 1)
+        rows = {row["source_transaction_id"]: row for row in result["rows"]}
+        self.assertTrue(rows[first]["storage_transaction_id"].startswith(first + "~cs-"))
+        self.assertTrue(rows[second]["storage_transaction_id"].startswith(second + "~cs-"))
+        self.assertNotEqual(
+            rows[first]["storage_transaction_id"].casefold(),
+            rows[second]["storage_transaction_id"].casefold(),
+        )
+
+        repeated = assign_db_safe_transaction_ids(
+            [
+                {"transaction_id": second, "bank_account": "Checking"},
+                {"transaction_id": first, "bank_account": "Checking"},
+            ]
+        )
+        repeated_rows = {row["source_transaction_id"]: row for row in repeated["rows"]}
+        self.assertEqual(
+            rows[first]["storage_transaction_id"],
+            repeated_rows[first]["storage_transaction_id"],
+        )
+        self.assertEqual(
+            rows[second]["storage_transaction_id"],
+            repeated_rows[second]["storage_transaction_id"],
+        )
+
+    def test_noncolliding_provider_id_is_unchanged(self):
+        result = assign_db_safe_transaction_ids(
+            [{"transaction_id": "plaid-normal-1", "bank_account": "Checking"}]
+        )
+        self.assertEqual(result["transformed_count"], 0)
+        self.assertEqual(
+            result["rows"][0]["storage_transaction_id"],
+            "plaid-normal-1",
+        )
+
+    def test_case_only_collision_with_existing_id_is_transformed(self):
+        result = assign_db_safe_transaction_ids(
+            [{"transaction_id": "PlaidABC", "bank_account": "Checking"}],
+            existing_transaction_ids=["plaidabc"],
+        )
+        self.assertEqual(result["transformed_count"], 1)
+        self.assertTrue(
+            result["rows"][0]["storage_transaction_id"].startswith("PlaidABC~cs-")
+        )
+
+    def test_exact_existing_provider_id_remains_hard_error(self):
+        with self.assertRaisesRegex(ValueError, "already exists in ERPNext"):
+            assign_db_safe_transaction_ids(
+                [{"transaction_id": "PlaidABC", "bank_account": "Checking"}],
+                existing_transaction_ids=["PlaidABC"],
+            )

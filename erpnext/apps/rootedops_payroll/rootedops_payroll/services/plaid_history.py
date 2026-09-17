@@ -21,6 +21,7 @@ from frappe.desk.doctype.tag.tag import add_tag
 from frappe.utils import getdate, today
 
 from rootedops_payroll.services.plaid_history_matching import (
+    assign_db_safe_transaction_ids,
     classify_transaction_overlap,
     deterministic_plan_hash,
     match_candidate_accounts,
@@ -663,6 +664,8 @@ def _canonical_plan_transaction(row):
         "withdrawal": str(row.get("withdrawal") or "0"),
         "currency": row.get("currency") or "",
         "transaction_id": row.get("transaction_id") or "",
+        "source_transaction_id": row.get("source_transaction_id") or row.get("transaction_id") or "",
+        "storage_transaction_id": row.get("storage_transaction_id") or row.get("transaction_id") or "",
         "transaction_type": row.get("transaction_type") or "",
         "reference_number": row.get("reference_number") or "",
         "description": row.get("description") or "",
@@ -704,22 +707,54 @@ def _build_import_plan(session_id, report):
     except ValueError as exc:
         raise PlaidHistoricalBackfillError(str(exc)) from exc
 
-    new_ids = validation["new_transaction_ids"]
-    if new_ids:
+    # Bank Transaction.transaction_id is globally UNIQUE. On this ERPNext/MariaDB
+    # deployment the column uses a case-insensitive collation, while Plaid IDs are
+    # opaque and case-sensitive. Pull all existing IDs so the reviewed plan can
+    # deterministically allocate DB-safe storage IDs before any financial write.
+    existing_transaction_ids = frappe.db.get_all(
+        "Bank Transaction",
+        filters={"transaction_id": ["is", "set"]},
+        pluck="transaction_id",
+        limit_page_length=0,
+    )
+    try:
+        assigned = assign_db_safe_transaction_ids(
+            validation["new_rows"],
+            existing_transaction_ids=existing_transaction_ids,
+        )
+    except ValueError as exc:
+        raise PlaidHistoricalBackfillError(str(exc)) from exc
+
+    assigned_by_source = {
+        row["source_transaction_id"]: row
+        for row in assigned["rows"]
+    }
+    report_rows = []
+    for row in (report.get("candidate_transactions") or []):
+        row = dict(row)
+        if row.get("status") == "new":
+            source = str(row.get("transaction_id") or "").strip()
+            allocated = assigned_by_source[source]
+            row["source_transaction_id"] = allocated["source_transaction_id"]
+            row["storage_transaction_id"] = allocated["storage_transaction_id"]
+        report_rows.append(row)
+
+    storage_ids = [row["storage_transaction_id"] for row in assigned["rows"]]
+    if storage_ids:
         collisions = frappe.db.get_all(
             "Bank Transaction",
-            filters={"transaction_id": ["in", new_ids]},
+            filters={"transaction_id": ["in", storage_ids]},
             fields=["name", "bank_account", "transaction_id"],
             limit_page_length=0,
         )
         if collisions:
             raise PlaidHistoricalBackfillError(
-                "A candidate transaction ID now exists in ERPNext; rerun the dry run before importing: "
+                "A planned ERPNext storage transaction ID now exists; rerun prepare_import: "
                 + ", ".join(row.name for row in collisions[:10])
             )
 
     plan_transactions = sorted(
-        (_canonical_plan_transaction(row) for row in (report.get("candidate_transactions") or [])),
+        (_canonical_plan_transaction(row) for row in report_rows),
         key=lambda row: (
             row["bank_account"],
             row["date"],
@@ -749,10 +784,14 @@ def _build_import_plan(session_id, report):
         "status_counts": validation["status_counts"],
         "per_account_status_counts": validation["per_account_status_counts"],
         "new_count": validation["new_count"],
+        "db_safe_transaction_ids": {
+            "transformed_count": assigned["transformed_count"],
+            "collision_groups": assigned["collision_groups"],
+        },
         "transactions": plan_transactions,
     }
     plan_hash = deterministic_plan_hash(plan_payload)
-    new_rows = [row for row in (report.get("candidate_transactions") or []) if row.get("status") == "new"]
+    new_rows = assigned["rows"]
     return plan_hash, plan_payload, new_rows
 
 
@@ -782,6 +821,7 @@ def prepare_import(session_id, start_date=None, end_date=None):
         "requested_range": plan["requested_range"],
         "status_counts": plan["status_counts"],
         "per_account": account_ranges,
+        "db_safe_transaction_ids": plan["db_safe_transaction_ids"],
         "production_item_unchanged": True,
         "bank_transaction_writes": 0,
         "next_step": (
@@ -861,7 +901,7 @@ def commit_import(session_id, plan_hash, expected_new_count, confirm=False):
                     "deposit": row["deposit"],
                     "withdrawal": row["withdrawal"],
                     "currency": row["currency"],
-                    "transaction_id": row["transaction_id"],
+                    "transaction_id": row.get("storage_transaction_id") or row["transaction_id"],
                     "transaction_type": row.get("transaction_type") or "",
                     "reference_number": row.get("reference_number") or "",
                     "description": row.get("description") or "",
@@ -950,6 +990,19 @@ def commit_import(session_id, plan_hash, expected_new_count, confirm=False):
         "production_item_id_fingerprint": plan["production_item_id_fingerprint"],
         "candidate_item_id_fingerprint": plan["candidate_item_id_fingerprint"],
         "account_mappings": plan["account_mappings"],
+        "db_safe_transaction_ids": plan["db_safe_transaction_ids"],
+        "transaction_id_mappings": [
+            {
+                "bank_transaction": row.name,
+                "stored_transaction_id": row.transaction_id,
+                "source_transaction_id": next(
+                    (candidate.get("source_transaction_id") for candidate in new_rows
+                     if (candidate.get("storage_transaction_id") or candidate.get("transaction_id")) == row.transaction_id),
+                    row.transaction_id,
+                ),
+            }
+            for row in sorted(created, key=lambda item: item.name)
+        ],
         "reconciliation_writes": 0,
         "accounting_voucher_writes": 0,
     }

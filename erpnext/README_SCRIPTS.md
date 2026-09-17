@@ -567,8 +567,13 @@ classification, and refuses to produce an import plan unless all of these are tr
 - every `new` row is strictly before the first existing Bank Transaction date for
   that canonical account;
 - every existing match is on or after that coverage boundary;
-- every new provider transaction ID is present, unique within the plan, and absent
-  from ERPNext.
+- every new provider transaction ID is present and unique as an exact Plaid ID;
+- the plan allocates a database-safe storage ID before any write. Because ERPNext
+  commonly stores `transaction_id` under a case-insensitive MariaDB collation,
+  distinct Plaid IDs that differ only by letter case receive deterministic
+  `~cs-<hash>` suffixes rather than being merged or discarded;
+- the exact provider ID remains in the reviewed plan and import receipt, and
+  non-colliding provider IDs remain unchanged.
 
 Run:
 
@@ -590,13 +595,15 @@ exact returned hash and expected count:
 ```bash
 bench --site erp.danks.store execute \
   rootedops_payroll.services.plaid_history.commit_import \
-  --kwargs '{"session_id":"SESSION_ID","plan_hash":"PLAN_HASH","expected_new_count":86,"confirm":true}'
+  --kwargs '{"session_id":"SESSION_ID","plan_hash":"PLAN_HASH","expected_new_count":86,"confirm":True}'
 ```
 
 Before the first insert, `commit_import` reruns the dry run using the exact reviewed
 date window. If the plan hash or count changed, it aborts with zero writes. It then
 creates only rows still classified `new`, using ERPNext v16 Plaid field polarity and
-category tags, inserts and submits native `Bank Transaction` documents, and creates
+category tags. The commit uses the reviewed database-safe `transaction_id` value,
+while the receipt retains the exact Plaid source ID for any transformed collision.
+It inserts and submits native `Bank Transaction` documents, and creates
 no Journal Entry, Payment Entry, or reconciliation rows.
 
 After all inserts, the function verifies that every created Bank Transaction is

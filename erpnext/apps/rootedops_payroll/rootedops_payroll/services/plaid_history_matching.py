@@ -17,6 +17,90 @@ SAFE_IMPORT_MATCH_STATUSES = {
 SAFE_IMPORT_STATUSES = SAFE_IMPORT_MATCH_STATUSES | {"new"}
 
 
+BANK_TRANSACTION_ID_MAX_LENGTH = 140
+_DB_SAFE_SUFFIX_PREFIX = "~cs-"
+_DB_SAFE_DIGEST_LENGTH = 16
+
+
+def _db_unique_key(value):
+    """Approximate ERPNext/MariaDB's case-insensitive transaction_id uniqueness for Plaid IDs.
+
+    Plaid transaction IDs are opaque ASCII strings in practice. ERPNext's Bank Transaction
+    transaction_id column on this deployment uses utf8mb4_unicode_ci, so identifiers that
+    differ only by letter case collide at the database UNIQUE index even though Plaid treats
+    them as distinct opaque IDs.
+    """
+    return str(value or "").casefold()
+
+
+def _collision_storage_transaction_id(source_transaction_id):
+    """Return a deterministic DB-safe ID while retaining as much raw Plaid ID as possible."""
+    source = str(source_transaction_id or "").strip()
+    digest = hashlib.sha256(source.encode("utf-8")).hexdigest()[:_DB_SAFE_DIGEST_LENGTH]
+    suffix = f"{_DB_SAFE_SUFFIX_PREFIX}{digest}"
+    keep = BANK_TRANSACTION_ID_MAX_LENGTH - len(suffix)
+    if keep <= 0:
+        raise ValueError("Configured Bank Transaction transaction_id length cannot hold collision suffix")
+    return f"{source[:keep]}{suffix}"
+
+
+def assign_db_safe_transaction_ids(new_rows, existing_transaction_ids=()):
+    """Assign deterministic transaction IDs compatible with a case-insensitive UNIQUE index.
+
+    The provider's exact transaction ID remains in ``source_transaction_id``. Normally the
+    ERPNext storage ID is identical. If two distinct provider IDs compare equal under the
+    database's case-insensitive collation, every member of that collision group receives a
+    deterministic ``~cs-<hash>`` suffix. Exact provider-ID reuse against an existing record
+    remains a hard error rather than being renamed.
+    """
+    rows = [dict(row) for row in new_rows]
+    existing = [str(value or "").strip() for value in existing_transaction_ids if str(value or "").strip()]
+    existing_exact = set(existing)
+    existing_keys = {_db_unique_key(value) for value in existing}
+
+    groups = defaultdict(list)
+    for index, row in enumerate(rows):
+        source = str(row.get("transaction_id") or "").strip()
+        if not source:
+            raise ValueError("Candidate transaction has no provider transaction ID")
+        if source in existing_exact:
+            raise ValueError(f"Candidate provider transaction ID already exists in ERPNext: {source}")
+        groups[_db_unique_key(source)].append(index)
+
+    assigned_keys = set(existing_keys)
+    collision_groups = []
+    transformed = 0
+
+    for key in sorted(groups):
+        indexes = groups[key]
+        needs_transform = len(indexes) > 1 or key in existing_keys
+        group_sources = [str(rows[index].get("transaction_id") or "").strip() for index in indexes]
+
+        if needs_transform:
+            collision_groups.append(sorted(group_sources))
+
+        for index, source in sorted(zip(indexes, group_sources), key=lambda pair: pair[1]):
+            storage = _collision_storage_transaction_id(source) if needs_transform else source
+            storage_key = _db_unique_key(storage)
+            if storage_key in assigned_keys:
+                raise ValueError(
+                    "Unable to derive a unique ERPNext transaction ID for provider transaction "
+                    f"{source}; derived ID collides under database collation"
+                )
+            assigned_keys.add(storage_key)
+            row = rows[index]
+            row["source_transaction_id"] = source
+            row["storage_transaction_id"] = storage
+            if storage != source:
+                transformed += 1
+
+    return {
+        "rows": rows,
+        "transformed_count": transformed,
+        "collision_groups": collision_groups,
+    }
+
+
 def plaid_transaction_tags(transaction):
     """Return the tags added by ERPNext v16's native Plaid importer."""
     category = transaction.get("category") or []
