@@ -96,3 +96,21 @@ Attendance working-hours calculation so the Attendance UI agrees with payroll.
 RootedOps reports a diagnostic warning when Attendance hours and paired-checkin
 hours differ, and blocks payroll when the checkin sequence itself is malformed
 (for example, an unmatched `IN` or `OUT`).
+
+### Payroll Event Cost Report
+
+`Payroll Event Cost Report` is a read-only evidentiary / reconciliation report for a specific
+nanny or hourly-payroll event window. Select Company, Employee, Event Start, and Event End.
+The report reads Employee Checkin IN/OUT sessions, applies the employee's RootedOps pay model
+(including the hybrid 22:00-06:00 overnight flat when configured), and shows:
+
+- each compensated hourly or overnight-flat segment,
+- gross wages,
+- employer Social Security and Medicare,
+- Colorado unemployment insurance,
+- employer Colorado FAMLI, and
+- total employer payroll expense.
+
+The report deliberately does not allocate federal or Colorado income-tax withholding to a
+partial event window because those are employee deductions calculated on the complete payroll
+period. It does not create or modify Salary Slips or Journal Entries.

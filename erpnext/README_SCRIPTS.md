@@ -430,6 +430,39 @@ Search ERPNext for `Quarterly Payroll Tax Report`. Run one report per Company. F
 
 ---
 
+# Payroll Event Cost Report
+
+The version-controlled report is located at:
+
+```text
+erpnext/apps/rootedops_payroll/rootedops_payroll/rootedops_payroll/report/payroll_event_cost_report/
+```
+
+It is intended for narrow event-level evidence and reconciliation. The operator supplies
+Company, Employee, Event Start, and Event End. The report reads Employee Checkin records,
+applies the employee RootedOps hourly / hybrid-overnight compensation model, then shows the
+compensation segments and employer Social Security, Medicare, Colorado UI, employer Colorado
+FAMLI, and total employer payroll expense. It is read-only and does not create or modify Salary
+Slips or Journal Entries.
+
+Deploy it with the same app-copy / migrate / clear-cache sequence used for the quarterly report:
+
+```bash
+sudo docker cp -a erpnext/apps/rootedops_payroll erpnext-backend:/home/frappe/frappe-bench/apps/
+sudo docker compose --env-file ./.env -f docker/docker-compose.yml exec erpnext-backend \
+  bash -lc "bench --site erp.danks.store migrate"
+sudo docker compose --env-file ./.env -f docker/docker-compose.yml exec erpnext-backend \
+  bash -lc "bench --site erp.danks.store clear-cache"
+```
+
+Search ERPNext for `Payroll Event Cost Report`. For an overnight event, set Event End to the
+actual next-day end of the evidence window so post-midnight / post-06:00 hourly segments are
+clipped correctly. Federal and Colorado income-tax withholding are intentionally not allocated
+to a partial event window because those are employee deductions calculated on the complete
+payroll period.
+
+---
+
 # Plaid historical bank-transaction staging
 
 RootedOps includes a narrowly scoped staging utility for backfilling the missing
