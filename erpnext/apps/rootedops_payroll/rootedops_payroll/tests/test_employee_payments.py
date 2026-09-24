@@ -3,7 +3,14 @@ from unittest.mock import patch
 
 from rootedops_payroll.services.employee_payments import (
     PAYMENT_METHODS,
+    PAYMENT_STATUS_CANCELLED,
+    PAYMENT_STATUS_CONFLICT,
+    PAYMENT_STATUS_DRAFT,
+    PAYMENT_STATUS_NOT_RECORDED,
+    PAYMENT_STATUS_SUBMITTED,
+    build_employee_payment_attempt_key,
     payment_configuration_is_effective,
+    summarize_payment_history,
     validate_payment_method,
 )
 
@@ -90,6 +97,8 @@ class TestEmployeePaymentDraftFoundation(TestCase):
                     "salary_slip": "SAL-001",
                     "payment_method": "Venmo",
                     "net_pay": 350.00,
+                    "payment_attempt": 1,
+                    "prior_payment_status": PAYMENT_STATUS_NOT_RECORDED,
                 },
                 {
                     "employee": "HR-EMP-00002",
@@ -97,6 +106,8 @@ class TestEmployeePaymentDraftFoundation(TestCase):
                     "salary_slip": "SAL-002",
                     "payment_method": "ACH",
                     "net_pay": 425.00,
+                    "payment_attempt": 1,
+                    "prior_payment_status": PAYMENT_STATUS_NOT_RECORDED,
                 },
             ],
             "zero_net_pay_salary_slips": [],
@@ -123,3 +134,68 @@ class TestEmployeePaymentDraftFoundation(TestCase):
             ["ACC-JV-001", "ACC-JV-002"],
         )
         self.assertEqual(build_doc.call_count, 2)
+
+
+class TestEmployeePaymentLifecycle(TestCase):
+    def test_attempt_key_is_unique_but_keeps_logical_identity(self):
+        self.assertEqual(
+            build_employee_payment_attempt_key("SAL-001", 2),
+            "salary-slip:SAL-001:full-net-pay:attempt:2",
+        )
+
+    def test_no_history_is_not_recorded_and_regenerable(self):
+        status = summarize_payment_history("SAL-001", [])
+        self.assertEqual(status["status"], PAYMENT_STATUS_NOT_RECORDED)
+        self.assertTrue(status["can_regenerate"])
+        self.assertEqual(status["next_attempt"], 1)
+
+    def test_draft_blocks_regeneration(self):
+        status = summarize_payment_history(
+            "SAL-001",
+            [{"name": "ACC-JV-001", "docstatus": 0, "rootedops_payroll_payment_attempt": 1}],
+        )
+        self.assertEqual(status["status"], PAYMENT_STATUS_DRAFT)
+        self.assertFalse(status["can_regenerate"])
+        self.assertEqual(status["journal_entry"], "ACC-JV-001")
+
+    def test_submitted_blocks_regeneration(self):
+        status = summarize_payment_history(
+            "SAL-001",
+            [{"name": "ACC-JV-001", "docstatus": 1, "rootedops_payroll_payment_attempt": 1}],
+        )
+        self.assertEqual(status["status"], PAYMENT_STATUS_SUBMITTED)
+        self.assertFalse(status["can_regenerate"])
+
+    def test_cancelled_payment_allows_next_attempt(self):
+        status = summarize_payment_history(
+            "SAL-001",
+            [{"name": "ACC-JV-001", "docstatus": 2, "rootedops_payroll_payment_attempt": 1}],
+        )
+        self.assertEqual(status["status"], PAYMENT_STATUS_CANCELLED)
+        self.assertTrue(status["can_regenerate"])
+        self.assertEqual(status["next_attempt"], 2)
+
+    def test_cancelled_then_replacement_draft_reports_draft(self):
+        status = summarize_payment_history(
+            "SAL-001",
+            [
+                {"name": "ACC-JV-001", "docstatus": 2, "rootedops_payroll_payment_attempt": 1},
+                {"name": "ACC-JV-002", "docstatus": 0, "rootedops_payroll_payment_attempt": 2},
+            ],
+        )
+        self.assertEqual(status["status"], PAYMENT_STATUS_DRAFT)
+        self.assertFalse(status["can_regenerate"])
+        self.assertEqual(status["journal_entry"], "ACC-JV-002")
+        self.assertEqual(status["next_attempt"], 3)
+
+    def test_multiple_active_attempts_are_conflict(self):
+        status = summarize_payment_history(
+            "SAL-001",
+            [
+                {"name": "ACC-JV-001", "docstatus": 0, "rootedops_payroll_payment_attempt": 1},
+                {"name": "ACC-JV-002", "docstatus": 1, "rootedops_payroll_payment_attempt": 2},
+            ],
+        )
+        self.assertEqual(status["status"], PAYMENT_STATUS_CONFLICT)
+        self.assertFalse(status["can_regenerate"])
+        self.assertEqual(status["active_count"], 2)

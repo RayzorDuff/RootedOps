@@ -18,9 +18,9 @@ ACH credentials in **Payroll Payment Instructions**.
 
 The migration also reserves read-only Journal Entry linkage fields for the later
 employee-payment service: Employee, Salary Slip, Payroll Entry, payment method,
-and a unique stable payment key. Phase 1 does not populate those Journal Entry
-fields; they exist now so subsequent phases can add payment creation without
-changing the metadata contract.
+and payment identity metadata. Phase 1 does not populate those Journal Entry
+fields; they exist so subsequent phases can add payment creation and lifecycle
+tracking without relying on free-text remarks.
 
 ### Payroll reports
 
@@ -140,4 +140,14 @@ The Payroll Entry **Create Employee Payment Draft JEs** action now creates one d
 
 The debit clears Payroll Payable with the Employee as party and the credit uses the configured/default company checking Bank GL account. Payroll accrual, withholding-reserve transfers, and tax-remittance accounting remain consolidated and unchanged. Existing legacy consolidated employee-payment JEs are not rewritten; a populated legacy Payroll Entry payment-JE link blocks the new employee-specific action to avoid double settlement.
 
-Phase 2 creates **draft accounting records only**. It does not execute ACH, Venmo, Apple Cash, or check payments, and cancellation/amendment lifecycle handling is reserved for the next phase.
+Phase 2 creates **draft accounting records only**. It does not execute ACH, Venmo, Apple Cash, or check payments. Cancellation/regeneration lifecycle handling is implemented in Phase 3 below.
+
+## Employee payment lifecycle (Issue #8 Phase 3)
+
+RootedOps derives employee-payment status from the employee-specific Journal Entries linked to each Salary Slip. The supported operational states are **Not Recorded**, **Payment JE Draft**, **Payment JE Submitted**, and **Payment JE Cancelled**. If more than one non-cancelled payment JE exists for the same Salary Slip, RootedOps reports a **Payment JE Conflict** and blocks further generation until the conflict is resolved.
+
+Cancelled payment JEs remain immutable audit history but no longer count as an active settlement. The next **Create Employee Payment Draft JEs** action may therefore create a replacement draft for that Salary Slip. Each replacement keeps the same logical Salary Slip settlement identity while receiving a new unique payment-attempt key and sequential attempt number. Existing Phase-2 employee-payment JEs are backfilled with logical-key/attempt metadata during migration without changing their accounting lines or original unique keys.
+
+The Payroll Entry **Review Employee Payment Status** action shows the current/last JE and number of attempts for each submitted Salary Slip. Draft or submitted payment JEs block regeneration; cancelled-only history permits regeneration. A cancelled legacy consolidated employee-payment JE also no longer blocks prospective employee-specific settlement, while an active legacy consolidated payment JE still does.
+
+Phase 3 still creates draft accounting records only. It does not transmit payments or generate ACH/NACHA files.

@@ -29,6 +29,12 @@ PAYMENT_METHODS = (
 
 PAYMENT_METHOD_OPTIONS = "\n" + "\n".join(PAYMENT_METHODS)
 
+PAYMENT_STATUS_NOT_RECORDED = "Not Recorded"
+PAYMENT_STATUS_DRAFT = "Payment JE Draft"
+PAYMENT_STATUS_SUBMITTED = "Payment JE Submitted"
+PAYMENT_STATUS_CANCELLED = "Payment JE Cancelled"
+PAYMENT_STATUS_CONFLICT = "Payment JE Conflict"
+
 EMPLOYEE_PAYMENT_CUSTOM_FIELDS = {
     "Employee": [
         {
@@ -116,24 +122,46 @@ EMPLOYEE_PAYMENT_CUSTOM_FIELDS = {
             "no_copy": 1,
         },
         {
-            "fieldname": "rootedops_payroll_payment_key",
-            "label": "Payroll Payment Key",
+            "fieldname": "rootedops_payroll_payment_logical_key",
+            "label": "Payroll Payment Logical Key",
             "fieldtype": "Data",
             "insert_after": "rootedops_payroll_payment_method",
             "read_only": 1,
             "no_copy": 1,
+            "description": (
+                "Stable Salary Slip -> full-net-pay settlement identity shared by all payment attempts."
+            ),
+        },
+        {
+            "fieldname": "rootedops_payroll_payment_key",
+            "label": "Payroll Payment Attempt Key",
+            "fieldtype": "Data",
+            "insert_after": "rootedops_payroll_payment_logical_key",
+            "read_only": 1,
+            "no_copy": 1,
             "unique": 1,
             "description": (
-                "Reserved stable identity for the future Salary Slip -> employee payment JE relationship."
+                "Unique identity for one employee-payment JE attempt. Cancelled attempts retain their key."
             ),
+        },
+        {
+            "fieldname": "rootedops_payroll_payment_attempt",
+            "label": "Payroll Payment Attempt",
+            "fieldtype": "Int",
+            "insert_after": "rootedops_payroll_payment_key",
+            "read_only": 1,
+            "no_copy": 1,
+            "default": "0",
+            "description": "Sequential attempt number for this Salary Slip payment relationship.",
         },
     ],
 }
 
 
 def ensure_employee_payment_custom_fields():
-    """Install/update Phase-1 payment configuration and audit fields."""
+    """Install/update employee-payment configuration and lifecycle audit fields."""
     create_custom_fields(EMPLOYEE_PAYMENT_CUSTOM_FIELDS, update=True)
+    _backfill_employee_payment_lifecycle_fields()
     frappe.db.commit()
 
 
@@ -208,19 +236,134 @@ def build_employee_payment_key(salary_slip: str) -> str:
     return f"salary-slip:{salary_slip}:full-net-pay"
 
 
-def _get_active_payment_journal_entry(salary_slip: str):
-    """Return an existing non-cancelled employee-payment JE for a Salary Slip."""
+def build_employee_payment_attempt_key(salary_slip: str, attempt: int) -> str:
+    """Return a unique key for one JE attempt while preserving the stable logical key."""
+    logical_key = build_employee_payment_key(salary_slip)
+    attempt = cint(attempt)
+    if attempt < 1:
+        frappe.throw(_("Payroll payment attempt must be at least 1."))
+    return f"{logical_key}:attempt:{attempt}"
+
+
+def payment_status_from_docstatus(docstatus: int | None) -> str:
+    if docstatus is None:
+        return PAYMENT_STATUS_NOT_RECORDED
+    docstatus = cint(docstatus)
+    if docstatus == 0:
+        return PAYMENT_STATUS_DRAFT
+    if docstatus == 1:
+        return PAYMENT_STATUS_SUBMITTED
+    if docstatus == 2:
+        return PAYMENT_STATUS_CANCELLED
+    return PAYMENT_STATUS_NOT_RECORDED
+
+
+def _get_payment_journal_entry_history(salary_slip: str):
+    """Return all employee-payment JEs for a Salary Slip in creation order."""
+    return frappe.get_all(
+        "Journal Entry",
+        filters={"rootedops_payroll_payment_salary_slip": salary_slip},
+        fields=[
+            "name",
+            "docstatus",
+            "creation",
+            "modified",
+            "rootedops_payroll_payment_method",
+            "rootedops_payroll_payment_logical_key",
+            "rootedops_payroll_payment_key",
+            "rootedops_payroll_payment_attempt",
+        ],
+        order_by="creation asc, name asc",
+    )
+
+
+def summarize_payment_history(salary_slip: str, rows) -> dict:
+    """Summarize the live payment lifecycle for one Salary Slip.
+
+    Draft/submitted JEs are active settlement records and block regeneration.
+    Cancelled JEs remain audit history but make the Salary Slip eligible for a new
+    attempt. More than one active JE is surfaced as a conflict instead of being
+    silently resolved.
+    """
+    rows = list(rows or [])
+    active = [row for row in rows if cint(row.get("docstatus")) in (0, 1)]
+    cancelled = [row for row in rows if cint(row.get("docstatus")) == 2]
+
+    if len(active) > 1:
+        status = PAYMENT_STATUS_CONFLICT
+        current = active[-1]
+    elif active:
+        current = active[0]
+        status = payment_status_from_docstatus(current.get("docstatus"))
+    elif cancelled:
+        current = cancelled[-1]
+        status = PAYMENT_STATUS_CANCELLED
+    else:
+        current = None
+        status = PAYMENT_STATUS_NOT_RECORDED
+
+    attempts = []
+    for index, row in enumerate(rows, start=1):
+        attempts.append(
+            {
+                "journal_entry": row.get("name"),
+                "docstatus": cint(row.get("docstatus")),
+                "status": payment_status_from_docstatus(row.get("docstatus")),
+                "payment_method": row.get("rootedops_payroll_payment_method"),
+                "payment_key": row.get("rootedops_payroll_payment_key"),
+                "attempt": cint(row.get("rootedops_payroll_payment_attempt")) or index,
+            }
+        )
+
+    return {
+        "salary_slip": salary_slip,
+        "status": status,
+        "journal_entry": current.get("name") if current else None,
+        "docstatus": cint(current.get("docstatus")) if current else None,
+        "payment_method": current.get("rootedops_payroll_payment_method") if current else None,
+        "active_count": len(active),
+        "attempt_count": len(rows),
+        "next_attempt": len(rows) + 1,
+        "can_regenerate": not active,
+        "attempts": attempts,
+    }
+
+
+def resolve_salary_slip_payment_status(salary_slip: str) -> dict:
+    return summarize_payment_history(salary_slip, _get_payment_journal_entry_history(salary_slip))
+
+
+def _backfill_employee_payment_lifecycle_fields():
+    """Backfill Phase-2 JEs without changing accounting or legacy attempt keys."""
+    if not frappe.db.has_column("Journal Entry", "rootedops_payroll_payment_logical_key"):
+        return
+
     rows = frappe.get_all(
         "Journal Entry",
-        filters={
-            "rootedops_payroll_payment_salary_slip": salary_slip,
-            "docstatus": ["!=", 2],
-        },
-        fields=["name", "docstatus"],
-        order_by="creation asc",
-        limit=1,
+        filters={"rootedops_payroll_payment_salary_slip": ["is", "set"]},
+        fields=[
+            "name",
+            "rootedops_payroll_payment_salary_slip",
+            "rootedops_payroll_payment_logical_key",
+            "rootedops_payroll_payment_attempt",
+            "creation",
+        ],
+        order_by="rootedops_payroll_payment_salary_slip asc, creation asc, name asc",
     )
-    return rows[0] if rows else None
+
+    attempt_by_slip = {}
+    for row in rows:
+        slip = row.get("rootedops_payroll_payment_salary_slip")
+        if not slip:
+            continue
+        attempt_by_slip[slip] = attempt_by_slip.get(slip, 0) + 1
+        updates = {}
+        if not row.get("rootedops_payroll_payment_logical_key"):
+            updates["rootedops_payroll_payment_logical_key"] = build_employee_payment_key(slip)
+        if not cint(row.get("rootedops_payroll_payment_attempt")):
+            updates["rootedops_payroll_payment_attempt"] = attempt_by_slip[slip]
+        if updates:
+            frappe.db.set_value("Journal Entry", row.get("name"), updates, update_modified=False)
 
 
 def preflight_employee_payroll_payments(
@@ -232,7 +375,7 @@ def preflight_employee_payroll_payments(
 ):
     """Validate a complete employee-payment batch before any JE is inserted.
 
-    Phase 2 intentionally creates an all-or-nothing draft batch.  Every
+    Phase 3 preserves the all-or-nothing draft batch. Every
     positive-net-pay Salary Slip must be submitted, belong to the requested
     Payroll Entry/company, have an effective Employee payment configuration,
     resolve the payroll payable and checking accounts, and have no existing
@@ -286,11 +429,17 @@ def preflight_employee_payroll_payments(
                 )
             )
 
-        existing = _get_active_payment_journal_entry(slip_name)
-        if existing:
+        payment_status = resolve_salary_slip_payment_status(slip_name)
+        if payment_status["active_count"] > 1:
             frappe.throw(
-                _("Salary Slip {0} already has an active employee payment Journal Entry: {1}.").format(
-                    slip_name, existing.get("name")
+                _("Salary Slip {0} has multiple active employee payment Journal Entries. Resolve the conflict before continuing.").format(
+                    slip_name
+                )
+            )
+        if not payment_status["can_regenerate"]:
+            frappe.throw(
+                _("Salary Slip {0} already has {1}: {2}.").format(
+                    slip_name, payment_status["status"], payment_status.get("journal_entry")
                 )
             )
 
@@ -313,7 +462,12 @@ def preflight_employee_payroll_payments(
                 "posting_date": posting_date,
                 "net_pay": net_pay,
                 "payment_method": payment_method,
-                "payment_key": build_employee_payment_key(slip.name),
+                "logical_key": build_employee_payment_key(slip.name),
+                "payment_attempt": payment_status["next_attempt"],
+                "payment_key": build_employee_payment_attempt_key(
+                    slip.name, payment_status["next_attempt"]
+                ),
+                "prior_payment_status": payment_status["status"],
                 "payroll_payable_account": payroll_payable_account,
                 "checking_bank_account": checking_bank_account,
                 "cost_center": getattr(slip, "cost_center", None),
@@ -359,13 +513,15 @@ def _employee_payment_journal_entry_doc(plan):
             "user_remark": (
                 f"Payroll payment for {plan['employee_name']}; "
                 f"Salary Slip {plan['salary_slip']}; Payroll Entry {plan['payroll_entry']}; "
-                f"payment method {plan['payment_method']}."
+                f"payment method {plan['payment_method']}; payment attempt {plan['payment_attempt']}."
             ),
             "rootedops_payroll_payment_employee": plan["employee"],
             "rootedops_payroll_payment_salary_slip": plan["salary_slip"],
             "rootedops_payroll_payment_payroll_entry": plan["payroll_entry"],
             "rootedops_payroll_payment_method": plan["payment_method"],
+            "rootedops_payroll_payment_logical_key": plan["logical_key"],
             "rootedops_payroll_payment_key": plan["payment_key"],
+            "rootedops_payroll_payment_attempt": plan["payment_attempt"],
             "accounts": [debit, credit],
         }
     )
@@ -404,6 +560,9 @@ def create_employee_payroll_payment_drafts(
                 "net_pay": plan["net_pay"],
                 "journal_entry": je.name,
                 "docstatus": je.docstatus,
+                "status": payment_status_from_docstatus(je.docstatus),
+                "payment_attempt": plan["payment_attempt"],
+                "prior_payment_status": plan["prior_payment_status"],
             }
         )
 
@@ -418,3 +577,22 @@ def create_employee_payroll_payment_drafts(
         "checking_bank_account": preflight["checking_bank_account"],
         "zero_net_pay_salary_slips": preflight["zero_net_pay_salary_slips"],
     }
+
+
+def get_employee_payroll_payment_statuses(payroll_results) -> list[dict]:
+    """Return derived payment status for the Salary Slips in a payroll result set."""
+    statuses = []
+    for result in payroll_results or []:
+        slip_name = (result.get("slip_name") or "").strip()
+        if not slip_name:
+            continue
+        status = resolve_salary_slip_payment_status(slip_name)
+        status.update(
+            {
+                "employee": result.get("employee"),
+                "employee_name": result.get("employee_name") or result.get("employee"),
+                "net_pay": round(float(result.get("net_pay") or 0), 2),
+            }
+        )
+        statuses.append(status)
+    return statuses

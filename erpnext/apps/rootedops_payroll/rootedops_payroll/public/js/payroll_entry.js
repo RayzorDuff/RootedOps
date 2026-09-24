@@ -152,6 +152,39 @@ frappe.ui.form.on("Payroll Entry", {
       });
     }, "RootedOps Payroll");
 
+    frm.add_custom_button("Review Employee Payment Status", () => {
+      frappe.call({
+        method: "rootedops_payroll.api.payroll_entry_actions.get_employee_payment_statuses",
+        args: { payroll_entry_name: frm.doc.name },
+        freeze: true,
+        freeze_message: "Resolving employee payment status..."
+      }).then((r) => {
+        const data = r.message || {};
+        const rows = (data.payment_statuses || []).map((row) => `
+          <tr>
+            <td>${frappe.utils.escape_html(row.employee_name || row.employee || "")}</td>
+            <td>${frappe.utils.escape_html(row.salary_slip || "")}</td>
+            <td>${formatMoney(row.net_pay)}</td>
+            <td>${frappe.utils.escape_html(row.status || "")}</td>
+            <td>${row.journal_entry ? journalEntryLink(row.journal_entry) : "None"}</td>
+            <td>${row.attempt_count || 0}</td>
+          </tr>
+        `).join("");
+
+        frappe.msgprint({
+          title: "Employee Payment Status",
+          wide: true,
+          message: `
+            <p><b>Employees:</b> ${data.employee_count || 0}</p>
+            <table class="table table-bordered">
+              <thead><tr><th>Employee</th><th>Salary Slip</th><th>Net Pay</th><th>Status</th><th>Current / Last JE</th><th>Attempts</th></tr></thead>
+              <tbody>${rows || '<tr><td colspan="6">No submitted Salary Slips found.</td></tr>'}</tbody>
+            </table>
+          `
+        });
+      });
+    }, "RootedOps Payroll");
+
     frm.add_custom_button("Create Employee Payment Draft JEs", () => {
       frappe.call({
         method: "rootedops_payroll.api.payroll_entry_actions.create_employee_payment_draft_journal_entry",
@@ -165,6 +198,8 @@ frappe.ui.form.on("Payroll Entry", {
             <td>${frappe.utils.escape_html(row.employee_name || row.employee || "")}</td>
             <td>${frappe.utils.escape_html(row.payment_method || "")}</td>
             <td>${formatMoney(row.net_pay)}</td>
+            <td>${frappe.utils.escape_html(row.status || "Payment JE Draft")}</td>
+            <td>${row.payment_attempt || 1}</td>
             <td>${journalEntryLink(row.journal_entry)}</td>
           </tr>
         `).join("");
@@ -175,7 +210,7 @@ frappe.ui.form.on("Payroll Entry", {
             <p><b>Employees:</b> ${data.employee_count || 0}</p>
             <p><b>Total Net Pay:</b> ${formatMoney(data.total_net_pay)}</p>
             <table class="table table-bordered">
-              <thead><tr><th>Employee</th><th>Method</th><th>Net Pay</th><th>Journal Entry</th></tr></thead>
+              <thead><tr><th>Employee</th><th>Method</th><th>Net Pay</th><th>Status</th><th>Attempt</th><th>Journal Entry</th></tr></thead>
               <tbody>${rows}</tbody>
             </table>
           `

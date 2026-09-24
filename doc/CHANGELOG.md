@@ -4,6 +4,28 @@ All notable changes to this project will be documented in this file.
 
 ---
 
+## [1.3.0] - 2026-09-24
+
+### Added
+
+- Derived employee payroll-payment lifecycle states for each Salary Slip: Not Recorded, Draft, Submitted, Cancelled, and conflict detection for multiple active JEs.
+- Stable logical Salary Slip payment identity plus sequential, unique payment-attempt keys so cancelled JEs remain auditable while replacements can be generated safely.
+- Payroll Entry **Review Employee Payment Status** action showing current/last payment JE and attempt count.
+- Migration backfill for Phase-2 employee-payment JEs to populate logical-key and attempt metadata without changing accounting entries.
+
+### Changed
+
+- Employee-payment generation now allows regeneration only when prior payment attempts are cancelled (or absent); draft/submitted JEs continue to block duplicates.
+- Cancelled legacy consolidated employee-payment JEs no longer block prospective employee-specific settlement, while active legacy payment JEs still do.
+- `rootedops_payroll` version advanced to `0.2.0`.
+
+### Notes
+
+- Payroll accrual, withholding-reserve transfers, and tax-remittance behavior are unchanged.
+- Phase 3 does not execute payments or generate NACHA files.
+
+---
+
 ## [1.2.1] - 2026-09-24
 
 ### Fixed

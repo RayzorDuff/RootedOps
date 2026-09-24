@@ -23,7 +23,10 @@ from rootedops_payroll.services.payroll_engine import (
     ytd_gross_before_period,
 )
 
-from rootedops_payroll.services.employee_payments import create_employee_payroll_payment_drafts
+from rootedops_payroll.services.employee_payments import (
+    create_employee_payroll_payment_drafts,
+    get_employee_payroll_payment_statuses,
+)
 
 PAYROLL_ENTRY_FIELD_CONSOLIDATED_JE = "rootedops_consolidated_journal_entry"
 PAYROLL_ENTRY_FIELD_EMPLOYEE_PAYMENT_JE = "rootedops_employee_payment_journal_entry"
@@ -281,6 +284,32 @@ def _get_existing_link(pe, fieldname, label):
         frappe.throw(_("This Payroll Entry already has a {0}: {1}").format(label, existing))
 
 
+def _assert_no_active_legacy_employee_payment_link(pe):
+    """Block Phase-3 employee payments only when the legacy consolidated JE is active.
+
+    A cancelled legacy consolidated payment JE no longer clears Payroll Payable and
+    therefore does not prevent prospective employee-specific settlement. The link is
+    retained for audit/history rather than being silently cleared.
+    """
+    existing = pe.get(PAYROLL_ENTRY_FIELD_EMPLOYEE_PAYMENT_JE)
+    if not existing:
+        return None
+
+    if not frappe.db.exists("Journal Entry", existing):
+        pe.db_set(PAYROLL_ENTRY_FIELD_EMPLOYEE_PAYMENT_JE, None, update_modified=False)
+        pe.reload()
+        return None
+
+    docstatus = frappe.db.get_value("Journal Entry", existing, "docstatus")
+    if int(docstatus or 0) != 2:
+        frappe.throw(
+            _("This Payroll Entry already has an active legacy consolidated employee payment Journal Entry: {0}").format(
+                existing
+            )
+        )
+    return existing
+
+
 def _finalize_salary_slips_in_result(result):
     slip_names = list(dict.fromkeys(result.get("salary_slip_names", []) or []))
     finalized = []
@@ -510,9 +539,10 @@ def create_employee_payment_draft_journal_entry(payroll_entry_name: str):
 
     pe, ctx = _get_payroll_entry_context(payroll_entry_name)
 
-    # A populated legacy field represents the pre-Phase-2 consolidated payment
-    # JE.  Never add employee-specific payment JEs on top of it.
-    _get_existing_link(pe, PAYROLL_ENTRY_FIELD_EMPLOYEE_PAYMENT_JE, "legacy consolidated employee payment Journal Entry")
+    # A pre-Phase-2 consolidated payment JE blocks employee-specific settlement
+    # while active. A cancelled legacy JE is retained as history but no longer
+    # clears Payroll Payable, so replacement employee-specific settlement is safe.
+    _assert_no_active_legacy_employee_payment_link(pe)
 
     if not pe.get(PAYROLL_ENTRY_FIELD_CONSOLIDATED_JE):
         frappe.throw(_("Create the consolidated payroll accrual Journal Entry first."))
@@ -544,6 +574,32 @@ def create_employee_payment_draft_journal_entry(payroll_entry_name: str):
         "checking_bank_account": payment_result.get("checking_bank_account"),
         "zero_net_pay_salary_slips": payment_result.get("zero_net_pay_salary_slips", []),
         "salary_slip_names": result.get("salary_slip_names", []),
+        "payment_statuses": get_employee_payroll_payment_statuses(payroll_results),
+    }
+
+
+@frappe.whitelist()
+def get_employee_payment_statuses(payroll_entry_name: str):
+    """Return live employee-payment lifecycle state for submitted Salary Slips."""
+    _require_payroll_entry_columns(PAYROLL_ENTRY_FIELD_EMPLOYEE_PAYMENT_JE)
+    pe, ctx = _get_payroll_entry_context(payroll_entry_name)
+    employees = _get_employees_for_payroll_entry(pe, ctx)
+    result = _build_result_from_existing_salary_slips(pe, ctx, employees, submitted_only=True)
+
+    payroll_results = (result or {}).get("payroll_results", [])
+    statuses = get_employee_payroll_payment_statuses(payroll_results)
+
+    legacy_je = pe.get(PAYROLL_ENTRY_FIELD_EMPLOYEE_PAYMENT_JE)
+    legacy_docstatus = None
+    if legacy_je and frappe.db.exists("Journal Entry", legacy_je):
+        legacy_docstatus = frappe.db.get_value("Journal Entry", legacy_je, "docstatus")
+
+    return {
+        "payroll_entry": pe.name,
+        "employee_count": len(statuses),
+        "payment_statuses": statuses,
+        "legacy_employee_payment_journal_entry": legacy_je,
+        "legacy_employee_payment_docstatus": legacy_docstatus,
     }
 
 
