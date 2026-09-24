@@ -2,6 +2,26 @@
 
 Payroll App for RootedOps
 
+
+## Employee payroll payment configuration (Issue #8, Phase 1)
+
+RootedOps installs a payment-configuration foundation on **Employee** for future
+employee-specific payroll settlement. This phase does **not** create or submit
+payment Journal Entries. It records only the payment method, whether the
+configuration is active, an optional effective date, and non-sensitive operator
+instructions. Supported methods are `ACH`, `Venmo`, `Apple Pay / Apple Cash`,
+`Paper Check`, and `Other / Manual`.
+
+ACH routing and account numbers are intentionally **not** part of these fields.
+They will be added later with protected storage as part of Issue #6. Never place
+ACH credentials in **Payroll Payment Instructions**.
+
+The migration also reserves read-only Journal Entry linkage fields for the later
+employee-payment service: Employee, Salary Slip, Payroll Entry, payment method,
+and a unique stable payment key. Phase 1 does not populate those Journal Entry
+fields; they exist now so subsequent phases can add payment creation without
+changing the metadata contract.
+
 ### Payroll reports
 
 The app includes the standard ERPNext Script Report **Quarterly Payroll Tax Report**.
