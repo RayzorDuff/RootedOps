@@ -4,6 +4,27 @@ All notable changes to this project will be documented in this file.
 
 ---
 
+## [1.2.0] - 2026-09-24
+
+### Added
+
+- Employee payroll-payment method configuration and structured payment linkage metadata for RootedOps payroll.
+- Employee-specific payroll payment draft Journal Entries tied to Employee, Salary Slip, Payroll Entry, payment method, and a stable full-net-pay payment key.
+- Batch preflight validation for submitted Salary Slips, effective employee payment configuration, account resolution, and duplicate-payment prevention.
+
+### Changed
+
+- Payroll Entry employee-payment settlement now creates one draft Bank Entry Journal Entry per employee/Salary Slip instead of one consolidated employee-payment Journal Entry.
+- RootedOps payroll app version advanced to `0.1.0` for the Issue #8 phased implementation.
+
+### Notes
+
+- Payroll accrual, withholding-reserve transfer, and tax-remittance accounting remain unchanged and consolidated where appropriate.
+- Existing historical consolidated employee-payment Journal Entries are not migrated or rewritten.
+- Payment execution, cancellation/amendment lifecycle handling, and ACH/NACHA generation remain later phases.
+
+---
+
 ## [1.1.0] - 2026-08-13
 
 ### Added

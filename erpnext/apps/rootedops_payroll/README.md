@@ -134,3 +134,10 @@ The report reads Employee Checkin IN/OUT sessions, applies the employee's Rooted
 The report deliberately does not allocate federal or Colorado income-tax withholding to a
 partial event window because those are employee deductions calculated on the complete payroll
 period. It does not create or modify Salary Slips or Journal Entries.
+## Employee-specific payroll payment drafts (Issue #8 Phase 2)
+
+The Payroll Entry **Create Employee Payment Draft JEs** action now creates one draft Bank Entry Journal Entry per submitted, positive-net-pay Salary Slip instead of one consolidated employee-payment JE. The service preflights the complete batch before inserting any Journal Entries, requires an active/effective Employee payroll payment configuration, preserves Employee/Salary Slip/Payroll Entry/payment-method metadata, and refuses duplicates for a Salary Slip.
+
+The debit clears Payroll Payable with the Employee as party and the credit uses the configured/default company checking Bank GL account. Payroll accrual, withholding-reserve transfers, and tax-remittance accounting remain consolidated and unchanged. Existing legacy consolidated employee-payment JEs are not rewritten; a populated legacy Payroll Entry payment-JE link blocks the new employee-specific action to avoid double settlement.
+
+Phase 2 creates **draft accounting records only**. It does not execute ACH, Venmo, Apple Cash, or check payments, and cancellation/amendment lifecycle handling is reserved for the next phase.

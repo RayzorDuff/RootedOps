@@ -152,22 +152,32 @@ frappe.ui.form.on("Payroll Entry", {
       });
     }, "RootedOps Payroll");
 
-    frm.add_custom_button("Create Employee Payment Draft JE", () => {
+    frm.add_custom_button("Create Employee Payment Draft JEs", () => {
       frappe.call({
         method: "rootedops_payroll.api.payroll_entry_actions.create_employee_payment_draft_journal_entry",
         args: { payroll_entry_name: frm.doc.name },
         freeze: true,
-        freeze_message: "Creating employee payment Journal Entry draft..."
+        freeze_message: "Creating employee-specific payment Journal Entry drafts..."
       }).then((r) => {
         const data = r.message || {};
-        const liability = data.liability_summary || {};
-        const banks = data.recommended_bank_accounts || {};
+        const rows = (data.journal_entries || []).map((row) => `
+          <tr>
+            <td>${frappe.utils.escape_html(row.employee_name || row.employee || "")}</td>
+            <td>${frappe.utils.escape_html(row.payment_method || "")}</td>
+            <td>${formatMoney(row.net_pay)}</td>
+            <td>${journalEntryLink(row.journal_entry)}</td>
+          </tr>
+        `).join("");
         frappe.msgprint({
-          title: "Employee Payment JE Draft Created",
+          title: "Employee Payment JE Drafts Created",
           message: `
-            <p><b>Journal Entry:</b> ${journalEntryLink(data.journal_entry)}</p>
-            <p><b>Checking Bank:</b> ${frappe.utils.escape_html(banks.checking_bank_account || "Not resolved")}</p>
-            <p><b>Net Pay:</b> ${formatMoney(liability.net_pay)}</p>
+            <p><b>Checking Bank:</b> ${frappe.utils.escape_html(data.checking_bank_account || "Not resolved")}</p>
+            <p><b>Employees:</b> ${data.employee_count || 0}</p>
+            <p><b>Total Net Pay:</b> ${formatMoney(data.total_net_pay)}</p>
+            <table class="table table-bordered">
+              <thead><tr><th>Employee</th><th>Method</th><th>Net Pay</th><th>Journal Entry</th></tr></thead>
+              <tbody>${rows}</tbody>
+            </table>
           `
         });
         frm.reload_doc();

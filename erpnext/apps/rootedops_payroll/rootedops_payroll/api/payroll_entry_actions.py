@@ -6,7 +6,6 @@ from rootedops_payroll.services.payroll_engine import (
     build_consolidated_payroll_cash_flow_preview,
     build_consolidated_payroll_journal_entry_preview,
     calculate_colorado_famli_premium,
-    create_consolidated_employee_payment_journal_entry_draft,
     create_consolidated_payroll_journal_entry_draft,
     create_consolidated_tax_reserve_transfer_journal_entry_draft,
     finalize_custom_salary_slip,
@@ -23,6 +22,8 @@ from rootedops_payroll.services.payroll_engine import (
     summarize_consolidated_payroll_liabilities,
     ytd_gross_before_period,
 )
+
+from rootedops_payroll.services.employee_payments import create_employee_payroll_payment_drafts
 
 PAYROLL_ENTRY_FIELD_CONSOLIDATED_JE = "rootedops_consolidated_journal_entry"
 PAYROLL_ENTRY_FIELD_EMPLOYEE_PAYMENT_JE = "rootedops_employee_payment_journal_entry"
@@ -497,13 +498,21 @@ def create_consolidated_draft_journal_entry(payroll_entry_name: str):
 
 @frappe.whitelist()
 def create_employee_payment_draft_journal_entry(payroll_entry_name: str):
+    """Create one draft employee-payment JE for each submitted Salary Slip.
+
+    The method name is retained for Appsmith/client compatibility even though
+    Phase 2 now returns a batch of employee-specific Journal Entries.
+    """
     _require_payroll_entry_columns(
         PAYROLL_ENTRY_FIELD_CONSOLIDATED_JE,
         PAYROLL_ENTRY_FIELD_EMPLOYEE_PAYMENT_JE,
     )
 
     pe, ctx = _get_payroll_entry_context(payroll_entry_name)
-    _get_existing_link(pe, PAYROLL_ENTRY_FIELD_EMPLOYEE_PAYMENT_JE, "employee payment Journal Entry")
+
+    # A populated legacy field represents the pre-Phase-2 consolidated payment
+    # JE.  Never add employee-specific payment JEs on top of it.
+    _get_existing_link(pe, PAYROLL_ENTRY_FIELD_EMPLOYEE_PAYMENT_JE, "legacy consolidated employee payment Journal Entry")
 
     if not pe.get(PAYROLL_ENTRY_FIELD_CONSOLIDATED_JE):
         frappe.throw(_("Create the consolidated payroll accrual Journal Entry first."))
@@ -517,23 +526,24 @@ def create_employee_payment_draft_journal_entry(payroll_entry_name: str):
     if not payroll_results:
         frappe.throw(_("No payroll results were generated for this Payroll Entry."))
 
-    je_result = create_consolidated_employee_payment_journal_entry_draft(
-        payroll_results=payroll_results,
-        posting_date=ctx["end_date"],
+    payment_result = create_employee_payroll_payment_drafts(
+        payroll_results,
+        payroll_entry=pe.name,
         company=ctx["company"],
+        posting_date=ctx["end_date"],
     )
-    journal_entry_name = _extract_journal_entry_name(je_result)
 
     _write_payroll_entry_summary(pe, result)
-    _write_payroll_entry_links(pe, **{PAYROLL_ENTRY_FIELD_EMPLOYEE_PAYMENT_JE: journal_entry_name})
 
     return {
         "payroll_entry": pe.name,
         "employees": employees,
-        "journal_entry": journal_entry_name,
+        "journal_entries": payment_result.get("journal_entries", []),
+        "employee_count": payment_result.get("employee_count", 0),
+        "total_net_pay": payment_result.get("total_net_pay", 0),
+        "checking_bank_account": payment_result.get("checking_bank_account"),
+        "zero_net_pay_salary_slips": payment_result.get("zero_net_pay_salary_slips", []),
         "salary_slip_names": result.get("salary_slip_names", []),
-        "recommended_bank_accounts": je_result.get("recommended_bank_accounts"),
-        "liability_summary": je_result.get("liability_summary"),
     }
 
 
