@@ -4,6 +4,28 @@ All notable changes to this project will be documented in this file.
 
 ---
 
+## [1.3.1] - 2026-09-24
+
+### Added
+
+- Live employee-payment settlement table directly on Payroll Entry, including payment method, Salary Slip, current/last JE, lifecycle state, attempt count, and accounting verification.
+- Batch settlement summary showing expected net pay, draft/submitted payment totals, and outstanding net pay.
+- Accounting-consistency validation that checks employee-specific payment JEs against Salary Slip net pay, Employee-party Payroll Payable debit, checking-account credit, company, Salary Slip, and Payroll Entry linkage.
+- Regression coverage for correct payment accounting, amount mismatches, wrong employee-party attribution, and payroll-level settlement totals.
+
+### Changed
+
+- Newly created employee-payment JEs are verified against their actual accounting rows before the request can commit.
+- Payment-status review now surfaces accounting mismatches and active-JE conflicts instead of treating every linked JE as valid settlement accounting.
+- `rootedops_payroll` version advanced to `0.2.1`.
+
+### Notes
+
+- This remains Issue #8 development work, so it uses a patch version and is not tagged. A minor/tagged release should be created only after Issue #8 is verified and closed.
+- Payment execution and ACH/NACHA generation remain outside Issue #8.
+
+---
+
 ## [1.3.0] - 2026-09-24
 
 ### Added

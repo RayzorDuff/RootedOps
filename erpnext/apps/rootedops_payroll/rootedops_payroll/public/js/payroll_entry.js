@@ -13,9 +13,95 @@ function salarySlipLinks(names) {
   )).join("<br>");
 }
 
+function salarySlipLink(name) {
+  if (!name) return "None";
+  return `<a href="/app/salary-slip/${encodeURIComponent(name)}">${frappe.utils.escape_html(name)}</a>`;
+}
+
+function employeePaymentStatusHtml(data) {
+  const summary = data.payment_summary || {};
+  const statuses = data.payment_statuses || [];
+  const rows = statuses.map((row) => {
+    const accountingErrors = (row.accounting_errors || []).map((message) => (
+      frappe.utils.escape_html(message)
+    )).join(" ");
+    const accountingDetail = accountingErrors
+      ? `<br><small class="text-danger">${accountingErrors}</small>`
+      : "";
+    return `
+      <tr>
+        <td>${frappe.utils.escape_html(row.employee_name || row.employee || "")}</td>
+        <td>${salarySlipLink(row.salary_slip)}</td>
+        <td>${frappe.utils.escape_html(row.payment_method || "")}</td>
+        <td>${formatMoney(row.net_pay)}</td>
+        <td>${frappe.utils.escape_html(row.status || "")}</td>
+        <td>${row.journal_entry ? journalEntryLink(row.journal_entry) : "None"}</td>
+        <td>${row.attempt_count || 0}</td>
+        <td>${frappe.utils.escape_html(row.accounting_status || "Not Recorded")}${accountingDetail}</td>
+      </tr>
+    `;
+  }).join("");
+
+  let alertClass = "alert-info";
+  let alertText = "Employee payment accounting is not yet fully recorded.";
+  if ((summary.conflict_count || 0) > 0 || (summary.accounting_mismatch_count || 0) > 0) {
+    alertClass = "alert-danger";
+    alertText = "Employee payment accounting needs review before further settlement activity.";
+  } else if (summary.all_positive_net_pay_recorded && summary.all_accounting_consistent) {
+    alertClass = "alert-success";
+    alertText = "All positive-net-pay Salary Slips have an active employee payment JE and recorded accounting matches net pay.";
+  }
+
+  const legacy = data.legacy_employee_payment_journal_entry;
+  const legacyWarning = legacy && Number(data.legacy_employee_payment_docstatus) !== 2
+    ? `<div class="alert alert-warning">Legacy consolidated employee-payment JE ${journalEntryLink(legacy)} is still active and blocks employee-specific settlement.</div>`
+    : "";
+
+  return `
+    <div class="alert ${alertClass}">${alertText}</div>
+    ${legacyWarning}
+    <div class="row">
+      <div class="col-sm-3"><b>Expected Net Pay</b><br>${formatMoney(summary.expected_net_pay_total)}</div>
+      <div class="col-sm-3"><b>Draft Payment JEs</b><br>${formatMoney(summary.draft_payment_total)}</div>
+      <div class="col-sm-3"><b>Submitted Payment JEs</b><br>${formatMoney(summary.submitted_payment_total)}</div>
+      <div class="col-sm-3"><b>Outstanding</b><br>${formatMoney(summary.outstanding_net_pay_total)}</div>
+    </div>
+    <br>
+    <table class="table table-bordered table-condensed">
+      <thead>
+        <tr><th>Employee</th><th>Salary Slip</th><th>Method</th><th>Net Pay</th><th>Status</th><th>Current / Last JE</th><th>Attempts</th><th>Accounting</th></tr>
+      </thead>
+      <tbody>${rows || '<tr><td colspan="8">No submitted Salary Slips found.</td></tr>'}</tbody>
+    </table>
+  `;
+}
+
+function renderEmployeePaymentStatusPanel(frm, data) {
+  const field = frm.fields_dict && frm.fields_dict.rootedops_employee_payment_status_html;
+  if (!field || !field.$wrapper) return;
+  field.$wrapper.html(employeePaymentStatusHtml(data || {}));
+}
+
+function refreshEmployeePaymentStatusPanel(frm) {
+  const field = frm.fields_dict && frm.fields_dict.rootedops_employee_payment_status_html;
+  if (!field || !field.$wrapper) return;
+
+  field.$wrapper.html('<p class="text-muted">Loading employee payment status...</p>');
+  frappe.call({
+    method: "rootedops_payroll.api.payroll_entry_actions.get_employee_payment_statuses",
+    args: { payroll_entry_name: frm.doc.name }
+  }).then((r) => {
+    renderEmployeePaymentStatusPanel(frm, r.message || {});
+  }).catch(() => {
+    field.$wrapper.html('<p class="text-muted">Employee payment status could not be loaded.</p>');
+  });
+}
+
 frappe.ui.form.on("Payroll Entry", {
   refresh(frm) {
     if (frm.is_new()) return;
+
+    refreshEmployeePaymentStatusPanel(frm);
 
     frm.add_custom_button("Preview Attendance Payroll", () => {
       frappe.call({
@@ -160,27 +246,12 @@ frappe.ui.form.on("Payroll Entry", {
         freeze_message: "Resolving employee payment status..."
       }).then((r) => {
         const data = r.message || {};
-        const rows = (data.payment_statuses || []).map((row) => `
-          <tr>
-            <td>${frappe.utils.escape_html(row.employee_name || row.employee || "")}</td>
-            <td>${frappe.utils.escape_html(row.salary_slip || "")}</td>
-            <td>${formatMoney(row.net_pay)}</td>
-            <td>${frappe.utils.escape_html(row.status || "")}</td>
-            <td>${row.journal_entry ? journalEntryLink(row.journal_entry) : "None"}</td>
-            <td>${row.attempt_count || 0}</td>
-          </tr>
-        `).join("");
+        renderEmployeePaymentStatusPanel(frm, data);
 
         frappe.msgprint({
           title: "Employee Payment Status",
           wide: true,
-          message: `
-            <p><b>Employees:</b> ${data.employee_count || 0}</p>
-            <table class="table table-bordered">
-              <thead><tr><th>Employee</th><th>Salary Slip</th><th>Net Pay</th><th>Status</th><th>Current / Last JE</th><th>Attempts</th></tr></thead>
-              <tbody>${rows || '<tr><td colspan="6">No submitted Salary Slips found.</td></tr>'}</tbody>
-            </table>
-          `
+          message: employeePaymentStatusHtml(data)
         });
       });
     }, "RootedOps Payroll");

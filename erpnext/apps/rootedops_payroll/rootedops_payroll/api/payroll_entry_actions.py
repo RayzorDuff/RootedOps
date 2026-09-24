@@ -26,6 +26,7 @@ from rootedops_payroll.services.payroll_engine import (
 from rootedops_payroll.services.employee_payments import (
     create_employee_payroll_payment_drafts,
     get_employee_payroll_payment_statuses,
+    summarize_employee_payment_statuses,
 )
 
 PAYROLL_ENTRY_FIELD_CONSOLIDATED_JE = "rootedops_consolidated_journal_entry"
@@ -562,6 +563,11 @@ def create_employee_payment_draft_journal_entry(payroll_entry_name: str):
         company=ctx["company"],
         posting_date=ctx["end_date"],
     )
+    payment_statuses = get_employee_payroll_payment_statuses(
+        payroll_results,
+        payroll_entry=pe.name,
+        company=ctx["company"],
+    )
 
     _write_payroll_entry_summary(pe, result)
 
@@ -574,7 +580,8 @@ def create_employee_payment_draft_journal_entry(payroll_entry_name: str):
         "checking_bank_account": payment_result.get("checking_bank_account"),
         "zero_net_pay_salary_slips": payment_result.get("zero_net_pay_salary_slips", []),
         "salary_slip_names": result.get("salary_slip_names", []),
-        "payment_statuses": get_employee_payroll_payment_statuses(payroll_results),
+        "payment_statuses": payment_statuses,
+        "payment_summary": summarize_employee_payment_statuses(payment_statuses),
     }
 
 
@@ -587,7 +594,12 @@ def get_employee_payment_statuses(payroll_entry_name: str):
     result = _build_result_from_existing_salary_slips(pe, ctx, employees, submitted_only=True)
 
     payroll_results = (result or {}).get("payroll_results", [])
-    statuses = get_employee_payroll_payment_statuses(payroll_results)
+    statuses = get_employee_payroll_payment_statuses(
+        payroll_results,
+        payroll_entry=pe.name,
+        company=ctx["company"],
+    )
+    payment_summary = summarize_employee_payment_statuses(statuses)
 
     legacy_je = pe.get(PAYROLL_ENTRY_FIELD_EMPLOYEE_PAYMENT_JE)
     legacy_docstatus = None
@@ -598,6 +610,7 @@ def get_employee_payment_statuses(payroll_entry_name: str):
         "payroll_entry": pe.name,
         "employee_count": len(statuses),
         "payment_statuses": statuses,
+        "payment_summary": payment_summary,
         "legacy_employee_payment_journal_entry": legacy_je,
         "legacy_employee_payment_docstatus": legacy_docstatus,
     }

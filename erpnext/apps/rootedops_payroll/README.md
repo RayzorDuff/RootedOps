@@ -151,3 +151,11 @@ Cancelled payment JEs remain immutable audit history but no longer count as an a
 The Payroll Entry **Review Employee Payment Status** action shows the current/last JE and number of attempts for each submitted Salary Slip. Draft or submitted payment JEs block regeneration; cancelled-only history permits regeneration. A cancelled legacy consolidated employee-payment JE also no longer blocks prospective employee-specific settlement, while an active legacy consolidated payment JE still does.
 
 Phase 3 still creates draft accounting records only. It does not transmit payments or generate ACH/NACHA files.
+
+## Employee payment reconciliation UI (Issue #8 Phase 4)
+
+Payroll Entry now includes a live **RootedOps Employee Payment Status** section in addition to the explicit **Review Employee Payment Status** action. The status table shows each submitted Salary Slip, employee payment method, net pay, current/last payment JE, lifecycle state, attempt count, and accounting verification. The summary distinguishes expected net pay, draft payment JEs, submitted payment JEs, and outstanding net pay.
+
+RootedOps also verifies the actual employee-payment Journal Entry accounting. A valid payment JE must debit the expected Payroll Payable account for the correct Employee party and Salary Slip net-pay amount, credit the configured/default checking account for the same amount, and retain the expected Company, Employee, Salary Slip, and Payroll Entry linkage. Newly created drafts are checked before the request commits, while existing linked JEs are checked whenever payment status is reviewed. Accounting mismatches and multiple-active-JE conflicts are surfaced for correction rather than silently counted as valid settlement.
+
+This phase still records accounting only; it does not transmit employee payments. ACH/NACHA output is implemented separately under Issue #6.

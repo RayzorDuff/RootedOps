@@ -35,6 +35,10 @@ PAYMENT_STATUS_SUBMITTED = "Payment JE Submitted"
 PAYMENT_STATUS_CANCELLED = "Payment JE Cancelled"
 PAYMENT_STATUS_CONFLICT = "Payment JE Conflict"
 
+PAYMENT_ACCOUNTING_MATCH = "Matches Salary Slip"
+PAYMENT_ACCOUNTING_MISMATCH = "Accounting Mismatch"
+PAYMENT_ACCOUNTING_NOT_RECORDED = "Not Recorded"
+
 EMPLOYEE_PAYMENT_CUSTOM_FIELDS = {
     "Employee": [
         {
@@ -155,6 +159,21 @@ EMPLOYEE_PAYMENT_CUSTOM_FIELDS = {
             "description": "Sequential attempt number for this Salary Slip payment relationship.",
         },
     ],
+    "Payroll Entry": [
+        {
+            "fieldname": "rootedops_employee_payment_status_section",
+            "label": "RootedOps Employee Payment Status",
+            "fieldtype": "Section Break",
+            "insert_after": "rootedops_payroll_summary",
+            "collapsible": 1,
+        },
+        {
+            "fieldname": "rootedops_employee_payment_status_html",
+            "label": "Employee Payment Status",
+            "fieldtype": "HTML",
+            "insert_after": "rootedops_employee_payment_status_section",
+        },
+    ],
 }
 
 
@@ -256,6 +275,156 @@ def payment_status_from_docstatus(docstatus: int | None) -> str:
     if docstatus == 2:
         return PAYMENT_STATUS_CANCELLED
     return PAYMENT_STATUS_NOT_RECORDED
+
+
+def _row_value(row, fieldname, default=None):
+    if isinstance(row, dict):
+        return row.get(fieldname, default)
+    return getattr(row, fieldname, default)
+
+
+def _money(value) -> float:
+    return round(float(value or 0), 2)
+
+
+def assess_employee_payment_journal_entry(je, expected: dict) -> dict:
+    """Validate one employee-payment JE against its authoritative Salary Slip plan.
+
+    This intentionally validates the accounting lines in addition to the header
+    linkage.  A JE is considered consistent only when the full net-pay amount is
+    debited from the expected employee Payroll Payable row and credited to the
+    expected checking account, with no additional debit/credit amount elsewhere.
+    """
+    errors = []
+    net_pay = _money(expected.get("net_pay"))
+
+    header_expectations = (
+        ("company", expected.get("company"), "Company"),
+        ("rootedops_payroll_payment_employee", expected.get("employee"), "Employee"),
+        (
+            "rootedops_payroll_payment_salary_slip",
+            expected.get("salary_slip"),
+            "Salary Slip",
+        ),
+        (
+            "rootedops_payroll_payment_payroll_entry",
+            expected.get("payroll_entry"),
+            "Payroll Entry",
+        ),
+    )
+    for fieldname, expected_value, label in header_expectations:
+        if expected_value and _row_value(je, fieldname) != expected_value:
+            errors.append(
+                _("{0} link is {1}, expected {2}.").format(
+                    label,
+                    _row_value(je, fieldname) or _("blank"),
+                    expected_value,
+                )
+            )
+
+    rows = list(_row_value(je, "accounts", []) or [])
+    total_debit = _money(
+        sum(_money(_row_value(row, "debit_in_account_currency")) for row in rows)
+    )
+    total_credit = _money(
+        sum(_money(_row_value(row, "credit_in_account_currency")) for row in rows)
+    )
+
+    payable_debit = _money(
+        sum(
+            _money(_row_value(row, "debit_in_account_currency"))
+            for row in rows
+            if _row_value(row, "account") == expected.get("payroll_payable_account")
+            and _row_value(row, "party_type") == "Employee"
+            and _row_value(row, "party") == expected.get("employee")
+        )
+    )
+    checking_credit = _money(
+        sum(
+            _money(_row_value(row, "credit_in_account_currency"))
+            for row in rows
+            if _row_value(row, "account") == expected.get("checking_bank_account")
+        )
+    )
+
+    if total_debit != net_pay:
+        errors.append(
+            _("Total debit is {0}, expected Salary Slip net pay {1}.").format(
+                total_debit, net_pay
+            )
+        )
+    if total_credit != net_pay:
+        errors.append(
+            _("Total credit is {0}, expected Salary Slip net pay {1}.").format(
+                total_credit, net_pay
+            )
+        )
+    if payable_debit != net_pay:
+        errors.append(
+            _("Payroll Payable debit is {0}, expected {1}.").format(payable_debit, net_pay)
+        )
+    if checking_credit != net_pay:
+        errors.append(
+            _("Checking-account credit is {0}, expected {1}.").format(
+                checking_credit, net_pay
+            )
+        )
+
+    return {
+        "consistent": not errors,
+        "status": PAYMENT_ACCOUNTING_MATCH if not errors else PAYMENT_ACCOUNTING_MISMATCH,
+        "errors": errors,
+        "expected_net_pay": net_pay,
+        "total_debit": total_debit,
+        "total_credit": total_credit,
+        "payroll_payable_debit": payable_debit,
+        "checking_credit": checking_credit,
+    }
+
+
+def summarize_employee_payment_statuses(statuses) -> dict:
+    """Return batch-level settlement totals for Payroll Entry UI/reconciliation."""
+    statuses = list(statuses or [])
+    positive = [row for row in statuses if _money(row.get("net_pay")) > 0]
+
+    expected_total = _money(sum(_money(row.get("net_pay")) for row in positive))
+    draft_total = _money(
+        sum(_money(row.get("net_pay")) for row in positive if row.get("status") == PAYMENT_STATUS_DRAFT)
+    )
+    submitted_total = _money(
+        sum(
+            _money(row.get("net_pay"))
+            for row in positive
+            if row.get("status") == PAYMENT_STATUS_SUBMITTED
+        )
+    )
+    active_expected_total = _money(draft_total + submitted_total)
+    outstanding_total = _money(max(expected_total - active_expected_total, 0))
+    conflict_count = sum(1 for row in positive if row.get("status") == PAYMENT_STATUS_CONFLICT)
+    mismatch_count = sum(1 for row in positive if row.get("accounting_consistent") is False)
+    not_recorded_count = sum(
+        1 for row in positive if row.get("status") == PAYMENT_STATUS_NOT_RECORDED
+    )
+    cancelled_count = sum(1 for row in positive if row.get("status") == PAYMENT_STATUS_CANCELLED)
+
+    return {
+        "employee_count": len(statuses),
+        "positive_net_pay_employee_count": len(positive),
+        "expected_net_pay_total": expected_total,
+        "draft_payment_total": draft_total,
+        "submitted_payment_total": submitted_total,
+        "active_payment_total": active_expected_total,
+        "outstanding_net_pay_total": outstanding_total,
+        "not_recorded_count": not_recorded_count,
+        "cancelled_count": cancelled_count,
+        "conflict_count": conflict_count,
+        "accounting_mismatch_count": mismatch_count,
+        "all_positive_net_pay_recorded": bool(positive)
+        and not_recorded_count == 0
+        and cancelled_count == 0
+        and conflict_count == 0,
+        "all_accounting_consistent": conflict_count == 0 and mismatch_count == 0,
+    }
 
 
 def _get_payment_journal_entry_history(salary_slip: str):
@@ -527,6 +696,41 @@ def _employee_payment_journal_entry_doc(plan):
     )
 
 
+def _expected_payment_plan_from_result(
+    result,
+    *,
+    payroll_entry: str,
+    company: str,
+    checking_bank_account: str,
+):
+    """Resolve authoritative accounting expectations for an existing Salary Slip."""
+    from rootedops_payroll.services.payroll_engine import get_payroll_account_map
+
+    slip_name = (result.get("slip_name") or "").strip()
+    if not slip_name:
+        frappe.throw(_("Payroll result is missing its Salary Slip name."))
+
+    slip = frappe.get_doc("Salary Slip", slip_name)
+    account_map = get_payroll_account_map(
+        company,
+        payroll_payable_account=getattr(slip, "payroll_payable_account", None),
+        overrides=None,
+    )
+    payroll_payable_account = account_map.get("payroll_payable_account")
+    if not payroll_payable_account:
+        frappe.throw(_("Could not resolve Payroll Payable for Salary Slip {0}.").format(slip_name))
+
+    return {
+        "employee": slip.employee,
+        "salary_slip": slip.name,
+        "payroll_entry": payroll_entry,
+        "company": company,
+        "net_pay": _money(slip.net_pay),
+        "payroll_payable_account": payroll_payable_account,
+        "checking_bank_account": checking_bank_account,
+    }
+
+
 def create_employee_payroll_payment_drafts(
     payroll_results,
     *,
@@ -551,6 +755,14 @@ def create_employee_payroll_payment_drafts(
     for plan in preflight["plans"]:
         je = _employee_payment_journal_entry_doc(plan)
         je.insert(ignore_permissions=True)
+        accounting = assess_employee_payment_journal_entry(je, plan)
+        if not accounting["consistent"]:
+            frappe.throw(
+                _("Employee payment Journal Entry {0} failed accounting validation: {1}").format(
+                    je.name,
+                    " ".join(accounting["errors"]),
+                )
+            )
         created.append(
             {
                 "employee": plan["employee"],
@@ -563,10 +775,13 @@ def create_employee_payroll_payment_drafts(
                 "status": payment_status_from_docstatus(je.docstatus),
                 "payment_attempt": plan["payment_attempt"],
                 "prior_payment_status": plan["prior_payment_status"],
+                "accounting_consistent": accounting["consistent"],
+                "accounting_status": accounting["status"],
+                "accounting_total": accounting["checking_credit"],
             }
         )
 
-    created_total = round(sum(row["net_pay"] for row in created), 2)
+    created_total = _money(sum(row["accounting_total"] for row in created))
     if created_total != preflight["total_net_pay"]:
         frappe.throw(_("Employee payment Journal Entry total did not reconcile to Salary Slip net pay."))
 
@@ -579,8 +794,19 @@ def create_employee_payroll_payment_drafts(
     }
 
 
-def get_employee_payroll_payment_statuses(payroll_results) -> list[dict]:
-    """Return derived payment status for the Salary Slips in a payroll result set."""
+def get_employee_payroll_payment_statuses(
+    payroll_results,
+    *,
+    payroll_entry: str | None = None,
+    company: str | None = None,
+) -> list[dict]:
+    """Return lifecycle plus accounting-consistency status for Salary Slips."""
+    checking_bank_account = None
+    if payroll_entry and company:
+        from rootedops_payroll.services.payroll_engine import get_default_checking_bank_gl_account
+
+        checking_bank_account = get_default_checking_bank_gl_account(company)
+
     statuses = []
     for result in payroll_results or []:
         slip_name = (result.get("slip_name") or "").strip()
@@ -594,5 +820,32 @@ def get_employee_payroll_payment_statuses(payroll_results) -> list[dict]:
                 "net_pay": round(float(result.get("net_pay") or 0), 2),
             }
         )
+
+        if status.get("journal_entry") and payroll_entry and company and checking_bank_account:
+            expected = _expected_payment_plan_from_result(
+                result,
+                payroll_entry=payroll_entry,
+                company=company,
+                checking_bank_account=checking_bank_account,
+            )
+            je = frappe.get_doc("Journal Entry", status["journal_entry"])
+            accounting = assess_employee_payment_journal_entry(je, expected)
+            status.update(
+                {
+                    "accounting_consistent": accounting["consistent"],
+                    "accounting_status": accounting["status"],
+                    "accounting_errors": accounting["errors"],
+                    "recorded_amount": accounting["checking_credit"],
+                }
+            )
+        else:
+            status.update(
+                {
+                    "accounting_consistent": None,
+                    "accounting_status": PAYMENT_ACCOUNTING_NOT_RECORDED,
+                    "accounting_errors": [],
+                    "recorded_amount": 0,
+                }
+            )
         statuses.append(status)
     return statuses
