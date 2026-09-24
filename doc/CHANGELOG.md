@@ -4,6 +4,30 @@ All notable changes to this project will be documented in this file.
 
 ---
 
+## [1.4.0] - 2026-09-24
+
+### Completed
+
+- Resolved Issue #8: employee net-pay settlement is now represented by one employee-specific Journal Entry per submitted positive-net-pay Salary Slip instead of a consolidated employee-payment Journal Entry.
+- Finalized payment-method configuration, structured Employee/Salary Slip/Payroll Entry traceability, lifecycle/idempotency, cancelled-attempt regeneration, conflict detection, and employee-level reconciliation visibility.
+- Documented the final accounting boundary and operational workflow in `doc/ISSUE_8_EMPLOYEE_PAYMENT_SETTLEMENT.md`.
+
+### Added
+
+- Explicit regression coverage for single-employee payroll behavior and zero-net-pay Salary Slips, in addition to the existing multi-employee/mixed-method, lifecycle, and accounting consistency coverage.
+- Issue #6 handoff guidance that uses ERPNext Company `tax_id` as the authoritative EIN source rather than duplicating EIN configuration in RootedOps.
+
+### Changed
+
+- `rootedops_payroll` version advanced to `0.3.0` for the completed Issue #8 milestone.
+
+### Notes
+
+- This is a minor, tagged milestone because Issue #8 is complete.
+- ACH/NACHA file generation remains Issue #6 and will build on the employee-specific payment model without changing its accounting boundary.
+
+---
+
 ## [1.3.1] - 2026-09-24
 
 ### Added

@@ -153,6 +153,79 @@ class TestEmployeePaymentDraftFoundation(TestCase):
             ["ACC-JV-001", "ACC-JV-002"],
         )
         self.assertEqual(build_doc.call_count, 2)
+        self.assertEqual(
+            [row["payment_method"] for row in result["journal_entries"]],
+            ["Venmo", "ACH"],
+        )
+
+    @patch("rootedops_payroll.services.employee_payments.assess_employee_payment_journal_entry")
+    @patch("rootedops_payroll.services.employee_payments._employee_payment_journal_entry_doc")
+    @patch("rootedops_payroll.services.employee_payments.preflight_employee_payroll_payments")
+    def test_single_employee_payroll_remains_one_payment_je(self, preflight, build_doc, assess):
+        from types import SimpleNamespace
+        from rootedops_payroll.services.employee_payments import create_employee_payroll_payment_drafts
+
+        preflight.return_value = {
+            "plans": [
+                {
+                    "employee": "HR-EMP-00001",
+                    "employee_name": "Employee A",
+                    "salary_slip": "SAL-001",
+                    "payment_method": "Paper Check",
+                    "net_pay": 350.00,
+                    "payment_attempt": 1,
+                    "prior_payment_status": PAYMENT_STATUS_NOT_RECORDED,
+                }
+            ],
+            "zero_net_pay_salary_slips": [],
+            "checking_bank_account": "Checking - DML",
+            "total_net_pay": 350.00,
+        }
+        build_doc.return_value = SimpleNamespace(
+            name="ACC-JV-001", docstatus=0, insert=lambda **kwargs: None
+        )
+        assess.return_value = {
+            "consistent": True,
+            "status": PAYMENT_ACCOUNTING_MATCH,
+            "errors": [],
+            "checking_credit": 350.00,
+        }
+
+        result = create_employee_payroll_payment_drafts(
+            [{"slip_name": "SAL-001"}],
+            payroll_entry="HR-PRUN-001",
+            company="Dank Mushrooms, LLC",
+            posting_date="2026-09-24",
+        )
+
+        self.assertEqual(result["employee_count"], 1)
+        self.assertEqual(result["total_net_pay"], 350.00)
+        self.assertEqual(result["journal_entries"][0]["journal_entry"], "ACC-JV-001")
+        self.assertEqual(result["journal_entries"][0]["payment_method"], "Paper Check")
+
+    @patch("rootedops_payroll.services.employee_payments._employee_payment_journal_entry_doc")
+    @patch("rootedops_payroll.services.employee_payments.preflight_employee_payroll_payments")
+    def test_zero_net_pay_salary_slips_do_not_create_bank_entries(self, preflight, build_doc):
+        from rootedops_payroll.services.employee_payments import create_employee_payroll_payment_drafts
+
+        preflight.return_value = {
+            "plans": [],
+            "zero_net_pay_salary_slips": ["SAL-ZERO"],
+            "checking_bank_account": "Checking - DML",
+            "total_net_pay": 0.00,
+        }
+
+        result = create_employee_payroll_payment_drafts(
+            [{"slip_name": "SAL-ZERO"}],
+            payroll_entry="HR-PRUN-001",
+            company="Dank Mushrooms, LLC",
+            posting_date="2026-09-24",
+        )
+
+        self.assertEqual(result["employee_count"], 0)
+        self.assertEqual(result["total_net_pay"], 0.00)
+        self.assertEqual(result["zero_net_pay_salary_slips"], ["SAL-ZERO"])
+        build_doc.assert_not_called()
 
 
 class TestEmployeePaymentLifecycle(TestCase):

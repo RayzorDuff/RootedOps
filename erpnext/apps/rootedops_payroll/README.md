@@ -159,3 +159,8 @@ Payroll Entry now includes a live **RootedOps Employee Payment Status** section 
 RootedOps also verifies the actual employee-payment Journal Entry accounting. A valid payment JE must debit the expected Payroll Payable account for the correct Employee party and Salary Slip net-pay amount, credit the configured/default checking account for the same amount, and retain the expected Company, Employee, Salary Slip, and Payroll Entry linkage. Newly created drafts are checked before the request commits, while existing linked JEs are checked whenever payment status is reviewed. Accounting mismatches and multiple-active-JE conflicts are surfaced for correction rather than silently counted as valid settlement.
 
 This phase still records accounting only; it does not transmit employee payments. ACH/NACHA output is implemented separately under Issue #6.
+## Employee-specific payroll settlement complete (Issue #8)
+
+Issue #8 is complete in RootedOps 1.4.0. The final workflow creates one employee-specific full-net-pay settlement JE per submitted positive-net-pay Salary Slip while leaving payroll accrual, tax-reserve transfer, and tax-remittance accounting consolidated where appropriate. Lifecycle/idempotency, cancelled-attempt regeneration, conflict detection, live status review, and accounting consistency checks are included.
+
+See [`doc/ISSUE_8_EMPLOYEE_PAYMENT_SETTLEMENT.md`](../../../doc/ISSUE_8_EMPLOYEE_PAYMENT_SETTLEMENT.md) for the final accounting boundary, workflow, lifecycle, reconciliation behavior, and handoff to Issue #6 ACH/NACHA work.
