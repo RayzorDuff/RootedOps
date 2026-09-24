@@ -4,6 +4,20 @@ All notable changes to this project will be documented in this file.
 
 ---
 
+## [1.2.1] - 2026-09-24
+
+### Fixed
+
+- Made the shared `erpnext_apps` volume available read-only to `erpnext-frontend` so nginx can serve custom RootedOps app public files from the same deployed source used by the backend.
+- Made `erpnext-configurator` create the `sites/assets/rootedops_payroll` symlink on every configuration run, eliminating container-local frontend copies and avoiding an unnecessary `bench build` requirement for `doctype_js` changes.
+
+### Deployment
+
+- Custom `rootedops_payroll` Python/public-file updates should be copied into the shared apps volume, followed by `bench migrate`, `clear-cache`, and service restart/recreation as appropriate.
+- `bench build --app rootedops_payroll` is not required for the current raw `doctype_js` asset and the runtime backend image does not include the Node build toolchain.
+
+---
+
 ## [1.2.0] - 2026-09-24
 
 ### Added

@@ -377,6 +377,46 @@ sudo docker compose --env-file ./.env -f docker/docker-compose.yml up -d \
 sudo docker compose --env-file ./.env -f docker/docker-compose.yml --profile erpnext-init up erpnext-bootstrap
 ```
 
+### 8.4 Deploy updates to the RootedOps payroll app
+
+The `erpnext_apps` named volume is shared by the backend/workers and mounted read-only by the frontend. `erpnext-configurator` maintains the `sites/assets/rootedops_payroll` symlink so raw files registered through Frappe hooks such as `doctype_js` are served directly from the deployed app.
+
+After pulling a RootedOps change that modifies `erpnext/apps/rootedops_payroll`, copy the Git-managed app into the shared apps volume through the backend container:
+
+```bash
+sudo docker cp -a \
+  erpnext/apps/rootedops_payroll \
+  erpnext-backend:/home/frappe/frappe-bench/apps/
+```
+
+Run migration and clear cache:
+
+```bash
+sudo docker compose --env-file ./.env -f docker/docker-compose.yml exec erpnext-backend \
+  bash -lc "bench --site ${ERPNEXT_SITE_NAME} migrate"
+
+sudo docker compose --env-file ./.env -f docker/docker-compose.yml exec erpnext-backend \
+  bash -lc "bench --site ${ERPNEXT_SITE_NAME} clear-cache"
+```
+
+When the Compose definition changes, recreate the affected services rather than relying only on `restart`:
+
+```bash
+sudo docker compose --env-file ./.env -f docker/docker-compose.yml up -d --force-recreate \
+  erpnext-configurator erpnext-backend erpnext-websocket \
+  erpnext-queue-short erpnext-queue-long erpnext-scheduler erpnext-frontend
+```
+
+For the current `rootedops_payroll` `doctype_js` files, do **not** run `bench build --app rootedops_payroll`. The runtime backend image intentionally does not include Node, and these raw public files do not require bundling.
+
+Verify the frontend asset link after recreation:
+
+```bash
+sudo docker compose --env-file ./.env -f docker/docker-compose.yml exec erpnext-frontend \
+  bash -lc 'readlink -f /home/frappe/frappe-bench/sites/assets/rootedops_payroll && \
+  test -f /home/frappe/frappe-bench/sites/assets/rootedops_payroll/js/payroll_entry.js'
+```
+
 ## 9. Mount Google Drive on the Linode for off-host backups
 
 The backup plan below assumes a mounted Google Drive path such as `/mnt/google-drive`.

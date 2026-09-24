@@ -376,7 +376,7 @@ services:
       - -lc
     command: |
       set -e
-      mkdir -p sites
+      mkdir -p sites sites/assets
       cat > sites/apps.txt <<'EOF'
       frappe
       erpnext
@@ -390,6 +390,7 @@ services:
       bench set-config -g redis_queue redis://${ERPNEXT_REDIS_QUEUE_HOST}:${ERPNEXT_REDIS_QUEUE_PORT}
       bench set-config -g redis_socketio redis://${ERPNEXT_REDIS_QUEUE_HOST}:${ERPNEXT_REDIS_QUEUE_PORT}
       bench set-config -gp socketio_port ${ERPNEXT_SOCKETIO_PORT:-9000}
+      ln -sfn ../../apps/rootedops_payroll/rootedops_payroll/public sites/assets/rootedops_payroll
     volumes:
       - erpnext_apps:/home/frappe/frappe-bench/apps
       - erpnext_sites:/home/frappe/frappe-bench/sites
@@ -502,6 +503,7 @@ services:
     ports:
       - "${ERPNEXT_HTTP_PORT}:8080"
     volumes:
+      - erpnext_apps:/home/frappe/frappe-bench/apps:ro
       - erpnext_sites:/home/frappe/frappe-bench/sites
       - erpnext_logs:/home/frappe/frappe-bench/logs
     restart: unless-stopped
