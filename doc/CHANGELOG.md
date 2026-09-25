@@ -4,6 +4,25 @@ All notable changes to this project will be documented in this file.
 
 ---
 
+## [1.4.3] - 2026-09-25
+
+### Added
+
+- Issue #6 ACH Phase C pure NACHA PPD formatter and structural validator using synthetic/export-ready data.
+- Fixed-width 94-character NACHA records, ten-record blocking, payroll PPD entries, checking/savings transaction codes, Entry Hash, batch/file controls, trace numbers, and deterministic validation.
+- Synthetic regression coverage for checking, savings, routing validation, duplicate traces, record width, blocking, hashes, and payroll totals.
+
+### Changed
+
+- `rootedops_payroll` version advanced to `0.3.3`.
+
+### Notes
+
+- This is an Issue #6 development phase, so it uses a patch version and is not tagged.
+- Payroll Entry integration, production export workflow, bank certification, and bank-specific balanced/offset funding remain outside this phase.
+
+---
+
 ## [1.4.2] - 2026-09-25
 
 ### Added
