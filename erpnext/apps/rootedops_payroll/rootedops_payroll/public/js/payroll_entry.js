@@ -290,6 +290,91 @@ frappe.ui.form.on("Payroll Entry", {
       });
     }, "RootedOps Payroll");
 
+    frm.add_custom_button("Preview NACHA Payroll", () => {
+      const dialog = new frappe.ui.Dialog({
+        title: "NACHA Payroll Pre-Export Review",
+        fields: [
+          {
+            fieldname: "profile_name",
+            label: "NACHA Profile",
+            fieldtype: "Link",
+            options: "RootedOps NACHA Profile",
+            reqd: 1,
+            get_query: () => ({ filters: { company: frm.doc.company } })
+          },
+          {
+            fieldname: "effective_entry_date",
+            label: "Effective ACH Date",
+            fieldtype: "Date",
+            default: frm.doc.end_date,
+            reqd: 1,
+            description: "Confirm this date against the bank's ACH cutoff and settlement rules."
+          }
+        ],
+        primary_action_label: "Review Payroll",
+        primary_action(values) {
+          frappe.call({
+            method: "rootedops_payroll.api.payroll_entry_actions.preview_nacha_payroll",
+            args: {
+              payroll_entry_name: frm.doc.name,
+              profile_name: values.profile_name,
+              effective_entry_date: values.effective_entry_date
+            },
+            freeze: true,
+            freeze_message: "Validating payroll for NACHA export..."
+          }).then((r) => {
+            dialog.hide();
+            const data = r.message || {};
+            const employees = (data.employees || []).map((row) => `
+              <tr>
+                <td>${frappe.utils.escape_html(row.employee_name || row.employee || "")}</td>
+                <td>${salarySlipLink(row.salary_slip)}</td>
+                <td>${frappe.utils.escape_html(row.account_type || "")}</td>
+                <td>${formatMoney(row.net_pay)}</td>
+                <td>${frappe.utils.escape_html(row.routing_number_masked || "")}</td>
+                <td>${frappe.utils.escape_html(row.account_number_masked || "")}</td>
+              </tr>
+            `).join("");
+            const excluded = (data.excluded_employees || []).map((row) => `
+              <tr>
+                <td>${frappe.utils.escape_html(row.employee_name || row.employee || "")}</td>
+                <td>${salarySlipLink(row.salary_slip)}</td>
+                <td>${frappe.utils.escape_html(row.payment_method || "")}</td>
+                <td>${formatMoney(row.net_pay)}</td>
+                <td>${frappe.utils.escape_html(row.reason || "")}</td>
+              </tr>
+            `).join("");
+            frappe.msgprint({
+              title: "NACHA Payroll Pre-Export Review",
+              wide: true,
+              message: `
+                <div class="alert alert-success">${frappe.utils.escape_html(data.validation_status || "Validation complete")}</div>
+                <p><b>Payroll Entry:</b> ${frappe.utils.escape_html(data.payroll_entry || "")}</p>
+                <p><b>Pay Period:</b> ${frappe.utils.escape_html(data.pay_period_start || "")} to ${frappe.utils.escape_html(data.pay_period_end || "")}</p>
+                <p><b>Effective ACH Date:</b> ${frappe.utils.escape_html(data.effective_entry_date || "")}</p>
+                <p><b>ACH Employees:</b> ${data.ach_employee_count || 0} &nbsp; <b>ACH Total:</b> ${formatMoney(data.ach_total)}</p>
+                <p><b>All Payroll Net Pay:</b> ${formatMoney(data.total_payroll_net_pay)}</p>
+                <p><b>Excluded:</b> ${data.excluded_count || 0}</p>
+                <hr>
+                <h5>Employees included in ACH</h5>
+                <table class="table table-bordered table-condensed">
+                  <thead><tr><th>Employee</th><th>Salary Slip</th><th>Account</th><th>Net Pay</th><th>Routing</th><th>Account</th></tr></thead>
+                  <tbody>${employees || '<tr><td colspan="6">None</td></tr>'}</tbody>
+                </table>
+                <h5>Excluded from ACH</h5>
+                <table class="table table-bordered table-condensed">
+                  <thead><tr><th>Employee</th><th>Salary Slip</th><th>Method</th><th>Net Pay</th><th>Reason</th></tr></thead>
+                  <tbody>${excluded || '<tr><td colspan="5">None</td></tr>'}</tbody>
+                </table>
+                <p class="text-muted"><b>Read-only:</b> no NACHA file was generated, downloaded, submitted, or persisted.</p>
+              `
+            });
+          });
+        }
+      });
+      dialog.show();
+    }, "RootedOps Payroll");
+
     frm.add_custom_button("Create Tax Reserve Transfer Draft JE", () => {
       frappe.call({
         method: "rootedops_payroll.api.payroll_entry_actions.create_tax_reserve_transfer_draft_journal_entry",

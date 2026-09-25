@@ -34,6 +34,18 @@ PAYROLL_ENTRY_FIELD_EMPLOYEE_PAYMENT_JE = "rootedops_employee_payment_journal_en
 PAYROLL_ENTRY_FIELD_TAX_RESERVE_TRANSFER_JE = "rootedops_tax_reserve_transfer_journal_entry"
 
 
+@frappe.whitelist()
+def preview_nacha_payroll(payroll_entry_name: str, profile_name: str, effective_entry_date: str):
+    """Return a read-only, non-sensitive Phase D ACH export plan."""
+    from rootedops_payroll.services.nacha_payroll import resolve_nacha_payroll_export_plan
+
+    return resolve_nacha_payroll_export_plan(
+        payroll_entry_name=payroll_entry_name,
+        profile_name=profile_name,
+        effective_entry_date=effective_entry_date,
+    )
+
+
 def _get_payroll_entry_context(payroll_entry_name: str):
     if not frappe.db.exists("Payroll Entry", payroll_entry_name):
         frappe.throw(_("Payroll Entry {0} not found.").format(payroll_entry_name))

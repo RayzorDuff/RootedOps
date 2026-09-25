@@ -4,6 +4,27 @@ All notable changes to this project will be documented in this file.
 
 ---
 
+## [1.4.4] - 2026-09-25
+
+### Added
+
+- Issue #6 Phase D read-only payroll-to-NACHA pre-export planning and validation.
+- Submitted Payroll Entry/Salary Slip resolution, ACH/non-ACH separation, cent-accurate ACH reconciliation, secure ACH credential use, masked review data, and Phase C formatter integration.
+- Payroll Entry UI action for reviewing an ACH export plan without generating, downloading, or persisting a NACHA file.
+- Synthetic regression coverage for mixed payment methods, duplicate employees, formatter reconciliation, sensitive-data exclusion, and deferred balanced-file support.
+
+### Changed
+
+- RootedOps version advanced to 1.4.4.
+- `rootedops_payroll` version advanced to `0.3.4`.
+
+### Notes
+
+- This is an Issue #6 development phase and is not a production ACH export release.
+- Bank certification, production file generation/download, audit persistence, balanced/offset handling, and bank-specific effective-date rules remain deferred.
+
+---
+
 ## [1.4.3] - 2026-09-25
 
 ### Added
