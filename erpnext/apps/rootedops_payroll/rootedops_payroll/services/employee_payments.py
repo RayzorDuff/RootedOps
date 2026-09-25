@@ -1,12 +1,13 @@
-"""Employee payroll-payment configuration and audit-field foundation.
+"""Employee payroll-payment settlement and secure ACH configuration services.
 
-Issue #8 deliberately separates payroll calculation/accrual from settlement of
-net pay to each employee.  Phase 1 only establishes the configuration and
-structured metadata that later phases will use; it does not create, submit, or
-cancel Journal Entries.
+Issue #8 separates payroll calculation/accrual from employee net-pay settlement.
+Issue #6 builds on that boundary with protected ACH destination configuration for
+employees who elect direct deposit.
 """
 
 from __future__ import annotations
+
+import re
 
 import frappe
 from frappe import _
@@ -28,6 +29,11 @@ PAYMENT_METHODS = (
 )
 
 PAYMENT_METHOD_OPTIONS = "\n" + "\n".join(PAYMENT_METHODS)
+
+ACH_ACCOUNT_TYPE_CHECKING = "Checking"
+ACH_ACCOUNT_TYPE_SAVINGS = "Savings"
+ACH_ACCOUNT_TYPES = (ACH_ACCOUNT_TYPE_CHECKING, ACH_ACCOUNT_TYPE_SAVINGS)
+ACH_ACCOUNT_TYPE_OPTIONS = "\n" + "\n".join(ACH_ACCOUNT_TYPES)
 
 PAYMENT_STATUS_NOT_RECORDED = "Not Recorded"
 PAYMENT_STATUS_DRAFT = "Payment JE Draft"
@@ -75,9 +81,72 @@ EMPLOYEE_PAYMENT_CUSTOM_FIELDS = {
             "fieldtype": "Small Text",
             "insert_after": "rootedops_payroll_payment_effective_date",
             "description": (
-                "Non-sensitive operational notes only. Do not store ACH routing or account "
-                "numbers here; protected ACH fields are intentionally deferred to Issue #6."
+                "Non-sensitive operational notes only. Never place routing/account numbers "
+                "or other payment credentials in this field."
             ),
+        },
+        {
+            "fieldname": "rootedops_ach_section",
+            "label": "ACH Direct Deposit",
+            "fieldtype": "Section Break",
+            "insert_after": "rootedops_payroll_payment_instructions",
+            "collapsible": 1,
+            "depends_on": 'eval:doc.rootedops_payroll_payment_method=="ACH"',
+        },
+        {
+            "fieldname": "rootedops_ach_bank_name",
+            "label": "ACH Bank / Credit Union",
+            "fieldtype": "Data",
+            "insert_after": "rootedops_ach_section",
+            "depends_on": 'eval:doc.rootedops_payroll_payment_method=="ACH"',
+        },
+        {
+            "fieldname": "rootedops_ach_account_type",
+            "label": "ACH Account Type",
+            "fieldtype": "Select",
+            "options": ACH_ACCOUNT_TYPE_OPTIONS,
+            "insert_after": "rootedops_ach_bank_name",
+            "depends_on": 'eval:doc.rootedops_payroll_payment_method=="ACH"',
+        },
+        {
+            "fieldname": "rootedops_ach_account_holder_name",
+            "label": "ACH Account Holder Name",
+            "fieldtype": "Data",
+            "insert_after": "rootedops_ach_account_type",
+            "depends_on": 'eval:doc.rootedops_payroll_payment_method=="ACH"',
+            "description": "Leave blank when the Employee name is the account-holder name.",
+        },
+        {
+            "fieldname": "rootedops_ach_routing_number",
+            "label": "ACH Routing Number",
+            "fieldtype": "Password",
+            "insert_after": "rootedops_ach_account_holder_name",
+            "depends_on": 'eval:doc.rootedops_payroll_payment_method=="ACH"',
+            "description": "Protected at rest by Frappe. Must be a valid 9-digit ABA routing number.",
+        },
+        {
+            "fieldname": "rootedops_ach_account_number",
+            "label": "ACH Account Number",
+            "fieldtype": "Password",
+            "insert_after": "rootedops_ach_routing_number",
+            "depends_on": 'eval:doc.rootedops_payroll_payment_method=="ACH"',
+            "description": "Protected at rest by Frappe; maximum 17 alphanumeric characters for NACHA.",
+        },
+        {
+            "fieldname": "rootedops_ach_authorization_active",
+            "label": "ACH Authorization Active",
+            "fieldtype": "Check",
+            "insert_after": "rootedops_ach_account_number",
+            "default": "0",
+            "depends_on": 'eval:doc.rootedops_payroll_payment_method=="ACH"',
+            "description": "Enable only after a valid employee direct-deposit authorization is on file.",
+        },
+        {
+            "fieldname": "rootedops_ach_authorization_effective_date",
+            "label": "ACH Authorization Effective Date",
+            "fieldtype": "Date",
+            "insert_after": "rootedops_ach_authorization_active",
+            "depends_on": 'eval:doc.rootedops_payroll_payment_method=="ACH"',
         },
     ],
     "Journal Entry": [
@@ -244,6 +313,149 @@ def get_employee_payment_configuration(employee: str) -> dict:
         "active": cint(values.get("rootedops_payroll_payment_active") or 0),
         "effective_date": values.get("rootedops_payroll_payment_effective_date"),
         "instructions": values.get("rootedops_payroll_payment_instructions") or None,
+    }
+
+
+def validate_ach_account_type(account_type: str | None, *, required: bool = False) -> str | None:
+    """Return a supported ACH account type or raise a user-facing error."""
+    account_type = (account_type or "").strip() or None
+    if not account_type:
+        if required:
+            frappe.throw(_("ACH Account Type is required."))
+        return None
+    if account_type not in ACH_ACCOUNT_TYPES:
+        frappe.throw(
+            _("Unsupported ACH Account Type: {0}. Expected Checking or Savings.").format(
+                account_type
+            )
+        )
+    return account_type
+
+
+def normalize_aba_routing_number(value: str | None) -> str:
+    """Normalize and validate a US ABA routing number, including its check digit."""
+    value = (value or "").strip().replace(" ", "").replace("-", "")
+    if not re.fullmatch(r"\d{9}", value):
+        frappe.throw(_("ACH routing number must contain exactly 9 digits."))
+
+    digits = [int(ch) for ch in value]
+    checksum = (
+        3 * (digits[0] + digits[3] + digits[6])
+        + 7 * (digits[1] + digits[4] + digits[7])
+        + digits[2]
+        + digits[5]
+        + digits[8]
+    )
+    if checksum % 10:
+        frappe.throw(_("ACH routing number failed ABA check-digit validation."))
+    return value
+
+
+def normalize_ach_account_number(value: str | None) -> str:
+    """Validate a NACHA DFI account number without converting it to an integer."""
+    value = (value or "").strip()
+    if not value:
+        frappe.throw(_("ACH account number is required."))
+    if len(value) > 17:
+        frappe.throw(_("ACH account number must be 17 characters or fewer."))
+    if not re.fullmatch(r"[A-Za-z0-9]+", value):
+        frappe.throw(_("ACH account number may contain only letters and digits."))
+    return value
+
+
+def mask_ach_value(value: str | None, *, visible: int = 4) -> str | None:
+    """Return a fixed-prefix masked representation without exposing secret length."""
+    value = (value or "").strip()
+    if not value:
+        return None
+    visible = max(1, cint(visible))
+    return "••••" + value[-visible:]
+
+
+def ach_authorization_is_effective(configuration: dict, on_date=None) -> bool:
+    """Return whether an ACH authorization is active on ``on_date``."""
+    if not cint(configuration.get("authorization_active") or 0):
+        return False
+    effective_date = configuration.get("authorization_effective_date")
+    if not effective_date:
+        return True
+    return getdate(effective_date) <= getdate(on_date)
+
+
+def _get_employee_ach_secrets(employee_doc) -> tuple[str | None, str | None]:
+    """Decrypt ACH secrets server-side. Never expose this helper through a whitelisted API."""
+    routing = employee_doc.get_password("rootedops_ach_routing_number", raise_exception=False)
+    account = employee_doc.get_password("rootedops_ach_account_number", raise_exception=False)
+    return routing or None, account or None
+
+
+def get_employee_ach_configuration(employee: str, *, on_date=None, validate: bool = False) -> dict:
+    """Return a masked ACH configuration for operational use.
+
+    Full routing/account values are decrypted only long enough to validate and mask them;
+    this function never returns the raw credentials.
+    """
+    if not frappe.db.exists("Employee", employee):
+        frappe.throw(_("Employee {0} not found.").format(employee))
+
+    doc = frappe.get_doc("Employee", employee)
+    routing, account = _get_employee_ach_secrets(doc)
+    account_type = validate_ach_account_type(doc.get("rootedops_ach_account_type"))
+
+    if validate:
+        payment_configuration = {
+            "active": cint(doc.get("rootedops_payroll_payment_active") or 0),
+            "payment_method": doc.get("rootedops_payroll_payment_method"),
+            "effective_date": doc.get("rootedops_payroll_payment_effective_date"),
+        }
+        if payment_configuration["payment_method"] != PAYMENT_METHOD_ACH:
+            frappe.throw(_("Employee {0} is not configured for ACH payroll payment.").format(employee))
+        if not payment_configuration_is_effective(payment_configuration, on_date):
+            frappe.throw(
+                _("Employee {0} payroll payment configuration is not active/effective for this date.").format(
+                    employee
+                )
+            )
+        if not (doc.get("rootedops_ach_bank_name") or "").strip():
+            frappe.throw(_("ACH Bank / Credit Union is required for Employee {0}.").format(employee))
+        account_type = validate_ach_account_type(account_type, required=True)
+        routing = normalize_aba_routing_number(routing)
+        account = normalize_ach_account_number(account)
+        authorization = {
+            "authorization_active": cint(doc.get("rootedops_ach_authorization_active") or 0),
+            "authorization_effective_date": doc.get("rootedops_ach_authorization_effective_date"),
+        }
+        if not authorization["authorization_effective_date"]:
+            frappe.throw(_("ACH Authorization Effective Date is required for Employee {0}.").format(employee))
+        if not ach_authorization_is_effective(authorization, on_date):
+            frappe.throw(_("Employee {0} does not have an active ACH authorization for this date.").format(employee))
+
+    return {
+        "employee": employee,
+        "bank_name": doc.get("rootedops_ach_bank_name") or None,
+        "account_type": account_type,
+        "account_holder_name": doc.get("rootedops_ach_account_holder_name") or None,
+        "routing_number_masked": mask_ach_value(routing),
+        "account_number_masked": mask_ach_value(account),
+        "authorization_active": cint(doc.get("rootedops_ach_authorization_active") or 0),
+        "authorization_effective_date": doc.get("rootedops_ach_authorization_effective_date"),
+    }
+
+
+def get_employee_ach_credentials_for_export(employee: str, *, on_date=None) -> dict:
+    """Return validated ACH credentials for server-side export code only.
+
+    Callers must not log, serialize to client responses, or persist the returned routing/account
+    values outside protected payroll/NACHA processing.
+    """
+    # Validate through the masked path first so authorization/payment-method rules stay shared.
+    summary = get_employee_ach_configuration(employee, on_date=on_date, validate=True)
+    doc = frappe.get_doc("Employee", employee)
+    routing, account = _get_employee_ach_secrets(doc)
+    return {
+        **summary,
+        "routing_number": normalize_aba_routing_number(routing),
+        "account_number": normalize_ach_account_number(account),
     }
 
 

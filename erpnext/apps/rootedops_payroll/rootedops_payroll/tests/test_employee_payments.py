@@ -379,3 +379,69 @@ class TestEmployeePaymentAccountingConsistency(TestCase):
         self.assertEqual(summary["conflict_count"], 1)
         self.assertEqual(summary["accounting_mismatch_count"], 1)
         self.assertFalse(summary["all_accounting_consistent"])
+
+
+class TestEmployeeAchConfiguration(TestCase):
+    def test_valid_synthetic_aba_routing_number(self):
+        from rootedops_payroll.services.employee_payments import normalize_aba_routing_number
+
+        self.assertEqual(normalize_aba_routing_number("123456780"), "123456780")
+        self.assertEqual(normalize_aba_routing_number("123-456-780"), "123456780")
+
+    @patch("rootedops_payroll.services.employee_payments.frappe.throw")
+    def test_invalid_aba_check_digit_is_rejected(self, frappe_throw):
+        from rootedops_payroll.services.employee_payments import normalize_aba_routing_number
+
+        frappe_throw.side_effect = ValueError("invalid routing")
+        with self.assertRaises(ValueError):
+            normalize_aba_routing_number("123456789")
+
+    @patch("rootedops_payroll.services.employee_payments.frappe.throw")
+    def test_non_nine_digit_routing_number_is_rejected(self, frappe_throw):
+        from rootedops_payroll.services.employee_payments import normalize_aba_routing_number
+
+        frappe_throw.side_effect = ValueError("invalid routing")
+        with self.assertRaises(ValueError):
+            normalize_aba_routing_number("12345678")
+
+    def test_account_number_preserves_leading_zeroes(self):
+        from rootedops_payroll.services.employee_payments import normalize_ach_account_number
+
+        self.assertEqual(normalize_ach_account_number("00123456789"), "00123456789")
+
+    @patch("rootedops_payroll.services.employee_payments.frappe.throw")
+    def test_account_number_over_17_characters_is_rejected(self, frappe_throw):
+        from rootedops_payroll.services.employee_payments import normalize_ach_account_number
+
+        frappe_throw.side_effect = ValueError("too long")
+        with self.assertRaises(ValueError):
+            normalize_ach_account_number("123456789012345678")
+
+    def test_mask_does_not_reveal_secret_length(self):
+        from rootedops_payroll.services.employee_payments import mask_ach_value
+
+        self.assertEqual(mask_ach_value("123456780"), "••••6780")
+        self.assertEqual(mask_ach_value("00123456789"), "••••6789")
+
+    def test_active_authorization_without_date_is_effective(self):
+        from rootedops_payroll.services.employee_payments import ach_authorization_is_effective
+
+        self.assertTrue(
+            ach_authorization_is_effective(
+                {"authorization_active": 1, "authorization_effective_date": None},
+                "2026-09-24",
+            )
+        )
+
+    def test_future_authorization_is_not_effective(self):
+        from rootedops_payroll.services.employee_payments import ach_authorization_is_effective
+
+        self.assertFalse(
+            ach_authorization_is_effective(
+                {
+                    "authorization_active": 1,
+                    "authorization_effective_date": "2026-10-01",
+                },
+                "2026-09-24",
+            )
+        )

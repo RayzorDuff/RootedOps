@@ -4,6 +4,26 @@ All notable changes to this project will be documented in this file.
 
 ---
 
+## [1.4.1] - 2026-09-24
+
+### Added
+
+- Issue #6 ACH Phase A employee direct-deposit configuration using Frappe `Password` fields for routing/account numbers.
+- Checking/savings selection, bank/account-holder metadata, ACH authorization status/effective date, masking helpers, ABA routing validation, and NACHA account-number validation.
+- Server-side internal ACH credential retrieval for later NACHA export while ordinary configuration reads remain masked.
+- Issue #6 documentation recording ERPNext Company `tax_id` as the EIN source of truth and High Plains Bank's `DANK MUSHROOMS LLC` / `1 + EIN` requirements.
+
+### Changed
+
+- `rootedops_payroll` version advanced to `0.3.1`.
+
+### Notes
+
+- This is an Issue #6 development phase, so it uses a patch version and is not tagged.
+- Payroll accounting and Issue #8 settlement behavior are unchanged. No NACHA file is generated yet.
+
+---
+
 ## [1.4.0] - 2026-09-24
 
 ### Completed

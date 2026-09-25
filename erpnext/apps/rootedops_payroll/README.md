@@ -3,7 +3,7 @@
 Payroll App for RootedOps
 
 
-## Employee payroll payment configuration (Issue #8, Phase 1)
+## Employee payroll payment and ACH configuration (Issues #8 and #6)
 
 RootedOps installs a payment-configuration foundation on **Employee** for future
 employee-specific payroll settlement. This phase does **not** create or submit
@@ -12,9 +12,17 @@ configuration is active, an optional effective date, and non-sensitive operator
 instructions. Supported methods are `ACH`, `Venmo`, `Apple Pay / Apple Cash`,
 `Paper Check`, and `Other / Manual`.
 
-ACH routing and account numbers are intentionally **not** part of these fields.
-They will be added later with protected storage as part of Issue #6. Never place
-ACH credentials in **Payroll Payment Instructions**.
+For employees whose **Payroll Payment Method** is `ACH`, RootedOps now adds an
+**ACH Direct Deposit** subsection with bank name, checking/savings account type,
+optional account-holder name, authorization status/effective date, and protected
+routing/account `Password` fields. Routing/account values are encrypted by Frappe
+and ordinary RootedOps helpers return masked values only. Never place ACH
+credentials in **Payroll Payment Instructions**, logs, screenshots, or Git.
+
+The server-side ACH validation layer verifies the ABA routing check digit, NACHA's
+17-character DFI account-number limit, account type, active employee payment
+configuration, and active/effective authorization. Full credentials are exposed
+only through the internal export helper intended for later NACHA generation.
 
 The migration also reserves read-only Journal Entry linkage fields for the later
 employee-payment service: Employee, Salary Slip, Payroll Entry, payment method,
