@@ -4,6 +4,27 @@ All notable changes to this project will be documented in this file.
 
 ---
 
+## [1.4.2] - 2026-09-25
+
+### Added
+
+- Issue #6 ACH Phase B `RootedOps NACHA Profile` for bank/origination values not already owned by ERPNext.
+- Derived NACHA identity from ERPNext Company: uppercase company name, 16-character Batch Header projection, and High Plains Company ID `1 + Company.tax_id` EIN digits.
+- Profile readiness validation for funding Bank Account, Immediate Destination/Origin, destination/origin names, ODFI Identification, and confirmed balanced/unbalanced behavior.
+- Explicit configuration/certification states so incomplete High Plains parameters can be recorded without inventing values or enabling production use.
+- Regression coverage for EIN normalization, company-name projection, Company ID derivation, and profile readiness.
+
+### Changed
+
+- `rootedops_payroll` version advanced to `0.3.2`.
+
+### Notes
+
+- This is an Issue #6 development phase, so it uses a patch version and is not tagged.
+- No NACHA file generation or payroll accounting change is included in this phase.
+
+---
+
 ## [1.4.1] - 2026-09-24
 
 ### Added

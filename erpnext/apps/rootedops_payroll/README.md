@@ -172,3 +172,11 @@ This phase still records accounting only; it does not transmit employee payments
 Issue #8 is complete in RootedOps 1.4.0. The final workflow creates one employee-specific full-net-pay settlement JE per submitted positive-net-pay Salary Slip while leaving payroll accrual, tax-reserve transfer, and tax-remittance accounting consolidated where appropriate. Lifecycle/idempotency, cancelled-attempt regeneration, conflict detection, live status review, and accounting consistency checks are included.
 
 See [`doc/ISSUE_8_EMPLOYEE_PAYMENT_SETTLEMENT.md`](../../../doc/ISSUE_8_EMPLOYEE_PAYMENT_SETTLEMENT.md) for the final accounting boundary, workflow, lifecycle, reconciliation behavior, and handoff to Issue #6 ACH/NACHA work.
+
+## NACHA originator profile (Issue #6 Phase B)
+
+RootedOps provides **RootedOps NACHA Profile** for bank/originator parameters that are not already authoritative in ERPNext. The profile links to ERPNext Company and Bank Account records rather than duplicating company identity or funding-account identity.
+
+For Dank Mushrooms / High Plains Bank, the NACHA company identity is derived from ERPNext on every validation: Company name is uppercased for NACHA and the Batch Header Company Name is limited to 16 characters; Company ID is `1` plus the nine EIN digits normalized from ERPNext `Company.tax_id`. Employee payroll uses SEC code `PPD` and Company Entry Description `PAYROLL`.
+
+A disabled profile may remain in **Configuration Incomplete** state while High Plains values such as Immediate Destination, Immediate Origin, ODFI Identification, and balanced/unbalanced behavior are awaiting confirmation. RootedOps refuses to enable the profile or advance it to bank-test/certified status until those required values are present and structurally valid. No NACHA file is generated in Phase B.

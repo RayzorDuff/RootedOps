@@ -44,3 +44,34 @@ High Plains Bank has stated that its NACHA import expects standard NACHA formatt
 - Company ID: `1` followed by Dank Mushrooms' EIN.
 
 The bank invited a generated test file for validation. Remaining originator/ODFI, effective-date, balanced/unbalanced, naming, and submission details remain configurable until confirmed through the test-file process.
+
+## Phase B — NACHA originator profile
+
+RootedOps adds a **RootedOps NACHA Profile** DocType to hold bank/origination parameters that ERPNext does not already own. The profile references ERPNext **Company** and **Bank Account** records; it does not duplicate the EIN or funding-account identity.
+
+Derived values:
+
+- legal/company name: ERPNext Company;
+- NACHA company name: ERPNext Company name normalized to uppercase, with the 16-character Batch Header projection stored read-only for operator visibility;
+- EIN: ERPNext `Company.tax_id`, normalized to exactly nine digits;
+- High Plains Company ID: `1` + normalized EIN;
+- employee payroll SEC code: `PPD`;
+- payroll Company Entry Description: `PAYROLL`.
+
+Profile-owned NACHA parameters:
+
+- Bank Name;
+- Funding Bank Account reference;
+- Immediate Destination;
+- Immediate Origin;
+- Immediate Destination Name;
+- Immediate Origin Name;
+- Originating DFI Identification;
+- balanced/unbalanced mode;
+- optional Reference Code;
+- optional output filename pattern;
+- certification/readiness state.
+
+Because High Plains has not yet supplied every origination value, a profile may be saved disabled with **Configuration Incomplete** status. RootedOps refuses to enable it or advance it to a testing/certification state until required values are present. This is deliberate: missing bank values remain explicit rather than being guessed.
+
+Phase B still does not build or download a NACHA file. Phase C supplies the pure fixed-width NACHA formatter and control-total validation using synthetic data.
