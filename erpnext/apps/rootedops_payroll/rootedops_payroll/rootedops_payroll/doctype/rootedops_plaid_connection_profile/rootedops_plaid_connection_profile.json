@@ -1,0 +1,39 @@
+{
+ "actions": [],
+ "allow_rename": 1,
+ "autoname": "field:profile_name",
+ "creation": "2026-09-26 00:00:00.000000",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "profile_name",
+  "display_name",
+  "enabled",
+  "is_default",
+  "environment",
+  "client_id_secret_ref",
+  "secret_secret_ref",
+  "description"
+ ],
+ "fields": [
+  {"fieldname":"profile_name","fieldtype":"Data","label":"Profile Name","reqd":1,"unique":1,"description":"Stable machine identifier for this Plaid credential context."},
+  {"fieldname":"display_name","fieldtype":"Data","label":"Display Name","reqd":1},
+  {"default":"0","description":"Allow Plaid API operations to resolve credentials for this profile.","fieldname":"enabled","fieldtype":"Check","label":"Enabled"},
+  {"default":"0","description":"Designates the migration/default profile. Only one profile may be the default.","fieldname":"is_default","fieldtype":"Check","label":"Default Profile"},
+  {"default":"production","fieldname":"environment","fieldtype":"Select","label":"Plaid Environment","options":"sandbox\ndevelopment\nproduction","reqd":1},
+  {"fieldname":"client_id_secret_ref","fieldtype":"Data","label":"Client ID Secret Reference","description":"Protected configuration key containing the Plaid client ID; never store the raw client ID here."},
+  {"fieldname":"secret_secret_ref","fieldtype":"Data","label":"Secret Key Reference","description":"Protected configuration key containing the Plaid secret; never store the raw secret here."},
+  {"fieldname":"description","fieldtype":"Small Text","label":"Description"}
+ ],
+ "index_web_pages_for_search": 0,
+ "istable": 0,
+ "module": "RootedOps Payroll",
+ "name": "RootedOps Plaid Connection Profile",
+ "permissions": [
+  {"role":"System Manager","create":1,"read":1,"write":1,"delete":1,"print":1,"email":0,"export":1},
+  {"role":"HR Manager","read":1,"export":1}
+ ],
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": []
+}

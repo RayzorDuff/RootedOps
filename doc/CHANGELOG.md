@@ -1,3 +1,21 @@
+## [1.4.6] - 2026-09-26
+
+### Added
+
+- Issue #7 Plaid Connection Profile foundation for generic profile identity, Plaid environment, protected credential references, server-side credential resolution, safe status inspection, and validation.
+
+### Changed
+
+- `rootedops_payroll` version advanced to `0.3.6`.
+- Removed the obsolete legacy Payroll Entry employee-payment draft-JE client action; the maintained plural RootedOps action remains authoritative.
+
+### Notes
+
+- This is an Issue #7 development phase, so it uses a patch version and is not tagged.
+- Existing Plaid Items, access tokens, transaction cursors, Bank Accounts, Bank Transactions, and synchronization behavior are unchanged in this phase.
+
+---
+
 ## [1.4.5] - 2026-09-25
 
 ### Added

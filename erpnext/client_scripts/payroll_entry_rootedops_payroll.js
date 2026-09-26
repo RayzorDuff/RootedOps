@@ -166,7 +166,7 @@ frappe.ui.form.on("Payroll Entry", {
           freeze_message: "Creating consolidated Journal Entry draft..."
         },
         {
-          label: "Create Employee Payment Draft JE",
+          label: "Create Employee Payment Draft JEs",
           method: "rootedops_payroll.api.payroll_entry_actions.create_employee_payment_draft_journal_entry",
           freeze_message: "Creating employee payment Journal Entry draft..."
         },
@@ -205,7 +205,7 @@ frappe.ui.form.on("Payroll Entry", {
 
         const submitData = results.find(r => r.label === "Submit Draft Salary Slips")?.data || {};
         const consolidatedData = results.find(r => r.label === "Create Consolidated Draft JE")?.data || {};
-        const paymentData = results.find(r => r.label === "Create Employee Payment Draft JE")?.data || {};
+        const paymentData = results.find(r => r.label === "Create Employee Payment Draft JEs")?.data || {};
         const reserveData = results.find(r => r.label === "Create Tax Reserve Transfer Draft JE")?.data || {};
         const noJournalEntriesRequired = Boolean(consolidatedData.journal_entry_skipped);
 
@@ -266,28 +266,6 @@ frappe.ui.form.on("Payroll Entry", {
           title: "Consolidated JE Draft Created",
           message: `
             <p><b>Journal Entry:</b> ${journalEntryLink(data.journal_entry)}</p>
-          `
-        });
-        frm.reload_doc();
-      });
-    }, "RootedOps Payroll");
-
-    frm.add_custom_button("Create Employee Payment Draft JE", () => {
-      frappe.call({
-        method: "rootedops_payroll.api.payroll_entry_actions.create_employee_payment_draft_journal_entry",
-        args: { payroll_entry_name: frm.doc.name },
-        freeze: true,
-        freeze_message: "Creating employee payment Journal Entry draft..."
-      }).then((r) => {
-        const data = r.message || {};
-        const liability = data.liability_summary || {};
-        const banks = data.recommended_bank_accounts || {};
-        frappe.msgprint({
-          title: "Employee Payment JE Draft Created",
-          message: `
-            <p><b>Journal Entry:</b> ${journalEntryLink(data.journal_entry)}</p>
-            <p><b>Checking Bank:</b> ${frappe.utils.escape_html(banks.checking_bank_account || "Not resolved")}</p>
-            <p><b>Net Pay:</b> ${formatMoney(liability.net_pay)}</p>
           `
         });
         frm.reload_doc();
