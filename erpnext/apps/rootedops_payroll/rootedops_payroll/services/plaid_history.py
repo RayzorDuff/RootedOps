@@ -19,7 +19,8 @@ import frappe
 from frappe.desk.doctype.tag.tag import add_tag
 from frappe.utils import getdate, today
 
-from rootedops_payroll.services.plaid_client import get_plaid_client_for_bank
+from rootedops_payroll.services.plaid_client import get_plaid_client
+from rootedops_payroll.services.plaid_item import get_plaid_profile_for_bank
 from rootedops_payroll.services.plaid_history_matching import (
     assign_db_safe_transaction_ids,
     classify_transaction_overlap,
@@ -75,6 +76,33 @@ def _profile(name):
         raise PlaidHistoricalBackfillError(
             f"Unknown profile {name!r}; expected one of {sorted(BACKFILL_PROFILES)}"
         ) from exc
+
+
+def _connection_profile_for_bank(bank_name, expected_profile=None):
+    """Resolve and optionally pin the actual Plaid Connection Profile for a Bank.
+
+    ``BACKFILL_PROFILES`` are historical-import recipes; they are not Plaid
+    credential profiles. The credential context must always come from the
+    existing Plaid Item bound to the ERPNext Bank.
+    """
+    try:
+        connection_profile = get_plaid_profile_for_bank(bank_name)
+    except Exception as exc:
+        raise PlaidHistoricalBackfillError(
+            f"Cannot resolve Plaid Connection Profile for {bank_name}: {exc}"
+        ) from exc
+    if expected_profile and connection_profile != expected_profile:
+        raise PlaidHistoricalBackfillError(
+            f"Plaid Connection Profile for {bank_name} changed during historical session: "
+            f"expected {expected_profile!r}, got {connection_profile!r}"
+        )
+    return connection_profile
+
+
+def _historical_client(bank_name, expected_profile=None):
+    """Return the profile-bound client and the resolved Connection Profile."""
+    connection_profile = _connection_profile_for_bank(bank_name, expected_profile)
+    return connection_profile, get_plaid_client(connection_profile)
 
 
 def _session_dir():
@@ -352,7 +380,7 @@ def create_hosted_link(profile="high_plains_2026", days_requested=DEFAULT_DAYS_R
     if not 1 <= url_lifetime_seconds <= 21 * 24 * 60 * 60:
         raise PlaidHistoricalBackfillError("url_lifetime_seconds must be between 1 second and 21 days")
 
-    client = get_plaid_client_for_bank(profile_config["bank"])
+    connection_profile, client = _historical_client(profile_config["bank"])
     live_access_token, live_item = _current_live_item(profile_config, client)
     session_id = uuid4().hex
 
@@ -373,9 +401,10 @@ def create_hosted_link(profile="high_plains_2026", days_requested=DEFAULT_DAYS_R
         raise PlaidHistoricalBackfillError("Plaid did not return a Hosted Link URL and link token")
 
     state = {
-        "schema_version": 1,
+        "schema_version": 2,
         "session_id": session_id,
         "profile": profile,
+        "plaid_connection_profile": connection_profile,
         "bank": profile_config["bank"],
         "canonical_bank_accounts": profile_config["bank_accounts"],
         "expected_institution_id": profile_config["institution_id"],
@@ -412,7 +441,13 @@ def inspect_session(session_id, start_date=None, end_date=None):
     """Exchange the completed temporary Item and produce a no-write overlap/dedup dry run."""
     state = _load_state(session_id)
     profile = _profile(state["profile"])
-    client = get_plaid_client_for_bank(profile["bank"])
+    connection_profile, client = _historical_client(
+        profile["bank"], state.get("plaid_connection_profile")
+    )
+    if state.get("plaid_connection_profile") != connection_profile:
+        state["plaid_connection_profile"] = connection_profile
+        state["schema_version"] = max(int(state.get("schema_version") or 1), 2)
+        _save_state(state)
     live_access_token, live_item = _current_live_item(profile, client)
 
     if _fingerprint(live_access_token) != state.get("live_access_token_fingerprint"):
@@ -515,10 +550,11 @@ def inspect_session(session_id, start_date=None, end_date=None):
         report_transactions.extend(classifications)
 
     report = {
-        "schema_version": 1,
+        "schema_version": 2,
         "generated_on": str(today()),
         "session_id": session_id,
         "profile": state["profile"],
+        "plaid_connection_profile": connection_profile,
         "bank": profile["bank"],
         "expected_institution_id": profile["institution_id"],
         "production_item_id_fingerprint": _fingerprint(live_item.get("item_id")),
@@ -548,6 +584,7 @@ def inspect_session(session_id, start_date=None, end_date=None):
     return {
         "session_id": session_id,
         "profile": state["profile"],
+        "plaid_connection_profile": connection_profile,
         "bank": profile["bank"],
         "production_item_fingerprint": _fingerprint(live_item.get("item_id")),
         "candidate_item_fingerprint": _fingerprint(candidate_item.get("item_id")),
@@ -705,9 +742,10 @@ def _build_import_plan(session_id, report):
         ),
     )
     plan_payload = {
-        "schema_version": 1,
+        "schema_version": 2,
         "session_id": session_id,
         "profile": state["profile"],
+        "plaid_connection_profile": report.get("plaid_connection_profile") or state.get("plaid_connection_profile"),
         "bank": profile["bank"],
         "production_item_id_fingerprint": report.get("production_item_id_fingerprint"),
         "candidate_item_id_fingerprint": report.get("candidate_item_id_fingerprint"),
@@ -758,6 +796,7 @@ def prepare_import(session_id, start_date=None, end_date=None):
     return {
         "session_id": session_id,
         "profile": plan["profile"],
+        "plaid_connection_profile": plan.get("plaid_connection_profile"),
         "plan_hash": plan_hash,
         "new_count": len(new_rows),
         "requested_range": plan["requested_range"],
@@ -792,7 +831,9 @@ def commit_import(session_id, plan_hash, expected_new_count, confirm=False):
 
     state = _load_state(session_id)
     profile = _profile(state["profile"])
-    client = get_plaid_client_for_bank(state["bank"])
+    connection_profile, client = _historical_client(
+        state["bank"], state.get("plaid_connection_profile")
+    )
 
     # Re-fetch and reclassify immediately before any write using the exact
     # reviewed date window. This also verifies both production and candidate
@@ -922,9 +963,10 @@ def commit_import(session_id, plan_hash, expected_new_count, confirm=False):
         }
 
     receipt = {
-        "schema_version": 1,
+        "schema_version": 2,
         "session_id": session_id,
         "profile": state["profile"],
+        "plaid_connection_profile": connection_profile,
         "plan_hash": current_hash,
         "created_count": len(created_names),
         "created_names": sorted(created_names),
@@ -964,6 +1006,7 @@ def commit_import(session_id, plan_hash, expected_new_count, confirm=False):
     return {
         "session_id": session_id,
         "profile": state["profile"],
+        "plaid_connection_profile": connection_profile,
         "plan_hash": current_hash,
         "created_count": len(created_names),
         "per_account": dates_by_account,
@@ -980,13 +1023,16 @@ def commit_import(session_id, plan_hash, expected_new_count, confirm=False):
 def session_status(session_id):
     """Return non-secret local staging state and current Hosted Link completion status."""
     state = _load_state(session_id)
-    client = get_plaid_client_for_bank(state["bank"])
+    connection_profile, client = _historical_client(
+        state["bank"], state.get("plaid_connection_profile")
+    )
     link_result = client.post("/link/token/get", {"link_token": state["link_token"]})
     item_result, link_session = _extract_item_add_result(link_result)
     frappe.db.rollback()
     return {
         "session_id": session_id,
         "profile": state["profile"],
+        "plaid_connection_profile": connection_profile,
         "bank": state["bank"],
         "link_expiration": state.get("link_expiration"),
         "completed": bool(item_result),
@@ -1006,7 +1052,9 @@ def cleanup_session(session_id, confirm=False):
 
     state = _load_state(session_id)
     profile = _profile(state["profile"])
-    client = get_plaid_client_for_bank(profile["bank"])
+    connection_profile, client = _historical_client(
+        profile["bank"], state.get("plaid_connection_profile")
+    )
     live_access_token, live_item = _current_live_item(profile, client)
 
     if _fingerprint(live_access_token) != state.get("live_access_token_fingerprint"):

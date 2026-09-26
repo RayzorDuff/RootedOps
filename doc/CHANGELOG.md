@@ -1,3 +1,23 @@
+## [1.5.2] - 2026-09-26
+
+### Added
+
+- Issue #7 Phase 6 profile-aware historical Plaid backfill metadata and credential-context pinning.
+- Historical import plans and private receipts now identify the actual Plaid Connection Profile used for the Item.
+
+### Changed
+
+- Historical backfill resolves its credential context explicitly from the assigned Plaid Item profile.
+- A staging session refuses to continue if its Plaid Connection Profile changes before inspection, preparation, import, or cleanup.
+- Legacy staging sessions are upgraded with the resolved connection profile when resumed.
+- `rootedops_payroll` version advanced to `0.4.2`.
+
+### Security
+
+- Historical import output continues to expose only profile names and fingerprints; credentials and access tokens remain excluded.
+
+---
+
 ## [1.5.1] - 2026-09-26
 
 ### Added
