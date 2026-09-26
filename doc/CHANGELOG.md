@@ -1,3 +1,15 @@
+## [1.4.5] - 2026-09-25
+
+### Added
+
+- Issue #6 Phase E validated NACHA payroll export with audit metadata, synthetic-data tests, and Payroll Entry download workflow.
+- NACHA export records capture non-sensitive payroll/export metadata and SHA-256 file identity without retaining raw bank-account data.
+
+### Notes
+
+- Phase E supports only confirmed **Unbalanced** profiles; balanced/offset exports remain intentionally unsupported until bank requirements are confirmed.
+- The generated file is a test/production-mode artifact determined by the profile certification status; no bank transmission is performed.
+
 # Changelog
 
 All notable changes to this project will be documented in this file.

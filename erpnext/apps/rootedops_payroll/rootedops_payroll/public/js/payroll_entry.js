@@ -399,3 +399,99 @@ frappe.ui.form.on("Payroll Entry", {
     }, "RootedOps Payroll");
   }
 });
+
+// Phase E: validated NACHA payroll export.
+frappe.ui.form.on("Payroll Entry", {
+  refresh(frm) {
+    if (frm.is_new()) return;
+
+    frm.add_custom_button("Generate NACHA Payroll File", () => {
+      const dialog = new frappe.ui.Dialog({
+        title: "Generate NACHA Payroll File",
+        fields: [
+          {
+            fieldname: "nacha_profile",
+            label: "NACHA Profile",
+            fieldtype: "Link",
+            options: "RootedOps NACHA Profile",
+            reqd: 1,
+            get_query: () => ({
+              filters: { company: frm.doc.company, enabled: 1 }
+            })
+          },
+          {
+            fieldname: "effective_ach_date",
+            label: "Effective ACH Date",
+            fieldtype: "Date",
+            reqd: 1,
+            default: frappe.datetime.get_today()
+          }
+        ],
+        primary_action_label: "Generate & Download",
+        primary_action(values) {
+          frappe.call({
+            method: "rootedops_payroll.api.nacha_export.generate_payroll_nacha",
+            args: {
+              payroll_entry_name: frm.doc.name,
+              profile_name: values.nacha_profile,
+              effective_date: values.effective_ach_date
+            },
+            freeze: true,
+            freeze_message: "Validating payroll and generating NACHA file..."
+          }).then((r) => {
+            const data = r.message || {};
+
+            if (!data.file_content) {
+              frappe.throw("NACHA export did not return a file.");
+            }
+
+            const blob = new Blob(
+              [data.file_content],
+              { type: "text/plain;charset=us-ascii" }
+            );
+            const url = URL.createObjectURL(blob);
+            const link = document.createElement("a");
+
+            link.href = url;
+            link.download = data.filename || "payroll.ach";
+            document.body.appendChild(link);
+            link.click();
+            link.remove();
+            URL.revokeObjectURL(url);
+
+            const excluded = (data.excluded || []).map((row) =>
+              `<li>${frappe.utils.escape_html(
+                row.employee_name || row.employee
+              )} — ${formatMoney(row.net_pay)} (${
+                frappe.utils.escape_html(row.reason || "Excluded")
+              })</li>`
+            ).join("");
+
+            frappe.msgprint({
+              title: "NACHA Payroll File Generated",
+              wide: true,
+              message: `
+                <p><b>Export:</b> ${frappe.utils.escape_html(data.export_name || "")}</p>
+                <p><b>File:</b> ${frappe.utils.escape_html(data.filename || "")}</p>
+                <p><b>ACH Employees:</b> ${data.entry_count || 0}</p>
+                <p><b>ACH Total:</b> ${formatMoney(data.credit_total || 0)}</p>
+                <p><b>Entry Hash:</b> ${data.entry_hash || 0}</p>
+                <p><b>Records:</b> ${data.record_count || 0}</p>
+                <p><b>SHA-256:</b> <code>${frappe.utils.escape_html(
+                  data.sha256 || ""
+                )}</code></p>
+                ${excluded
+                  ? `<p><b>Excluded:</b></p><ul>${excluded}</ul>`
+                  : ""}
+              `
+            });
+
+            dialog.hide();
+          });
+        }
+      });
+
+      dialog.show();
+    }, "RootedOps Payroll");
+  }
+});
