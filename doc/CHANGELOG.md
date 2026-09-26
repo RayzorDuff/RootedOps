@@ -1,3 +1,16 @@
+## [1.5.1] - 2026-09-26
+
+### Added
+
+- Issue #7 Phase 5 profile-aware, read-only Plaid Item sync verification.
+- Safe `/transactions/sync` verification with explicit Item profile routing and no cursor persistence.
+
+### Changed
+
+- `rootedops_payroll` version advanced to `0.4.1`.
+
+---
+
 ## [1.5.0] - 2026-09-26
 
 ### Added
