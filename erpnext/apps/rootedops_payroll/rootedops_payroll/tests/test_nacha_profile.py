@@ -26,6 +26,11 @@ class TestNachaCompanyIdentity(TestCase):
         self.assertEqual(identity.batch_company_name, "DANK MUSHROOMS L")
         self.assertEqual(identity.company_id, "1123456789")
 
+    def test_company_name_removes_legal_name_punctuation(self):
+        identity = derive_company_identity("Dank Mushrooms, LLC", "12-3456789")
+        self.assertEqual(identity.company_name, "DANK MUSHROOMS LLC")
+        self.assertEqual(identity.batch_company_name, "DANK MUSHROOMS L")
+
 
 class TestNachaProfileValidation(TestCase):
     def _complete_profile(self):

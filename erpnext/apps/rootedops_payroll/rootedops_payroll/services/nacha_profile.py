@@ -85,9 +85,11 @@ def derive_nacha_company_id(tax_id: str | None) -> str:
 
 
 def normalize_company_name(company_name: str | None) -> str:
-    """Return the bank-required uppercase company name without duplicating config."""
+    """Return the bank-required uppercase company name without punctuation."""
 
     value = " ".join((company_name or "").split()).upper()
+    value = re.sub(r"[^A-Z0-9 ]", "", value)
+    value = " ".join(value.split())
     if not value:
         raise ValueError("ERPNext Company name is required for NACHA payroll.")
     return value
