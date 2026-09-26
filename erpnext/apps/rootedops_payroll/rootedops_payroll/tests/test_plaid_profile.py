@@ -47,3 +47,31 @@ class TestPlaidProfileFoundation(TestCase):
         self.assertNotIn("client_id", status)
         self.assertNotIn("secret", status)
         self.assertNotIn("SECRET-VALUE", str(status))
+
+
+class TestLegacyPlaidProfileBootstrap(TestCase):
+    @patch("rootedops_payroll.services.plaid_profile.frappe.db.exists", return_value=False)
+    @patch("rootedops_payroll.services.plaid_profile.frappe.get_single")
+    @patch("rootedops_payroll.services.plaid_profile.frappe.get_doc")
+    def test_bootstrap_uses_legacy_settings_references(self, get_doc, get_single, exists):
+        from rootedops_payroll.services.plaid_profile import (
+            LEGACY_PLAID_CLIENT_ID_REF,
+            LEGACY_PLAID_SECRET_REF,
+            bootstrap_legacy_plaid_profile,
+        )
+
+        settings = MagicMock(plaid_client_id="client-id", plaid_env="production")
+        settings.get_password.return_value = "secret"
+        get_single.return_value = settings
+        doc = MagicMock(name="business")
+        get_doc.return_value = doc
+
+        result = bootstrap_legacy_plaid_profile()
+
+        self.assertEqual(result, {"created": True, "profile": doc.name})
+        payload = get_doc.call_args.args[0]
+        self.assertEqual(payload["client_id_secret_ref"], LEGACY_PLAID_CLIENT_ID_REF)
+        self.assertEqual(payload["secret_secret_ref"], LEGACY_PLAID_SECRET_REF)
+        self.assertEqual(payload["environment"], "production")
+        self.assertNotIn("client-id", payload.values())
+        self.assertNotIn("secret", payload.values())

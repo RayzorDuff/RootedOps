@@ -83,3 +83,15 @@ class TestPlaidItemProfileBinding(TestCase):
         self.assertFalse(result["ok"])
         self.assertIn("Bank Account mappings changed", result["errors"])
         self.assertIn("Bank Transaction counts changed", result["errors"])
+
+
+class TestPlaidItemProfileRequirements(TestCase):
+    @patch("rootedops_payroll.services.plaid_profile.resolve_plaid_profile")
+    @patch("rootedops_payroll.services.plaid_item.frappe.db.exists", return_value=True)
+    def test_profile_migration_requires_resolvable_enabled_profile(self, exists, resolve):
+        from rootedops_payroll.services.plaid_item import _require_profile, PlaidItemProfileError
+        from rootedops_payroll.services.plaid_profile import PlaidProfileError
+
+        resolve.side_effect = PlaidProfileError("Plaid profile business is disabled.")
+        with self.assertRaises(PlaidItemProfileError):
+            _require_profile("business")

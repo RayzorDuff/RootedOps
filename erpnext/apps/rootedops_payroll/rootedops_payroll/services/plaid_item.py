@@ -49,13 +49,21 @@ def ensure_plaid_item_custom_fields() -> None:
 
 
 def _require_profile(profile_name: str) -> str:
-    from rootedops_payroll.services.plaid_profile import validate_profile_name
+    from rootedops_payroll.services.plaid_profile import (
+        PlaidProfileError,
+        resolve_plaid_profile,
+        validate_profile_name,
+    )
 
     profile_name = validate_profile_name(profile_name)
     if not frappe.db.exists("RootedOps Plaid Connection Profile", profile_name):
         raise PlaidItemProfileError(
             _("Plaid Connection Profile {0} does not exist.").format(profile_name)
         )
+    try:
+        resolve_plaid_profile(profile_name)
+    except PlaidProfileError as exc:
+        raise PlaidItemProfileError(str(exc)) from exc
     return profile_name
 
 

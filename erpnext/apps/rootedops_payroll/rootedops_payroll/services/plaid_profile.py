@@ -24,10 +24,18 @@ class PlaidProfileError(RuntimeError):
     pass
 
 
+LEGACY_PLAID_CLIENT_ID_REF = "legacy:plaid_settings:client_id"
+LEGACY_PLAID_SECRET_REF = "legacy:plaid_settings:secret"
+
+
 def _config_value(reference: str | None) -> str | None:
     """Resolve a protected configuration reference without exposing its value."""
     if not reference:
         return None
+    if reference == LEGACY_PLAID_CLIENT_ID_REF:
+        return frappe.get_single("Plaid Settings").plaid_client_id or None
+    if reference == LEGACY_PLAID_SECRET_REF:
+        return frappe.get_single("Plaid Settings").get_password("plaid_secret") or None
     try:
         value = frappe.conf.get(reference)
     except Exception:
@@ -151,3 +159,53 @@ def get_default_plaid_profile() -> str:
     if not profile:
         raise PlaidProfileError(_("No default RootedOps Plaid Connection Profile is configured."))
     return profile
+
+
+def bootstrap_legacy_plaid_profile(
+    profile_name: str = "business",
+    *,
+    display_name: str = "Dank Mushrooms / Business Banking",
+    make_default: bool = True,
+) -> dict[str, Any]:
+    """Create the initial profile from the existing ERPNext Plaid Settings.
+
+    This one-time compatibility bridge stores only non-secret references in the
+    profile. The existing client ID and secret remain in Plaid Settings and are
+    resolved server-side when the profile is validated or used.
+    """
+    profile_name = validate_profile_name(profile_name)
+    settings = frappe.get_single("Plaid Settings")
+    if not settings.plaid_client_id:
+        raise PlaidProfileError(_("Legacy Plaid Settings has no client ID configured."))
+    if not settings.get_password("plaid_secret"):
+        raise PlaidProfileError(_("Legacy Plaid Settings has no secret configured."))
+
+    environment = str(settings.plaid_env or "").strip().lower()
+    if environment not in ALLOWED_ENVIRONMENTS:
+        raise PlaidProfileError(
+            _("Legacy Plaid Settings has unsupported environment {0}.").format(settings.plaid_env)
+        )
+
+    if frappe.db.exists("RootedOps Plaid Connection Profile", profile_name):
+        validate_profile_document(
+            frappe.get_doc("RootedOps Plaid Connection Profile", profile_name)
+        )
+        return {"created": False, "profile": profile_name}
+
+    doc = frappe.get_doc({
+        "doctype": "RootedOps Plaid Connection Profile",
+        "profile_name": profile_name,
+        "display_name": display_name,
+        "enabled": 1,
+        "is_default": 1 if make_default else 0,
+        "environment": environment,
+        "client_id_secret_ref": LEGACY_PLAID_CLIENT_ID_REF,
+        "secret_secret_ref": LEGACY_PLAID_SECRET_REF,
+        "description": (
+            "Initial RootedOps profile backed by the existing ERPNext "
+            "Plaid Settings credential context."
+        ),
+    })
+    doc.insert(ignore_permissions=True)
+    frappe.db.commit()
+    return {"created": True, "profile": doc.name}
