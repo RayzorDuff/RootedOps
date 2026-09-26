@@ -1,3 +1,20 @@
+## [1.4.8] - 2026-09-26
+
+### Added
+
+- Issue #7 Phase 2.1 compatibility bootstrap for the existing ERPNext `Plaid Settings` credential context.
+
+### Changed
+
+- Legacy Plaid credentials can be referenced server-side without copying raw credentials into the RootedOps profile.
+- `rootedops_payroll` version advanced to `0.3.8`.
+
+### Security
+
+- The bootstrap stores only credential references and never exposes the legacy Plaid secret in the Profile or migration output.
+
+---
+
 ## [1.4.7] - 2026-09-26
 
 ### Added
