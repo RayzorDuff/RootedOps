@@ -1,3 +1,24 @@
+## [1.5.0] - 2026-09-26
+
+### Added
+
+- Issue #7 Phase 4 profile-bound Plaid Link token creation and public-token exchange.
+- Controlled binding of a newly/unlinked ERPNext Bank to the profile selected for its Plaid Link session.
+
+### Changed
+
+- New Plaid Link sessions require an explicit Plaid Connection Profile.
+- Account retrieval after Link completion uses the same selected profile.
+- Existing Plaid Items refuse implicit access-token replacement or profile reassignment.
+- `rootedops_payroll` version advanced to `0.4.0`.
+
+### Security
+
+- Existing Item access tokens are never overwritten by the new-link flow.
+- Operator-facing Link completion output contains only fingerprints and account metadata, not access tokens or credentials.
+
+---
+
 ## [1.4.9] - 2026-09-26
 
 ### Added
