@@ -1,3 +1,19 @@
+## [1.4.7] - 2026-09-26
+
+### Added
+- Issue #7 Phase 2 Plaid Item → Connection Profile relationship on ERPNext `Bank`.
+- Safe Item-state fingerprints and explicit legacy profile migration helpers.
+- Regression tests covering migration invariants and preservation of Bank Account and Bank Transaction counts.
+
+### Changed
+- `rootedops_payroll` version advanced to 0.3.7.
+- Existing Plaid Items remain on the legacy global Plaid API behavior until the later profile-aware API phase.
+
+### Notes
+- Legacy Item migration is explicit and is not automatically executed by `bench migrate`.
+- The migration does not call Plaid, replace access tokens, reset synchronization state, or create accounting records.
+
+---
 ## [1.4.6] - 2026-09-26
 
 ### Added
