@@ -1,3 +1,21 @@
+## [1.4.9] - 2026-09-26
+
+### Added
+
+- Issue #7 Phase 3 centralized, profile-aware Plaid API client routing.
+
+### Changed
+
+- Plaid historical backfill resolves its API client from the target Plaid Item's connection profile rather than the global ERPNext `Plaid Settings`.
+- Profile-bound Plaid API failures identify the profile without exposing credentials.
+- `rootedops_payroll` version advanced to `0.3.9`.
+
+### Security
+
+- Plaid client credentials remain server-side and are never included in client representations, operator status, or error messages.
+
+---
+
 ## [1.4.8] - 2026-09-26
 
 ### Added

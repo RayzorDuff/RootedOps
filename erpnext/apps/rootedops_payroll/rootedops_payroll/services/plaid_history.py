@@ -16,10 +16,10 @@ import re
 from uuid import uuid4
 
 import frappe
-import requests
 from frappe.desk.doctype.tag.tag import add_tag
 from frappe.utils import getdate, today
 
+from rootedops_payroll.services.plaid_client import get_plaid_client_for_bank
 from rootedops_payroll.services.plaid_history_matching import (
     assign_db_safe_transaction_ids,
     classify_transaction_overlap,
@@ -60,24 +60,6 @@ BACKFILL_PROFILES = {
 class PlaidHistoricalBackfillError(RuntimeError):
     pass
 
-
-class PlaidAPIError(PlaidHistoricalBackfillError):
-    def __init__(self, path, response):
-        self.path = path
-        self.status_code = response.status_code
-        try:
-            payload = response.json()
-        except Exception:
-            payload = {}
-        self.error_type = payload.get("error_type")
-        self.error_code = payload.get("error_code")
-        self.error_message = payload.get("error_message")
-        self.request_id = payload.get("request_id")
-        super().__init__(
-            f"{path} failed: HTTP {self.status_code}; "
-            f"{self.error_type or 'UNKNOWN'} / {self.error_code or 'UNKNOWN'}; "
-            f"{self.error_message or 'no message'}; request_id={self.request_id or 'unknown'}"
-        )
 
 
 def _fingerprint(value):
@@ -151,45 +133,11 @@ def _save_state(state):
     _atomic_private_json_write(_session_path(state["session_id"]), state)
 
 
-def _plaid_context():
-    settings = frappe.get_single("Plaid Settings")
-    if not settings.enabled:
-        raise PlaidHistoricalBackfillError("ERPNext Plaid Settings are disabled")
-    secret = settings.get_password("plaid_secret")
-    if not settings.plaid_client_id or not secret:
-        raise PlaidHistoricalBackfillError("ERPNext Plaid credentials are incomplete")
-    return {
-        "base_url": f"https://{settings.plaid_env}.plaid.com",
-        "environment": settings.plaid_env,
-        "client_id": settings.plaid_client_id,
-        "secret": secret,
-    }
-
-
-def _plaid_post(context, path, payload, timeout=60):
-    body = {
-        "client_id": context["client_id"],
-        "secret": context["secret"],
-        **payload,
-    }
-    response = requests.post(
-        context["base_url"] + path,
-        json=body,
-        timeout=timeout,
-    )
-    if response.status_code != 200:
-        raise PlaidAPIError(path, response)
-    try:
-        return response.json()
-    except Exception as exc:
-        raise PlaidHistoricalBackfillError(f"{path} returned a non-JSON response") from exc
-
-
-def _current_live_item(profile, context):
+def _current_live_item(profile, client):
     access_token = frappe.db.get_value("Bank", profile["bank"], "plaid_access_token")
     if not access_token:
         raise PlaidHistoricalBackfillError(f"{profile['bank']} has no live Plaid access token")
-    response = _plaid_post(context, "/item/get", {"access_token": access_token})
+    response = client.post("/item/get", {"access_token": access_token})
     item = response.get("item") or {}
     if item.get("institution_id") != profile["institution_id"]:
         raise PlaidHistoricalBackfillError(
@@ -231,12 +179,11 @@ def _extract_item_add_result(link_token_response):
     return None, sessions[-1] if sessions else None
 
 
-def _ensure_candidate_token(state, context, allow_institution_mismatch=False):
+def _ensure_candidate_token(state, client, allow_institution_mismatch=False):
     if state.get("candidate_access_token"):
         return state
 
-    link_result = _plaid_post(
-        context,
+    link_result = client.post(
         "/link/token/get",
         {"link_token": state["link_token"]},
     )
@@ -267,8 +214,7 @@ def _ensure_candidate_token(state, context, allow_institution_mismatch=False):
     if not public_token:
         raise PlaidHistoricalBackfillError("Completed Hosted Link session did not return a public token")
 
-    exchange = _plaid_post(
-        context,
+    exchange = client.post(
         "/item/public_token/exchange",
         {"public_token": public_token},
     )
@@ -281,15 +227,15 @@ def _ensure_candidate_token(state, context, allow_institution_mismatch=False):
     return state
 
 
-def _plaid_accounts(context, access_token):
-    response = _plaid_post(context, "/accounts/get", {"access_token": access_token})
+def _plaid_accounts(client, access_token):
+    response = client.post("/accounts/get", {"access_token": access_token})
     return response.get("accounts") or []
 
 
-def _canonical_live_accounts(profile, context, live_access_token):
+def _canonical_live_accounts(profile, client, live_access_token):
     live_accounts = {
         account.get("account_id"): account
-        for account in _plaid_accounts(context, live_access_token)
+        for account in _plaid_accounts(client, live_access_token)
     }
     result = []
     for bank_account_name in profile["bank_accounts"]:
@@ -316,22 +262,20 @@ def _canonical_live_accounts(profile, context, live_access_token):
     return result
 
 
-def _transactions_update_status(context, access_token):
+def _transactions_update_status(client, access_token):
     """Use the modern read endpoint only to distinguish initial from full historical readiness."""
-    response = _plaid_post(
-        context,
+    response = client.post(
         "/transactions/sync",
         {"access_token": access_token, "count": 1},
     )
     return response.get("transactions_update_status")
 
 
-def _fetch_transactions(context, access_token, account_id, start_date, end_date):
+def _fetch_transactions(client, access_token, account_id, start_date, end_date):
     transactions = []
     offset = 0
     while True:
-        response = _plaid_post(
-            context,
+        response = client.post(
             "/transactions/get",
             {
                 "access_token": access_token,
@@ -408,12 +352,11 @@ def create_hosted_link(profile="high_plains_2026", days_requested=DEFAULT_DAYS_R
     if not 1 <= url_lifetime_seconds <= 21 * 24 * 60 * 60:
         raise PlaidHistoricalBackfillError("url_lifetime_seconds must be between 1 second and 21 days")
 
-    context = _plaid_context()
-    live_access_token, live_item = _current_live_item(profile_config, context)
+    client = get_plaid_client_for_bank(profile_config["bank"])
+    live_access_token, live_item = _current_live_item(profile_config, client)
     session_id = uuid4().hex
 
-    response = _plaid_post(
-        context,
+    response = client.post(
         "/link/token/create",
         {
             "user": {"client_user_id": f"rootedops-history-{session_id}"},
@@ -438,7 +381,7 @@ def create_hosted_link(profile="high_plains_2026", days_requested=DEFAULT_DAYS_R
         "expected_institution_id": profile_config["institution_id"],
         "requested_start_date": profile_config["start_date"],
         "days_requested": days_requested,
-        "environment": context["environment"],
+        "environment": client.environment,
         "link_token": response["link_token"],
         "link_expiration": response.get("expiration"),
         "request_id": response.get("request_id"),
@@ -469,8 +412,8 @@ def inspect_session(session_id, start_date=None, end_date=None):
     """Exchange the completed temporary Item and produce a no-write overlap/dedup dry run."""
     state = _load_state(session_id)
     profile = _profile(state["profile"])
-    context = _plaid_context()
-    live_access_token, live_item = _current_live_item(profile, context)
+    client = get_plaid_client_for_bank(profile["bank"])
+    live_access_token, live_item = _current_live_item(profile, client)
 
     if _fingerprint(live_access_token) != state.get("live_access_token_fingerprint"):
         raise PlaidHistoricalBackfillError(
@@ -481,12 +424,12 @@ def inspect_session(session_id, start_date=None, end_date=None):
             "The production Plaid Item changed after this staging session was created. Stop and investigate."
         )
 
-    state = _ensure_candidate_token(state, context)
+    state = _ensure_candidate_token(state, client)
     candidate_token = state["candidate_access_token"]
     if candidate_token == live_access_token:
         raise PlaidHistoricalBackfillError("Candidate and production Plaid access tokens are unexpectedly identical")
 
-    candidate_item_response = _plaid_post(context, "/item/get", {"access_token": candidate_token})
+    candidate_item_response = client.post("/item/get", {"access_token": candidate_token})
     candidate_item = candidate_item_response.get("item") or {}
     if candidate_item.get("institution_id") != profile["institution_id"]:
         raise PlaidHistoricalBackfillError("Candidate Item institution no longer matches the staging profile")
@@ -504,14 +447,14 @@ def inspect_session(session_id, start_date=None, end_date=None):
     if getdate(start_date) > getdate(end_date):
         raise PlaidHistoricalBackfillError("start_date must be on or before end_date")
 
-    canonical_accounts = _canonical_live_accounts(profile, context, live_access_token)
-    candidate_accounts = _plaid_accounts(context, candidate_token)
+    canonical_accounts = _canonical_live_accounts(profile, client, live_access_token)
+    candidate_accounts = _plaid_accounts(client, candidate_token)
     mappings = match_candidate_accounts(canonical_accounts, candidate_accounts)
 
     account_reports = []
     report_transactions = []
     readiness_error = None
-    update_status = _transactions_update_status(context, candidate_token)
+    update_status = _transactions_update_status(client, candidate_token)
     transactions_ready = update_status == "HISTORICAL_UPDATE_COMPLETE"
     if not transactions_ready:
         readiness_error = {
@@ -532,8 +475,7 @@ def inspect_session(session_id, start_date=None, end_date=None):
 
         try:
             transactions = _fetch_transactions(
-                context,
-                candidate_token,
+                                candidate_token,
                 mapping["candidate_account_id"],
                 start_date,
                 end_date,
@@ -831,8 +773,8 @@ def prepare_import(session_id, start_date=None, end_date=None):
     }
 
 
-def _assert_production_plaid_unchanged(state, profile, context):
-    live_access_token, live_item = _current_live_item(profile, context)
+def _assert_production_plaid_unchanged(state, profile, client):
+    live_access_token, live_item = _current_live_item(profile, client)
     if _fingerprint(live_access_token) != state.get("live_access_token_fingerprint"):
         raise PlaidHistoricalBackfillError("Production Plaid access token changed during historical import")
     if _fingerprint(live_item.get("item_id")) != state.get("live_item_id_fingerprint"):
@@ -850,7 +792,7 @@ def commit_import(session_id, plan_hash, expected_new_count, confirm=False):
 
     state = _load_state(session_id)
     profile = _profile(state["profile"])
-    context = _plaid_context()
+    client = get_plaid_client_for_bank(state["bank"])
 
     # Re-fetch and reclassify immediately before any write using the exact
     # reviewed date window. This also verifies both production and candidate
@@ -957,7 +899,7 @@ def commit_import(session_id, plan_hash, expected_new_count, confirm=False):
                 f"Post-write verification found {child_rows} unexpected reconciliation child rows"
             )
 
-        _assert_production_plaid_unchanged(state, profile, context)
+        _assert_production_plaid_unchanged(state, profile, client)
         for bank_account, expected_integration_id in mapping_ids.items():
             if frappe.db.get_value("Bank Account", bank_account, "integration_id") != expected_integration_id:
                 raise PlaidHistoricalBackfillError(
@@ -1038,8 +980,8 @@ def commit_import(session_id, plan_hash, expected_new_count, confirm=False):
 def session_status(session_id):
     """Return non-secret local staging state and current Hosted Link completion status."""
     state = _load_state(session_id)
-    context = _plaid_context()
-    link_result = _plaid_post(context, "/link/token/get", {"link_token": state["link_token"]})
+    client = get_plaid_client_for_bank(state["bank"])
+    link_result = client.post("/link/token/get", {"link_token": state["link_token"]})
     item_result, link_session = _extract_item_add_result(link_result)
     frappe.db.rollback()
     return {
@@ -1064,8 +1006,8 @@ def cleanup_session(session_id, confirm=False):
 
     state = _load_state(session_id)
     profile = _profile(state["profile"])
-    context = _plaid_context()
-    live_access_token, live_item = _current_live_item(profile, context)
+    client = get_plaid_client_for_bank(profile["bank"])
+    live_access_token, live_item = _current_live_item(profile, client)
 
     if _fingerprint(live_access_token) != state.get("live_access_token_fingerprint"):
         raise PlaidHistoricalBackfillError(
@@ -1079,7 +1021,7 @@ def cleanup_session(session_id, confirm=False):
     candidate_removed = False
     candidate_fingerprint = state.get("candidate_item_id_fingerprint")
     try:
-        state = _ensure_candidate_token(state, context, allow_institution_mismatch=True)
+        state = _ensure_candidate_token(state, client, allow_institution_mismatch=True)
     except PlaidHistoricalBackfillError as exc:
         if "has not completed successfully yet" not in str(exc):
             raise
@@ -1088,11 +1030,11 @@ def cleanup_session(session_id, confirm=False):
     if candidate_token:
         if candidate_token == live_access_token:
             raise PlaidHistoricalBackfillError("Refusing to remove the production Plaid Item")
-        candidate_item = _plaid_post(context, "/item/get", {"access_token": candidate_token}).get("item") or {}
+        candidate_item = client.post("/item/get", {"access_token": candidate_token}).get("item") or {}
         if candidate_item.get("item_id") == live_item.get("item_id"):
             raise PlaidHistoricalBackfillError("Refusing to remove the production Plaid Item")
         candidate_fingerprint = _fingerprint(candidate_item.get("item_id"))
-        _plaid_post(context, "/item/remove", {"access_token": candidate_token})
+        client.post("/item/remove", {"access_token": candidate_token})
         candidate_removed = True
 
     session_path = _session_path(session_id)
