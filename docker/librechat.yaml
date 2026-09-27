@@ -28,6 +28,20 @@ endpoints:
         - "stop"
       modelDisplayLabel: "OpenRouter"
 
+    - name: "Cerebras"
+      apiKey: "${CEREBRAS_API_KEY}"
+      baseURL: "https://api.cerebras.ai/v1"
+      models:
+        default:
+          - "zai-glm-4.7"
+        fetch: false
+      titleConvo: true
+      titleModel: "zai-glm-4.7"
+      modelDisplayLabel: "Cerebras"
+      customParams:
+        reasoningFormat: "reasoning_effort"
+        reasoningKey: "reasoning"
+
 mcpServers:
   github:
     title: "GitHub Read Only Development"
@@ -99,6 +113,9 @@ modelSpecs:
           practitioner/member identity, webhook behavior, and existing issue
           history as authoritative context when supplied. Prefer incremental,
           testable changes and do not invent application state.
+          Never invent or approximate a repository file that you cannot read.
+          If a required source file cannot be retrieved, stop and identify the
+          missing evidence instead of generating a speculative patch.
 
     - name: "bookworks-developer"
       label: "BookWorks Developer"
@@ -268,6 +285,76 @@ modelSpecs:
         promptPrefix: |
           Help the user reason through the question carefully. Distinguish
           facts from assumptions and explain uncertainty where it matters.
+
+    - name: "openrouter-free-research"
+      label: "OpenRouter Free Research"
+      description: "Zero-cost exploratory research and second-opinion work using the current OpenRouter free-model pool."
+      group: "Research"
+      preset:
+        endpoint: "OpenRouter"
+        model: "openrouter/free"
+        modelLabel: "OpenRouter Free Model Pool"
+        reasoning_effort: "medium"
+        promptPrefix: |
+          Provide a low-cost independent research or second-opinion pass.
+          Distinguish facts, source-derived claims, inference, and uncertainty.
+          Do not invent repository state or claim to have inspected sources you
+          could not access.
+
+    - name: "openrouter-free-github-review"
+      label: "OpenRouter Free GitHub Review"
+      description: "Zero-cost independent GitHub issue, repository, and patch review using the current OpenRouter free-model pool."
+      group: "Development"
+      mcpServers:
+        - github
+      preset:
+        endpoint: "OpenRouter"
+        model: "openrouter/free"
+        modelLabel: "OpenRouter Free Model Pool"
+        reasoning_effort: "medium"
+        promptPrefix: |
+          Provide an independent, low-cost review of the GitHub repository or
+          issue presented by the user. Use GitHub MCP when available. Focus on
+          concrete evidence, affected files, regressions, and compatibility.
+          Do not modify files or invent repository state. If a required file
+          cannot be retrieved, say so rather than approximating it.
+
+    - name: "openrouter-free-reasoning"
+      label: "OpenRouter Free Reasoning"
+      description: "Zero-cost general reasoning and brainstorming using the current OpenRouter free-model pool."
+      group: "General"
+      preset:
+        endpoint: "OpenRouter"
+        model: "openrouter/free"
+        modelLabel: "OpenRouter Free Model Pool"
+        reasoning_effort: "medium"
+        promptPrefix: |
+          Help the user reason through the question carefully at zero inference
+          cost where practical. Distinguish facts from assumptions and identify
+          uncertainty when it matters.
+
+    - name: "cerebras-glm-coding"
+      label: "Cerebras GLM 4.7 Developer"
+      description: "Dedicated coding and agentic-development test using Cerebras GLM 4.7."
+      group: "Development"
+      mcpServers:
+        - github
+      preset:
+        endpoint: "Cerebras"
+        model: "zai-glm-4.7"
+        modelLabel: "GLM 4.7"
+        temperature: 0.2
+        reasoning_effort: "high"
+        promptPrefix: |
+          You are assisting with software development using Cerebras GLM 4.7.
+          Treat the repository, issue history, existing source files, and
+          project-specific Git/patch conventions as authoritative when supplied.
+          Prefer small, testable, repository-native changes.
+          Never invent or approximate a repository file that you cannot read.
+          If required source evidence is unavailable, stop and identify what is
+          missing rather than generating a speculative implementation.
+          For coding and agentic work, preserve reasoning across turns when the
+          endpoint supports it.
 
     - name: "deepseek-coding"
       label: "DeepSeek Coding"
