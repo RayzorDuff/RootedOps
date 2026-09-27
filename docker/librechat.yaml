@@ -3,6 +3,11 @@ cache: true
 
 interface:
   fileSearch: false
+  mcpServers:
+    use: true
+    create: false
+    share: false
+    public: false
 
 endpoints:
   custom:
@@ -23,6 +28,18 @@ endpoints:
         - "stop"
       modelDisplayLabel: "OpenRouter"
 
+mcpServers:
+  github:
+    title: "GitHub (read-only development)"
+    description: "Read-only access to the four RootedOps development repositories and their issues/pull requests."
+    type: streamable-http
+    url: "https://api.githubcopilot.com/mcp/"
+    headers:
+      Authorization: "Bearer ${GITHUB_MCP_TOKEN}"
+      X-MCP-Toolsets: "repos,issues,pull_requests"
+      X-MCP-Readonly: "true"
+    chatMenu: false
+
 modelSpecs:
   enforce: true
   prioritize: true
@@ -31,6 +48,8 @@ modelSpecs:
       label: "RootedOps Developer"
       description: "RootedOps ERPNext, Frappe, Python, SQL, Docker, n8n, deployment, and repository development."
       group: "RootedOps"
+      mcpServers:
+        - github
       preset:
         endpoint: "OpenRouter"
         model: "anthropic/claude-sonnet-5"
@@ -48,6 +67,8 @@ modelSpecs:
       label: "MushroomProcess Developer"
       description: "MushroomProcess Appsmith, PostgreSQL, NocoDB, n8n, Ecwid/Clover, migration, and cultivation operations development."
       group: "Development"
+      mcpServers:
+        - github
       preset:
         endpoint: "OpenRouter"
         model: "anthropic/claude-sonnet-5"
@@ -64,6 +85,8 @@ modelSpecs:
       label: "SignatureGate Developer"
       description: "SignatureGate Appsmith, n8n, Documenso, NocoDB, agreements, identity, and webhook development."
       group: "Development"
+      mcpServers:
+        - github
       preset:
         endpoint: "OpenRouter"
         model: "anthropic/claude-sonnet-5"
@@ -80,6 +103,8 @@ modelSpecs:
       label: "BookWorks Developer"
       description: "BookWorks code, Makefiles, Git/patch workflow, publication framework, ingestion, and release engineering."
       group: "BookWorks"
+      mcpServers:
+        - github
       preset:
         endpoint: "OpenRouter"
         model: "anthropic/claude-sonnet-5"

@@ -12,6 +12,7 @@ stack.
 - server-side OpenRouter integration
 - deterministic LibreChat `modelSpecs`
 - project-specific model/task prompts
+- read-only GitHub MCP integration for the four Developer model specs
 - registration/authentication scaffolding
 
 ## Intentionally deferred
@@ -24,6 +25,27 @@ optional search or document-retrieval workload. BookWorks document processing re
 Mac-local and is not a LibreChat/Linode dependency.
 
 The MacBook's local Ollama/Llama remains completely independent.
+
+## GitHub MCP development access
+
+The four Developer model specs are explicitly assigned the `github` MCP server:
+
+| Developer flow | Repository |
+| --- | --- |
+| RootedOps Developer | `RayzorDuff/RootedOps` |
+| MushroomProcess Developer | `RayzorDuff/MushroomProcess` |
+| SignatureGate Developer | `RayzorDuff/SignatureGate` |
+| BookWorks Developer | `RayzorDuff/BookWorks` |
+
+The server uses the hosted GitHub MCP endpoint with the `repos`, `issues`, and
+`pull_requests` toolsets and explicitly requests read-only mode. The GitHub PAT is
+provided at runtime through `GITHUB_MCP_TOKEN`; its repository scope must be enforced
+by the GitHub token itself. The server is hidden from the general chat MCP picker so
+that it is available through the Developer model specs rather than as a general-purpose
+chat tool.
+
+Do not commit the real GitHub token. After changing `GITHUB_MCP_TOKEN`, recreate or
+restart the LibreChat service so the environment and MCP configuration are reloaded.
 
 ## Current model assignments
 

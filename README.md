@@ -1,6 +1,6 @@
 # RootedOps
 
-Current version: **1.5.6**.
+Current version: **1.5.7**.
 
 See [`doc/RELEASE_PROCESS.md`](doc/RELEASE_PROCESS.md) for the repeatable release workflow.
 
@@ -150,6 +150,9 @@ The initial deployment includes:
 - OpenRouter integration
 - deterministic `modelSpecs` for RootedOps, MushroomProcess, SignatureGate,
   BookWorks, writing, research, and coding workflows
+- read-only GitHub MCP access for the four Developer model specs; the GitHub PAT is
+  supplied through `GITHUB_MCP_TOKEN` and should be restricted to the corresponding
+  repositories
 
 LibreChat RAG/pgvector and Meilisearch are intentionally deferred so that resource
 usage can be measured before adding document-indexing or conversation-search workloads.

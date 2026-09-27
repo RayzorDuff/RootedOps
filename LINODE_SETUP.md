@@ -223,6 +223,7 @@ LIBRECHAT_PUBLIC_URL=https://ai.danks.store
 LIBRECHAT_HTTP_PORT=3080
 LIBRECHAT_IMAGE_TAG=v0.8.7
 OPENROUTER_KEY=<server-side OpenRouter API key>
+GITHUB_MCP_TOKEN=<read-only GitHub PAT scoped to the four Developer repositories>
 LIBRECHAT_CREDS_KEY=<64 hex characters>
 LIBRECHAT_CREDS_IV=<32 hex characters>
 LIBRECHAT_JWT_SECRET=<64 hex characters>
@@ -241,6 +242,37 @@ openssl rand -hex 16
 ```
 
 Do not commit the real `.env`.
+
+### GitHub MCP
+
+The Developer model specs use a hosted GitHub MCP connection for repository and
+issue/PR inspection. The runtime credential is `GITHUB_MCP_TOKEN`. The GitHub PAT
+should be repository-scoped to:
+
+- `RayzorDuff/RootedOps`
+- `RayzorDuff/MushroomProcess`
+- `RayzorDuff/SignatureGate`
+- `RayzorDuff/BookWorks`
+
+The MCP connection requests only `repos`, `issues`, and `pull_requests` and enables
+GitHub MCP read-only mode. The `github` MCP server is assigned only to the four
+Developer model specs and is hidden from the general MCP chat picker.
+
+After changing `GITHUB_MCP_TOKEN`, recreate LibreChat so the new environment value is
+loaded:
+
+```bash
+sudo docker compose --env-file ./.env -f docker/docker-compose.yml up -d --force-recreate librechat
+```
+
+Then verify:
+
+```bash
+sudo docker logs --tail 200 librechat
+sudo docker compose --env-file ./.env -f docker/docker-compose.yml config >/dev/null
+```
+
+Do not print or paste the token into logs, issue comments, or Git-tracked files.
 
 ### Compose validation
 

@@ -4,6 +4,20 @@ All notable changes to this project will be documented in this file.
 
 ---
 
+## [1.5.7] - 2026-09-27
+
+### Added
+
+- Issue #9 Phase 1 GitHub MCP integration for the Developer model specs.
+- Read-only GitHub access for the RootedOps, MushroomProcess, SignatureGate, and BookWorks repositories through the hosted GitHub MCP server.
+- Repository/issue/pull-request tools are restricted to the four Developer flows; the GitHub MCP server is hidden from the general chat tool picker.
+
+### Security
+
+- The GitHub credential is supplied through the uncommitted `GITHUB_MCP_TOKEN` environment variable.
+- The GitHub MCP connection explicitly requests `repos`, `issues`, and `pull_requests` toolsets and read-only mode.
+- Repository scope remains enforced by the GitHub PAT itself; RootedOps does not store or define the PAT's repository permissions.
+
 ## [1.5.6] - 2026-09-27
 
 ### Changed
