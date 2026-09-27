@@ -21,7 +21,7 @@ endpoints:
           - "google/gemini-3.1-pro-preview"
           - "meta-llama/llama-3.3-70b-instruct"
           - "deepseek/deepseek-v4-flash-0731"
-        fetch: false
+        fetch: true
       titleConvo: true
       titleModel: "meta-llama/llama-3.3-70b-instruct"
       dropParams:
@@ -90,8 +90,8 @@ modelSpecs:
         - github
       preset:
         endpoint: "OpenRouter"
-        model: "google/gemini-3.8-flash"
-        modelLabel: "Gemini 3.8 Flash"
+        model: "openrouter/free"
+        modelLabel: "OpenRouter Free Model Pool"
         thinkingLevel: "medium"
         promptPrefix: |
           You are assisting with SignatureGate development.
