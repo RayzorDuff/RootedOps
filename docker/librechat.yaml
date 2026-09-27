@@ -90,9 +90,9 @@ modelSpecs:
         - github
       preset:
         endpoint: "OpenRouter"
-        model: "anthropic/claude-sonnet-5"
-        modelLabel: "Claude Sonnet 5"
-        temperature: 0.2
+        model: "google/gemini-3.8-flash"
+        modelLabel: "Gemini 3.8 Flash"
+        thinkingLevel: "medium"
         promptPrefix: |
           You are assisting with SignatureGate development.
           Treat Appsmith, n8n, Documenso, NocoDB, agreement workflows,

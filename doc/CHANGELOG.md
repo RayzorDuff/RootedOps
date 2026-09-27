@@ -4,6 +4,12 @@ All notable changes to this project will be documented in this file.
 
 ---
 
+## [1.5.9] - 2026-09-27
+
+### Changed
+
+- SignatureGate Developer now uses Gemini 3.8 Flash for cost-conscious GitHub repository development workflows.
+
 ## [1.5.8] - 2026-09-27
 
 - LibreChat configuration validation error and resolve GitHub access.
