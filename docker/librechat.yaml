@@ -30,9 +30,10 @@ endpoints:
 
 mcpServers:
   github:
-    title: "GitHub (read-only development)"
-    description: "Read-only access to the four RootedOps development repositories and their issues/pull requests."
+    title: "GitHub Read Only Development"
+    description: "Read only access to the four RootedOps development repositories and their issues and pull requests."
     type: streamable-http
+    requiresOAuth: false
     url: "https://api.githubcopilot.com/mcp/"
     headers:
       Authorization: "Bearer ${GITHUB_MCP_TOKEN}"

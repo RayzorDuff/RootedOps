@@ -4,6 +4,10 @@ All notable changes to this project will be documented in this file.
 
 ---
 
+## [1.5.8] - 2026-09-27
+
+- LibreChat configuration validation error and resolve GitHub access.
+
 ## [1.5.7] - 2026-09-27
 
 ### Added
