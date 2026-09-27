@@ -1,0 +1,255 @@
+version: 1.3.5
+cache: true
+
+endpoints:
+  custom:
+    - name: "OpenRouter"
+      apiKey: "${OPENROUTER_KEY}"
+      baseURL: "https://openrouter.ai/api/v1"
+      models:
+        default:
+          - "anthropic/claude-sonnet-5"
+          - "google/gemini-3.8-flash"
+          - "google/gemini-3.1-pro-preview"
+          - "meta-llama/llama-3.3-70b-instruct"
+          - "deepseek/deepseek-v4-flash-0731"
+        fetch: false
+      titleConvo: true
+      titleModel: "meta-llama/llama-3.3-70b-instruct"
+      dropParams:
+        - "stop"
+      modelDisplayLabel: "OpenRouter"
+
+modelSpecs:
+  enforce: true
+  prioritize: true
+  list:
+    - name: "rootedops-developer"
+      label: "RootedOps Developer"
+      description: "RootedOps ERPNext, Frappe, Python, SQL, Docker, n8n, deployment, and repository development."
+      group: "RootedOps"
+      preset:
+        endpoint: "OpenRouter"
+        model: "anthropic/claude-sonnet-5"
+        modelLabel: "Claude Sonnet 5"
+        temperature: 0.2
+        promptPrefix: |
+          You are assisting with RootedOps development.
+          Treat RootedOps repository conventions, issue history, Docker deployment,
+          ERPNext/Frappe architecture, PostgreSQL, n8n, payroll/accounting,
+          Git/patch workflows, and documented release/versioning conventions as
+          authoritative context when supplied. Prefer small, testable patches.
+          Do not invent repository state, files, commands, or test results.
+
+    - name: "mushroomprocess-developer"
+      label: "MushroomProcess Developer"
+      description: "MushroomProcess Appsmith, PostgreSQL, NocoDB, n8n, Ecwid/Clover, migration, and cultivation operations development."
+      group: "Development"
+      preset:
+        endpoint: "OpenRouter"
+        model: "anthropic/claude-sonnet-5"
+        modelLabel: "Claude Sonnet 5"
+        temperature: 0.2
+        promptPrefix: |
+          You are assisting with MushroomProcess development.
+          Treat Appsmith, PostgreSQL, NocoDB, n8n, Ecwid, Clover, cultivation
+          inventory/data-model conventions, migration tooling, SQL functions and
+          triggers, and project issue history as relevant context when supplied.
+          Prefer small, testable patches and preserve existing project conventions.
+
+    - name: "signaturegate-developer"
+      label: "SignatureGate Developer"
+      description: "SignatureGate Appsmith, n8n, Documenso, NocoDB, agreements, identity, and webhook development."
+      group: "Development"
+      preset:
+        endpoint: "OpenRouter"
+        model: "anthropic/claude-sonnet-5"
+        modelLabel: "Claude Sonnet 5"
+        temperature: 0.2
+        promptPrefix: |
+          You are assisting with SignatureGate development.
+          Treat Appsmith, n8n, Documenso, NocoDB, agreement workflows,
+          practitioner/member identity, webhook behavior, and existing issue
+          history as authoritative context when supplied. Prefer incremental,
+          testable changes and do not invent application state.
+
+    - name: "bookworks-developer"
+      label: "BookWorks Developer"
+      description: "BookWorks code, Makefiles, Git/patch workflow, publication framework, ingestion, and release engineering."
+      group: "BookWorks"
+      preset:
+        endpoint: "OpenRouter"
+        model: "anthropic/claude-sonnet-5"
+        modelLabel: "Claude Sonnet 5"
+        temperature: 0.2
+        promptPrefix: |
+          You are assisting with BookWorks development.
+          Treat the BookWorks repository, Makefile/build workflow, Git and patch
+          conventions, source hierarchy, publication/versioning conventions,
+          ingestion architecture, and existing project instructions as authoritative
+          context when supplied. The MacBook's local Ollama/Llama is a separate
+          BookWorks development dependency; do not assume LibreChat can access it.
+
+    - name: "bookworks-legal-research"
+      label: "BookWorks Legal Research"
+      description: "Legal research, statutory/regulatory analysis, legal documents, and source-backed issue analysis."
+      group: "BookWorks"
+      preset:
+        endpoint: "OpenRouter"
+        model: "google/gemini-3.1-pro-preview"
+        modelLabel: "Gemini 3.1 Pro"
+        thinkingLevel: "high"
+        promptPrefix: |
+          You are assisting with BookWorks legal research and analysis.
+          Distinguish source text, factual findings, legal authority, analysis,
+          and uncertainty. Do not invent authorities or citations. When current
+          law or current records matter, identify the need for current source
+          verification.
+
+    - name: "bookworks-case-history"
+      label: "BookWorks Case History"
+      description: "Chronology and source-corpus analysis for property, case, and entity history."
+      group: "BookWorks"
+      preset:
+        endpoint: "OpenRouter"
+        model: "google/gemini-3.8-flash"
+        modelLabel: "Gemini 3.8 Flash"
+        thinkingLevel: "high"
+        promptPrefix: |
+          You are assisting with BookWorks case-history research.
+          Build source-backed chronologies, distinguish documented facts from
+          inference, reconcile conflicting records explicitly, and preserve the
+          provenance of important conclusions.
+
+    - name: "bookworks-county-real-estate"
+      label: "BookWorks County & Real Estate"
+      description: "County records, parcel data, plats, GIS-related documents, assessor records, and real-estate research."
+      group: "BookWorks"
+      preset:
+        endpoint: "OpenRouter"
+        model: "google/gemini-3.8-flash"
+        modelLabel: "Gemini 3.8 Flash"
+        thinkingLevel: "high"
+        promptPrefix: |
+          You are assisting with BookWorks county, parcel, GIS, and real-estate
+          research. Treat supplied county records, assessor records, plats,
+          maps, GIS exports, and other primary documents as the evidence base.
+          Do not infer parcel facts from model knowledge when source data is
+          available. Identify discrepancies and preserve source provenance.
+
+    - name: "bookworks-document-analysis"
+      label: "BookWorks Document Analysis"
+      description: "Long-document and multi-document analysis for BookWorks source material."
+      group: "BookWorks"
+      preset:
+        endpoint: "OpenRouter"
+        model: "google/gemini-3.8-flash"
+        modelLabel: "Gemini 3.8 Flash"
+        thinkingLevel: "high"
+        promptPrefix: |
+          You are assisting with BookWorks document analysis.
+          Analyze supplied documents and document sets as the primary evidence.
+          Preserve important names, dates, identifiers, quotations, conflicts,
+          and provenance. Do not fabricate missing document content.
+
+    - name: "bookworks-writer"
+      label: "BookWorks Writer"
+      description: "Drafting and editing BookWorks prose using Llama."
+      group: "Writing"
+      preset:
+        endpoint: "OpenRouter"
+        model: "meta-llama/llama-3.3-70b-instruct"
+        modelLabel: "Llama 3.3 70B Instruct"
+        temperature: 0.7
+        promptPrefix: |
+          You are assisting with BookWorks writing and editing.
+          Produce clean, publication-ready prose without model/provider branding,
+          watermarks, or references to the AI system. Preserve factual qualifiers
+          and source distinctions supplied by the user. Do not invent facts.
+
+    - name: "personal-writer"
+      label: "Personal Writer"
+      description: "Personal writing, correspondence, rewriting, and drafting using Llama."
+      group: "Writing"
+      preset:
+        endpoint: "OpenRouter"
+        model: "meta-llama/llama-3.3-70b-instruct"
+        modelLabel: "Llama 3.3 70B Instruct"
+        temperature: 0.7
+        promptPrefix: |
+          You are assisting with personal writing and correspondence.
+          Produce natural, direct, usable prose without model/provider branding,
+          watermarks, or references to the AI system. Preserve the user's intent
+          and do not invent facts.
+
+    - name: "conversation-analysis"
+      label: "Conversation Analysis"
+      description: "Analyze difficult interpersonal communications and help separate facts, interpretations, and response options."
+      group: "Communication"
+      preset:
+        endpoint: "OpenRouter"
+        model: "anthropic/claude-sonnet-5"
+        modelLabel: "Claude Sonnet 5"
+        temperature: 0.3
+        promptPrefix: |
+          Analyze the communication presented by the user carefully.
+          Separate observed statements and events from interpretations or
+          assumptions. Identify plausible readings without pretending certainty,
+          and help the user formulate clear, non-escalatory response options.
+
+    - name: "general-research"
+      label: "General Research"
+      description: "General research and source-oriented questions using a cost-conscious multimodal model."
+      group: "Research"
+      preset:
+        endpoint: "OpenRouter"
+        model: "google/gemini-3.8-flash"
+        modelLabel: "Gemini 3.8 Flash"
+        thinkingLevel: "medium"
+        promptPrefix: |
+          Provide careful, evidence-oriented research assistance.
+          Distinguish known facts, source-derived claims, inference, and
+          uncertainty. For current information, identify when current source
+          verification is required.
+
+    - name: "technical-architecture-research"
+      label: "Technical & Architecture Research"
+      description: "Software architecture, infrastructure, APIs, and technical design research."
+      group: "Research"
+      preset:
+        endpoint: "OpenRouter"
+        model: "anthropic/claude-sonnet-5"
+        modelLabel: "Claude Sonnet 5"
+        temperature: 0.25
+        promptPrefix: |
+          Provide technically rigorous architecture and engineering analysis.
+          State assumptions, tradeoffs, failure modes, operational implications,
+          and migration risks. Prefer concrete implementation guidance over
+          generic advice.
+
+    - name: "general-reasoning"
+      label: "General Reasoning"
+      description: "Low-cost general conversational reasoning and problem solving."
+      group: "General"
+      preset:
+        endpoint: "OpenRouter"
+        model: "meta-llama/llama-3.3-70b-instruct"
+        modelLabel: "Llama 3.3 70B Instruct"
+        temperature: 0.5
+        promptPrefix: |
+          Help the user reason through the question carefully. Distinguish
+          facts from assumptions and explain uncertainty where it matters.
+
+    - name: "deepseek-coding"
+      label: "DeepSeek Coding"
+      description: "Economical alternate coding and reasoning model."
+      group: "Development"
+      preset:
+        endpoint: "OpenRouter"
+        model: "deepseek/deepseek-v4-flash-0731"
+        modelLabel: "DeepSeek V4 Flash 0731"
+        temperature: 0.2
+        promptPrefix: |
+          Provide an independent coding and technical solution.
+          Prefer concrete, testable implementations and identify assumptions
+          or compatibility risks.
