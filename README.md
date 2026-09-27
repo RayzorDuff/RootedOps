@@ -1,6 +1,6 @@
 # RootedOps
 
-Current version: **1.5.2**.
+Current version: **1.5.5**.
 
 See [`doc/RELEASE_PROCESS.md`](doc/RELEASE_PROCESS.md) for the repeatable release workflow.
 

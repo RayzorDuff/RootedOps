@@ -1,9 +1,40 @@
+# Changelog
+
+All notable changes to this project will be documented in this file.
+
+---
+
 ## [1.5.5] - 2026-09-27
 
 ### Changed
 
 - Issue #9 Phase 1 operational control: Minecraft Bedrock is now behind the `minecraft` Docker Compose profile.
 - `COMPOSE_PROFILES` in `.env` controls whether the Minecraft service is included when RootedOps is started.
+
+---
+
+## [1.5.4] - 2026-09-27
+
+### Fixed
+
+- Corrected Issue #9 LibreChat Compose service indentation so the services are members of the top-level `services` mapping.
+- Updated LibreChat deployment documentation and NGINX configuration for `ai.danks.store`.
+
+---
+
+## [1.5.3] - 2026-09-27
+
+### Added
+
+- Issue #9 Phase 1 LibreChat core deployment foundation.
+- Pinned LibreChat v0.8.7 API service with MongoDB and Meilisearch persistence.
+- Server-side OpenRouter endpoint and deterministic task-specific model specifications.
+- Host NGINX configuration for the LibreChat public endpoint.
+
+### Notes
+
+- LibreChat RAG/pgvector is intentionally deferred to a later Issue #9 phase pending Linode resource and core-service validation.
+- The MacBook's local Ollama/Llama remains a separate BookWorks development dependency.
 
 ---
 
@@ -141,36 +172,6 @@
 
 - Phase E supports only confirmed **Unbalanced** profiles; balanced/offset exports remain intentionally unsupported until bank requirements are confirmed.
 - The generated file is a test/production-mode artifact determined by the profile certification status; no bank transmission is performed.
-
-## [1.5.3] - 2026-09-27
-
-### Added
-
-- Issue #9 Phase 1 LibreChat core deployment foundation.
-- Pinned LibreChat v0.8.7 API service with MongoDB and Meilisearch persistence.
-- Server-side OpenRouter endpoint and deterministic task-specific model specifications.
-- Host NGINX configuration for the LibreChat public endpoint.
-
-### Notes
-
-- LibreChat RAG/pgvector is intentionally deferred to a later Issue #9 phase pending
-  Linode resource and core-service validation.
-- The MacBook's local Ollama/Llama remains a separate BookWorks development dependency.
-
-## [1.5.4] - 2026-09-27
-
-### Fixed
-
-- Corrected Issue #9 LibreChat Compose service indentation so the services are
-  members of the top-level `services` mapping.
-- Updated LibreChat deployment documentation and NGINX configuration for
-  `ai.danks.store`.
-
-# Changelog
-
-All notable changes to this project will be documented in this file.
-
----
 
 ## [1.4.4] - 2026-09-25
 
