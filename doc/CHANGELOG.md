@@ -148,6 +148,15 @@
   Linode resource and core-service validation.
 - The MacBook's local Ollama/Llama remains a separate BookWorks development dependency.
 
+## [1.5.4] - 2026-09-27
+
+### Fixed
+
+- Corrected Issue #9 LibreChat Compose service indentation so the services are
+  members of the top-level `services` mapping.
+- Updated LibreChat deployment documentation and NGINX configuration for
+  `ai.danks.store`.
+
 # Changelog
 
 All notable changes to this project will be documented in this file.
