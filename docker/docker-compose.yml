@@ -189,7 +189,7 @@ services:
     restart: unless-stopped
 
   appsmith:
-    image: appsmith/appsmith-ce:latest
+    image: appsmith/appsmith-ce:v2.4.2
     container_name: appsmith
     environment:
       APPSMITH_SERVER_TIMEOUT: ${APPSMITH_SERVER_TIMEOUT}
