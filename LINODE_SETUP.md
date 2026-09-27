@@ -180,10 +180,10 @@ The current Issue #9 Phase 1 deployment includes:
 
 - `librechat`
 - `librechat-mongodb`
-- `librechat-meilisearch`
 
-The LibreChat HTTP service is bound only to `127.0.0.1:3080`. MongoDB and
-Meilisearch are internal Docker services and must not be published as public ports.
+The LibreChat HTTP service is bound only to `127.0.0.1:3080`. MongoDB is an
+internal Docker service and must not be published as a public port. Meilisearch
+is intentionally not deployed in this phase.
 
 ### DNS
 
@@ -227,7 +227,6 @@ LIBRECHAT_CREDS_KEY=<64 hex characters>
 LIBRECHAT_CREDS_IV=<32 hex characters>
 LIBRECHAT_JWT_SECRET=<64 hex characters>
 LIBRECHAT_JWT_REFRESH_SECRET=<64 hex characters>
-LIBRECHAT_MEILI_MASTER_KEY=<secure random value>
 LIBRECHAT_ALLOW_REGISTRATION=false
 LIBRECHAT_ALLOW_SOCIAL_LOGIN=false
 LIBRECHAT_ALLOW_SOCIAL_REGISTRATION=false
@@ -254,7 +253,7 @@ sudo docker compose --env-file ./.env -f docker/docker-compose.yml config
 If validation succeeds, start Phase 1:
 
 ```bash
-sudo docker compose --env-file ./.env -f docker/docker-compose.yml up -d   librechat-mongodb   librechat-meilisearch   librechat
+sudo docker compose --env-file ./.env -f docker/docker-compose.yml up -d   librechat-mongodb   librechat
 ```
 
 Then verify:
@@ -296,11 +295,15 @@ LIBRECHAT_ALLOW_REGISTRATION=false
 
 Restart LibreChat after changing the environment.
 
-### Phase 2: RAG
+### Deferred LibreChat services
 
-Do not add LibreChat RAG/pgvector until Phase 1 has been validated on this host.
-RAG adds additional services and persistent storage and will be implemented as a
-separate Issue #9 phase.
+Do not add LibreChat RAG/pgvector or Meilisearch until the minimal Phase 1 deployment
+has been validated on this host and a concrete requirement justifies the additional
+resource usage.
+
+BookWorks document processing is intentionally Mac-local. If BookWorks later needs
+RAG, evaluate that capability in the local BookWorks/Ollama environment first rather
+than assuming it belongs on the Linode.
 
 ## 5. Persistent data map in this stack
 

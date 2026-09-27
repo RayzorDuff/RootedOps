@@ -4,6 +4,16 @@ All notable changes to this project will be documented in this file.
 
 ---
 
+## [1.5.6] - 2026-09-27
+
+### Changed
+
+- Issue #9 Phase 1 now deploys only LibreChat, MongoDB, and OpenRouter integration on the Linode.
+- Deferred Meilisearch conversation search and LibreChat RAG/pgvector until a concrete requirement and resource validation justify them.
+- Documented the Mac-local BookWorks document-processing boundary so the Linode does not become an AI inference or document-processing host.
+
+---
+
 ## [1.5.5] - 2026-09-27
 
 ### Changed

@@ -7,7 +7,6 @@ stack.
 
 - LibreChat API pinned to `v0.8.7`
 - MongoDB 8.0.20
-- Meilisearch v1.35.1
 - persistent Docker volumes
 - host-NGINX reverse proxy configuration
 - server-side OpenRouter integration
@@ -20,8 +19,9 @@ stack.
 LibreChat RAG/pgvector is not included in this first deployment phase.
 
 The purpose is to validate the core LibreChat service, OpenRouter routing, reverse
-proxy, persistence, authentication, and Linode resource headroom before adding the
-additional RAG API and vector database workload.
+proxy, persistence, authentication, and Linode resource headroom before adding any
+optional search or document-retrieval workload. BookWorks document processing remains
+Mac-local and is not a LibreChat/Linode dependency.
 
 The MacBook's local Ollama/Llama remains completely independent.
 
@@ -89,7 +89,6 @@ credentials in the real `.env`:
 - `LIBRECHAT_CREDS_IV`
 - `LIBRECHAT_JWT_SECRET`
 - `LIBRECHAT_JWT_REFRESH_SECRET`
-- `LIBRECHAT_MEILI_MASTER_KEY`
 - `OPENROUTER_KEY`
 
 Generate them with cryptographically secure random values. Do not commit the real
@@ -112,7 +111,7 @@ before starting the new services.
 Then start only the phase-1 services:
 
 ```bash
-sudo docker compose --env-file ./.env -f docker/docker-compose.yml up -d   librechat-mongodb   librechat-meilisearch   librechat
+sudo docker compose --env-file ./.env -f docker/docker-compose.yml up -d   librechat-mongodb   librechat
 ```
 
 Check:
@@ -122,7 +121,7 @@ sudo docker ps --filter name=librechat
 sudo docker logs --tail 200 librechat
 ```
 
-Do not expose MongoDB or Meilisearch ports publicly.
+Do not expose MongoDB ports publicly. Meilisearch is not deployed in this phase.
 
 ## Completion criteria
 
@@ -134,13 +133,13 @@ Phase 1 is successful when:
 4. OpenRouter is reachable using the server-side key.
 5. Each configured modelSpec invokes its pinned model.
 6. Conversation history persists across container restart.
-7. Meilisearch-backed conversation search works.
-8. No OpenRouter credentials are exposed to the browser.
-9. Existing RootedOps services remain healthy.
-10. Resource usage remains acceptable.
+7. No OpenRouter credentials are exposed to the browser.
+8. Existing RootedOps services remain healthy.
+9. Resource usage remains acceptable.
 
-## Next phase
+## Deferred services
 
-Phase 2 should add LibreChat RAG/pgvector after the phase-1 resource and stability
-validation. The RAG implementation should use the current official image/configuration
-available at that time and should be included in RootedOps backup/restore procedures.
+RAG/pgvector and Meilisearch remain optional future additions. Add either only after
+Phase 1 resource/stability validation and a concrete requirement has been identified.
+BookWorks private document processing and any future BookWorks-local RAG should remain
+on the Mac unless a later architectural decision explicitly changes that boundary.

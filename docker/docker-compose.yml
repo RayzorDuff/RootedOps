@@ -323,33 +323,20 @@ services:
       - librechat_mongodb_data:/data/db
     restart: unless-stopped
 
-  # --- LibreChat Meilisearch ---
-  librechat-meilisearch:
-    image: getmeili/meilisearch:v1.35.1
-    container_name: librechat-meilisearch
-    environment:
-      MEILI_HOST: http://librechat-meilisearch:7700
-      MEILI_NO_ANALYTICS: "true"
-      MEILI_MASTER_KEY: ${LIBRECHAT_MEILI_MASTER_KEY}
-    volumes:
-      - librechat_meilisearch_data:/meili_data
-    restart: unless-stopped
-
   # --- LibreChat ---
   librechat:
     image: librechat/librechat-api:${LIBRECHAT_IMAGE_TAG}
     container_name: librechat
     depends_on:
       - librechat-mongodb
-      - librechat-meilisearch
     environment:
       HOST: 0.0.0.0
       NODE_ENV: production
       MONGO_URI: mongodb://librechat-mongodb:27017/LibreChat
-      MEILI_HOST: http://librechat-meilisearch:7700
       LIBRECHAT_TEMP_CREDENTIALS_PATH: /app/data/.env.temp
       DOMAIN_CLIENT: ${LIBRECHAT_PUBLIC_URL}
       DOMAIN_SERVER: ${LIBRECHAT_PUBLIC_URL}
+      SEARCH: ${LIBRECHAT_SEARCH}
       OPENROUTER_KEY: ${OPENROUTER_KEY}
       CREDS_KEY: ${LIBRECHAT_CREDS_KEY}
       CREDS_IV: ${LIBRECHAT_CREDS_IV}
@@ -359,7 +346,6 @@ services:
       ALLOW_SOCIAL_LOGIN: ${LIBRECHAT_ALLOW_SOCIAL_LOGIN}
       ALLOW_SOCIAL_REGISTRATION: ${LIBRECHAT_ALLOW_SOCIAL_REGISTRATION}
       ALLOW_PASSWORD_RESET: ${LIBRECHAT_ALLOW_PASSWORD_RESET}
-      MEILI_NO_ANALYTICS: "true"
     ports:
       - "127.0.0.1:${LIBRECHAT_HTTP_PORT}:3080"
     volumes:
@@ -605,7 +591,6 @@ services:
 
 volumes:
   librechat_mongodb_data:
-  librechat_meilisearch_data:
   librechat_data:
   librechat_uploads:
   librechat_logs:

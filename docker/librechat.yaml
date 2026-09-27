@@ -1,6 +1,9 @@
 version: 1.3.5
 cache: true
 
+interface:
+  fileSearch: false
+
 endpoints:
   custom:
     - name: "OpenRouter"

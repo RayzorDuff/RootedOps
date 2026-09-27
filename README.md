@@ -1,6 +1,6 @@
 # RootedOps
 
-Current version: **1.5.5**.
+Current version: **1.5.6**.
 
 See [`doc/RELEASE_PROCESS.md`](doc/RELEASE_PROCESS.md) for the repeatable release workflow.
 
@@ -147,13 +147,14 @@ The initial deployment includes:
 
 - LibreChat API
 - MongoDB
-- Meilisearch
 - OpenRouter integration
 - deterministic `modelSpecs` for RootedOps, MushroomProcess, SignatureGate,
   BookWorks, writing, research, and coding workflows
 
-LibreChat RAG/pgvector is intentionally deferred to a later Issue #9 phase so that
-resource usage can be measured before adding the document-indexing workload.
+LibreChat RAG/pgvector and Meilisearch are intentionally deferred so that resource
+usage can be measured before adding document-indexing or conversation-search workloads.
+BookWorks document processing remains a Mac-local workflow and does not require either
+service on the Linode.
 
 ## Quick start
 
