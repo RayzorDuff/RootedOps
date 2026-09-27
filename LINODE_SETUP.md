@@ -167,6 +167,141 @@ minecraft.yourdomain.com -> your Linode IPv4 address
 
 Do not install Minecraft under nginx `sites-available` or `sites-enabled`; Minecraft Bedrock uses UDP, not HTTP. Docker publishes the UDP port directly.
 
+## 4.2 LibreChat + OpenRouter AI Workbench
+
+LibreChat is deployed as a RootedOps Docker service and published through host
+NGINX at:
+
+```text
+https://ai.danks.store
+```
+
+The current Issue #9 Phase 1 deployment includes:
+
+- `librechat`
+- `librechat-mongodb`
+- `librechat-meilisearch`
+
+The LibreChat HTTP service is bound only to `127.0.0.1:3080`. MongoDB and
+Meilisearch are internal Docker services and must not be published as public ports.
+
+### DNS
+
+Create an A record:
+
+```text
+ai.danks.store -> <Linode IPv4 address>
+```
+
+### NGINX
+
+Install the repository configuration:
+
+```bash
+sudo cp nginx/librechat.conf /etc/nginx/sites-available/librechat.conf
+sudo ln -sf /etc/nginx/sites-available/librechat.conf /etc/nginx/sites-enabled/librechat.conf
+sudo nginx -t
+sudo systemctl reload nginx
+```
+
+Request the certificate:
+
+```bash
+sudo certbot --nginx -d ai.danks.store
+```
+
+Certbot may add the TLS-managed directives to the enabled site. Keep the
+repository copy as the source template and document any intentional host-only
+changes.
+
+### Environment
+
+Set the LibreChat/OpenRouter variables in the Linode's `.env`:
+
+```text
+LIBRECHAT_PUBLIC_URL=https://ai.danks.store
+LIBRECHAT_HTTP_PORT=3080
+LIBRECHAT_IMAGE_TAG=v0.8.7
+OPENROUTER_KEY=<server-side OpenRouter API key>
+LIBRECHAT_CREDS_KEY=<64 hex characters>
+LIBRECHAT_CREDS_IV=<32 hex characters>
+LIBRECHAT_JWT_SECRET=<64 hex characters>
+LIBRECHAT_JWT_REFRESH_SECRET=<64 hex characters>
+LIBRECHAT_MEILI_MASTER_KEY=<secure random value>
+LIBRECHAT_ALLOW_REGISTRATION=false
+LIBRECHAT_ALLOW_SOCIAL_LOGIN=false
+LIBRECHAT_ALLOW_SOCIAL_REGISTRATION=false
+LIBRECHAT_ALLOW_PASSWORD_RESET=false
+```
+
+Generate secrets with a cryptographically secure generator, for example:
+
+```bash
+openssl rand -hex 32
+openssl rand -hex 16
+```
+
+Do not commit the real `.env`.
+
+### Compose validation
+
+Always validate before changing the running stack:
+
+```bash
+sudo docker compose --env-file ./.env -f docker/docker-compose.yml config
+```
+
+If validation succeeds, start Phase 1:
+
+```bash
+sudo docker compose --env-file ./.env -f docker/docker-compose.yml up -d   librechat-mongodb   librechat-meilisearch   librechat
+```
+
+Then verify:
+
+```bash
+sudo docker ps --filter name=librechat
+sudo docker logs --tail 200 librechat
+```
+
+### Resource preflight
+
+This Linode already hosts the full RootedOps stack. Before adding LibreChat or
+after changing its supporting services, record:
+
+```bash
+free -h
+nproc
+df -h
+sudo docker stats --no-stream
+sudo docker system df
+```
+
+The host has approximately 8 GB RAM / 4 vCPU in the documented baseline. The
+current deployment must retain sufficient memory for ERPNext, Appsmith, n8n,
+NocoDB, Documenso, databases, and the new LibreChat services.
+
+If available memory becomes constrained, do not arbitrarily disable RootedOps
+services. Evaluate a Linode resize before adding additional LibreChat services.
+
+### Initial account
+
+Registration is disabled in the production configuration. If the installed
+LibreChat release requires first-account creation through registration, temporarily
+enable registration for the initial account, create the account, then restore:
+
+```text
+LIBRECHAT_ALLOW_REGISTRATION=false
+```
+
+Restart LibreChat after changing the environment.
+
+### Phase 2: RAG
+
+Do not add LibreChat RAG/pgvector until Phase 1 has been validated on this host.
+RAG adds additional services and persistent storage and will be implemented as a
+separate Issue #9 phase.
+
 ## 5. Persistent data map in this stack
 
 Before defining backups, it helps to identify what actually needs to be preserved.

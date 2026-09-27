@@ -127,6 +127,34 @@ Detailed Minecraft setup has been moved out of this README to keep RootedOps foc
 
 - `README_MINECRAFT.md`
 
+### LibreChat + OpenRouter AI Workbench
+
+RootedOps includes a self-hosted LibreChat instance for the interactive, cross-device
+AI workbench. LibreChat runs on the Linode and uses OpenRouter for the configured
+cloud models. The MacBook's local Ollama/Llama remains a separate BookWorks
+development dependency and is not required by LibreChat.
+
+The public service is:
+
+```text
+https://ai.danks.store
+```
+
+LibreChat is intentionally bound to localhost on the Docker host and is exposed
+through the host NGINX/Certbot configuration in `nginx/librechat.conf`.
+
+The initial deployment includes:
+
+- LibreChat API
+- MongoDB
+- Meilisearch
+- OpenRouter integration
+- deterministic `modelSpecs` for RootedOps, MushroomProcess, SignatureGate,
+  BookWorks, writing, research, and coding workflows
+
+LibreChat RAG/pgvector is intentionally deferred to a later Issue #9 phase so that
+resource usage can be measured before adding the document-indexing workload.
+
 ## Quick start
 
 From the repository root:
