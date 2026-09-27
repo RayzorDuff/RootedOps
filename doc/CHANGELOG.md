@@ -1,3 +1,12 @@
+## [1.5.5] - 2026-09-27
+
+### Changed
+
+- Issue #9 Phase 1 operational control: Minecraft Bedrock is now behind the `minecraft` Docker Compose profile.
+- `COMPOSE_PROFILES` in `.env` controls whether the Minecraft service is included when RootedOps is started.
+
+---
+
 ## [1.5.2] - 2026-09-26
 
 ### Added

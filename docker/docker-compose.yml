@@ -286,7 +286,11 @@ services:
       - ../grav:/var/www/html:rw
 
   # --- Minecraft Bedrock BedWars (official Bedrock Dedicated Server) ---
+  # The service is controlled by the Compose profile in COMPOSE_PROFILES.
+  # Set COMPOSE_PROFILES=minecraft to enable it; leave COMPOSE_PROFILES empty to disable it.
   minecraft-bedwars:
+    profiles:
+      - minecraft
     image: itzg/minecraft-bedrock-server:${MINECRAFT_BEDROCK_IMAGE_TAG}
     container_name: minecraft-bedwars
     stdin_open: true
