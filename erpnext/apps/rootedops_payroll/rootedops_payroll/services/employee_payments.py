@@ -813,6 +813,7 @@ def preflight_employee_payroll_payments(
 
     plans = []
     zero_net_pay = []
+    existing_payment_journal_entries = []
     seen_slips = set()
 
     for result in payroll_results:
@@ -855,6 +856,22 @@ def preflight_employee_payroll_payments(
                 )
             )
         if not payment_status["can_regenerate"]:
+            if (
+                payment_status["active_count"] == 1
+                and payment_status.get("journal_entry")
+            ):
+                existing_payment_journal_entries.append(
+                    {
+                        "employee": slip.employee,
+                        "employee_name": getattr(slip, "employee_name", None) or slip.employee,
+                        "salary_slip": slip.name,
+                        "journal_entry": payment_status["journal_entry"],
+                        "status": payment_status["status"],
+                        "payment_method": payment_status.get("payment_method"),
+                        "net_pay": net_pay,
+                    }
+                )
+                continue
             frappe.throw(
                 _("Salary Slip {0} already has {1}: {2}.").format(
                     slip_name, payment_status["status"], payment_status.get("journal_entry")
@@ -892,12 +909,13 @@ def preflight_employee_payroll_payments(
             }
         )
 
-    if not plans and not zero_net_pay:
+    if not plans and not zero_net_pay and not existing_payment_journal_entries:
         frappe.throw(_("No employee payroll payments were eligible for creation."))
 
     return {
         "plans": plans,
         "zero_net_pay_salary_slips": zero_net_pay,
+        "existing_payment_journal_entries": existing_payment_journal_entries,
         "checking_bank_account": checking_bank_account,
         "total_net_pay": round(sum(plan["net_pay"] for plan in plans), 2),
     }
@@ -1042,6 +1060,7 @@ def create_employee_payroll_payment_drafts(
         "total_net_pay": created_total,
         "checking_bank_account": preflight["checking_bank_account"],
         "zero_net_pay_salary_slips": preflight["zero_net_pay_salary_slips"],
+        "existing_payment_journal_entries": preflight.get("existing_payment_journal_entries", []),
     }
 
 

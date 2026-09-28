@@ -229,6 +229,69 @@ class TestEmployeePaymentDraftFoundation(TestCase):
         build_doc.assert_not_called()
 
 
+    @patch("rootedops_payroll.services.employee_payments.assess_employee_payment_journal_entry")
+    @patch("rootedops_payroll.services.employee_payments._employee_payment_journal_entry_doc")
+    @patch("rootedops_payroll.services.employee_payments.preflight_employee_payroll_payments")
+    def test_existing_employee_payment_does_not_block_other_employee_payment(
+        self, preflight, build_doc, assess
+    ):
+        from types import SimpleNamespace
+        from rootedops_payroll.services.employee_payments import create_employee_payroll_payment_drafts
+
+        preflight.return_value = {
+            "plans": [
+                {
+                    "employee": "HR-EMP-00009",
+                    "employee_name": "Employee B",
+                    "salary_slip": "SAL-002",
+                    "payment_method": "ACH",
+                    "net_pay": 88.97,
+                    "payment_attempt": 1,
+                    "prior_payment_status": PAYMENT_STATUS_NOT_RECORDED,
+                }
+            ],
+            "zero_net_pay_salary_slips": [],
+            "existing_payment_journal_entries": [
+                {
+                    "employee": "HR-EMP-00005",
+                    "employee_name": "Employee A",
+                    "salary_slip": "SAL-001",
+                    "journal_entry": "ACC-JV-EXISTING",
+                    "status": PAYMENT_STATUS_SUBMITTED,
+                    "payment_method": "Apple Pay / Apple Cash",
+                    "net_pay": 283.30,
+                }
+            ],
+            "checking_bank_account": "Checking - DML",
+            "total_net_pay": 88.97,
+        }
+        build_doc.return_value = SimpleNamespace(
+            name="ACC-JV-NEW", docstatus=0, insert=lambda **kwargs: None
+        )
+        assess.return_value = {
+            "consistent": True,
+            "status": PAYMENT_ACCOUNTING_MATCH,
+            "errors": [],
+            "checking_credit": 88.97,
+        }
+
+        result = create_employee_payroll_payment_drafts(
+            [{"slip_name": "SAL-001"}, {"slip_name": "SAL-002"}],
+            payroll_entry="HR-PRUN-001",
+            company="Dank Mushrooms, LLC",
+            posting_date="2026-09-24",
+        )
+
+        self.assertEqual(result["employee_count"], 1)
+        self.assertEqual(result["total_net_pay"], 88.97)
+        self.assertEqual(
+            result["existing_payment_journal_entries"][0]["journal_entry"],
+            "ACC-JV-EXISTING",
+        )
+        self.assertEqual(result["journal_entries"][0]["journal_entry"], "ACC-JV-NEW")
+        build_doc.assert_called_once()
+
+
 class TestEmployeePaymentLifecycle(TestCase):
     def test_attempt_key_is_unique_but_keeps_logical_identity(self):
         self.assertEqual(
