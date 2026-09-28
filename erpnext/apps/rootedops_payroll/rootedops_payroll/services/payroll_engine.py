@@ -1830,7 +1830,18 @@ def submit_custom_salary_slip(slip_name):
         "total_working_hours": flt(getattr(slip, "total_working_hours", 0.0), 2),
     }
 
-    slip.submit()
+    # HRMS automatically queues the salary-slip email from SalarySlip.on_submit().
+    # RootedOps restores/finalizes the custom payroll values after submit(), so
+    # suppress that early email and send it only after the finalized slip is
+    # persisted.  Preserve the existing flag value in case this function is
+    # called from another payroll context.
+    previous_via_payroll_entry = getattr(frappe.flags, "via_payroll_entry", False)
+    frappe.flags.via_payroll_entry = True
+    try:
+        slip.submit()
+    finally:
+        frappe.flags.via_payroll_entry = previous_via_payroll_entry
+
     frappe.db.commit()
 
     slip = frappe.get_doc("Salary Slip", slip_name)
@@ -1877,7 +1888,17 @@ def submit_custom_salary_slip(slip_name):
     repair_salary_slip_totals(slip.name)
 
     frappe.db.commit()
-    return frappe.get_doc("Salary Slip", slip.name)
+
+    # Generate the PDF and enqueue the email only after all RootedOps
+    # salary-slip values have been restored and finalized.
+    slip = frappe.get_doc("Salary Slip", slip.name)
+    email_salary_slip = cint(
+        frappe.db.get_single_value("Payroll Settings", "email_salary_slip_to_employee")
+    )
+    if email_salary_slip:
+        slip.email_salary_slip()
+
+    return slip
 
 
 def normalize_saved_child_rows(slip):
