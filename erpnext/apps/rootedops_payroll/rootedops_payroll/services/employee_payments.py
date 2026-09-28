@@ -499,6 +499,18 @@ def _money(value) -> float:
     return round(float(value or 0), 2)
 
 
+def _account_supports_party(account: str | None) -> bool:
+    """Return whether ERPNext permits Party Type/Party on this account.
+
+    ERPNext only permits Party Type/Party on Receivable/Payable accounts.
+    RootedOps payroll payable accounts are intentionally Current Liability
+    accounts, so employee identity is carried by the RootedOps payment metadata
+    on the Journal Entry when the payroll account does not support party fields.
+    """
+    account_type = frappe.db.get_value("Account", account, "account_type") if account else None
+    return account_type in {"Receivable", "Payable"}
+
+
 def assess_employee_payment_journal_entry(je, expected: dict) -> dict:
     """Validate one employee-payment JE against its authoritative Salary Slip plan.
 
@@ -542,15 +554,40 @@ def assess_employee_payment_journal_entry(je, expected: dict) -> dict:
         sum(_money(_row_value(row, "credit_in_account_currency")) for row in rows)
     )
 
-    payable_debit = _money(
-        sum(
-            _money(_row_value(row, "debit_in_account_currency"))
-            for row in rows
-            if _row_value(row, "account") == expected.get("payroll_payable_account")
-            and _row_value(row, "party_type") == "Employee"
-            and _row_value(row, "party") == expected.get("employee")
+    payroll_payable_account = expected.get("payroll_payable_account")
+    payroll_payable_rows = [
+        row
+        for row in rows
+        if _row_value(row, "account") == payroll_payable_account
+    ]
+
+    if _account_supports_party(payroll_payable_account):
+        payable_debit = _money(
+            sum(
+                _money(_row_value(row, "debit_in_account_currency"))
+                for row in payroll_payable_rows
+                if _row_value(row, "party_type") == "Employee"
+                and _row_value(row, "party") == expected.get("employee")
+            )
         )
-    )
+    else:
+        # Current Liability payroll accounts are intentionally not ERPNext
+        # Payable accounts.  Party Type/Party is invalid on those rows, so the
+        # authoritative employee linkage is the RootedOps JE header metadata.
+        unsupported_party_rows = [
+            row
+            for row in payroll_payable_rows
+            if _row_value(row, "party_type") or _row_value(row, "party")
+        ]
+        if unsupported_party_rows:
+            errors.append(
+                _("Payroll Payable account {0} does not support Party Type/Party; use the RootedOps employee payment fields instead.").format(
+                    payroll_payable_account
+                )
+            )
+        payable_debit = _money(
+            sum(_money(_row_value(row, "debit_in_account_currency")) for row in payroll_payable_rows)
+        )
     checking_credit = _money(
         sum(
             _money(_row_value(row, "credit_in_account_currency"))
@@ -869,12 +906,14 @@ def preflight_employee_payroll_payments(
 def _employee_payment_journal_entry_doc(plan):
     debit = {
         "account": plan["payroll_payable_account"],
-        "party_type": "Employee",
-        "party": plan["employee"],
         "debit_in_account_currency": plan["net_pay"],
         "credit_in_account_currency": 0,
         "user_remark": f"Clear payroll payable for {plan['salary_slip']}",
     }
+    if _account_supports_party(plan["payroll_payable_account"]):
+        debit["party_type"] = "Employee"
+        debit["party"] = plan["employee"]
+
     credit = {
         "account": plan["checking_bank_account"],
         "debit_in_account_currency": 0,

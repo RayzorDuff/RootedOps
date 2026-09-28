@@ -12,6 +12,7 @@ from rootedops_payroll.services.employee_payments import (
     PAYMENT_STATUS_SUBMITTED,
     assess_employee_payment_journal_entry,
     build_employee_payment_attempt_key,
+    _employee_payment_journal_entry_doc,
     payment_configuration_is_effective,
     summarize_employee_payment_statuses,
     summarize_payment_history,
@@ -339,12 +340,78 @@ class TestEmployeePaymentAccountingConsistency(TestCase):
         self.assertEqual(result["status"], PAYMENT_ACCOUNTING_MISMATCH)
         self.assertGreaterEqual(len(result["errors"]), 2)
 
-    def test_wrong_employee_payable_row_is_reported_as_mismatch(self):
+    @patch("rootedops_payroll.services.employee_payments.frappe.db.get_value", return_value="Payable")
+    def test_wrong_employee_payable_row_is_reported_as_mismatch(self, _get_value):
         je = self._je()
         je["accounts"][0]["party"] = "HR-EMP-00002"
         result = assess_employee_payment_journal_entry(je, self.expected)
         self.assertFalse(result["consistent"])
         self.assertEqual(result["payroll_payable_debit"], 0)
+
+    @patch("rootedops_payroll.services.employee_payments.frappe.db.get_value", return_value="Current Liability")
+    def test_current_liability_payroll_payable_does_not_require_party(self, _get_value):
+        je = self._je()
+        je["accounts"][0].pop("party_type")
+        je["accounts"][0].pop("party")
+        result = assess_employee_payment_journal_entry(je, self.expected)
+        self.assertTrue(result["consistent"])
+        self.assertEqual(result["payroll_payable_debit"], 350.00)
+
+    @patch("rootedops_payroll.services.employee_payments.frappe.db.get_value", return_value="Current Liability")
+    def test_current_liability_payroll_payable_rejects_party_fields(self, _get_value):
+        result = assess_employee_payment_journal_entry(self._je(), self.expected)
+        self.assertFalse(result["consistent"])
+        self.assertEqual(result["payroll_payable_debit"], 350.00)
+        self.assertTrue(any("does not support Party Type/Party" in error for error in result["errors"]))
+
+    @patch("rootedops_payroll.services.employee_payments.frappe.db.get_value", return_value="Payable")
+    @patch("rootedops_payroll.services.employee_payments.frappe.get_doc")
+    def test_payable_account_payment_je_keeps_party_fields(self, get_doc, _get_value):
+        get_doc.return_value = {"doctype": "Journal Entry"}
+        plan = {
+            "employee": "HR-EMP-00001",
+            "employee_name": "Employee A",
+            "salary_slip": "SAL-001",
+            "payroll_entry": "HR-PRUN-001",
+            "company": "Dank Mushrooms, LLC",
+            "posting_date": "2026-09-24",
+            "net_pay": 350.00,
+            "payment_method": "ACH",
+            "logical_key": "salary-slip:SAL-001:full-net-pay",
+            "payment_key": "salary-slip:SAL-001:full-net-pay:attempt:1",
+            "payment_attempt": 1,
+            "payroll_payable_account": "Payroll Payable - DML",
+            "checking_bank_account": "Dank Mushrooms Checking - DML",
+        }
+        _employee_payment_journal_entry_doc(plan)
+        payload = get_doc.call_args.args[0]
+        self.assertEqual(payload["accounts"][0]["party_type"], "Employee")
+        self.assertEqual(payload["accounts"][0]["party"], "HR-EMP-00001")
+
+    @patch("rootedops_payroll.services.employee_payments.frappe.db.get_value", return_value="Current Liability")
+    @patch("rootedops_payroll.services.employee_payments.frappe.get_doc")
+    def test_current_liability_payment_je_omits_party_fields(self, get_doc, _get_value):
+        get_doc.return_value = {"doctype": "Journal Entry"}
+        plan = {
+            "employee": "HR-EMP-00001",
+            "employee_name": "Employee A",
+            "salary_slip": "SAL-001",
+            "payroll_entry": "HR-PRUN-001",
+            "company": "Dank Mushrooms, LLC",
+            "posting_date": "2026-09-24",
+            "net_pay": 350.00,
+            "payment_method": "Apple Pay / Apple Cash",
+            "logical_key": "salary-slip:SAL-001:full-net-pay",
+            "payment_key": "salary-slip:SAL-001:full-net-pay:attempt:1",
+            "payment_attempt": 1,
+            "payroll_payable_account": "Payroll Payable - DML",
+            "checking_bank_account": "Dank Mushrooms Checking - DML",
+        }
+        _employee_payment_journal_entry_doc(plan)
+        payload = get_doc.call_args.args[0]
+        self.assertNotIn("party_type", payload["accounts"][0])
+        self.assertNotIn("party", payload["accounts"][0])
+        self.assertEqual(payload["rootedops_payroll_payment_employee"], "HR-EMP-00001")
 
     def test_batch_summary_tracks_recorded_and_outstanding_net_pay(self):
         summary = summarize_employee_payment_statuses(
