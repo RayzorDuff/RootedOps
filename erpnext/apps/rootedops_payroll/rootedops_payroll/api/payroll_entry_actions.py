@@ -474,11 +474,56 @@ def create_or_refresh_draft_salary_slips(payroll_entry_name: str):
 
 
 @frappe.whitelist()
+def _refresh_draft_consolidated_journal_entry(journal_entry_name, preview):
+    """Refresh a linked consolidated payroll JE only while it remains Draft."""
+    je = frappe.get_doc("Journal Entry", journal_entry_name)
+
+    if int(je.docstatus or 0) != 0:
+        frappe.throw(
+            _("The linked consolidated Journal Entry {0} is already submitted or cancelled and cannot be refreshed.").format(
+                journal_entry_name
+            )
+        )
+
+    if je.company != preview.get("company"):
+        frappe.throw(
+            _("The linked consolidated Journal Entry {0} belongs to {1}, not {2}.").format(
+                journal_entry_name,
+                je.company,
+                preview.get("company"),
+            )
+        )
+
+    if je.voucher_type != preview.get("voucher_type"):
+        frappe.throw(
+            _("The linked Journal Entry {0} is not a Journal Entry voucher and cannot be refreshed.").format(
+                journal_entry_name
+            )
+        )
+
+    je.posting_date = preview["posting_date"]
+    je.user_remark = preview["user_remark"]
+    je.set("accounts", preview["accounts"])
+    je.save(ignore_permissions=True)
+    frappe.db.commit()
+
+    return {
+        "journal_entry_name": je.name,
+        "posting_date": je.posting_date,
+        "company": je.company,
+        "total_debit": preview.get("total_debit"),
+        "total_credit": preview.get("total_credit"),
+        "is_balanced": preview.get("is_balanced"),
+        "refreshed": True,
+    }
+
+
+@frappe.whitelist()
 def create_consolidated_draft_journal_entry(payroll_entry_name: str):
     pe, ctx = _get_payroll_entry_context(payroll_entry_name)
     employees = _get_employees_for_payroll_entry(pe, ctx)
 
-    _get_existing_link(pe, PAYROLL_ENTRY_FIELD_CONSOLIDATED_JE, "consolidated Journal Entry")
+    existing_journal_entry = pe.get(PAYROLL_ENTRY_FIELD_CONSOLIDATED_JE)
 
     # Prefer submitted slips if they already exist for this period.
     result = _build_result_from_existing_salary_slips(pe, ctx, employees, submitted_only=True)
@@ -520,11 +565,17 @@ def create_consolidated_draft_journal_entry(payroll_entry_name: str):
     if not je_preview or not je_preview.get("is_ready_to_create"):
         frappe.throw(_("Consolidated Journal Entry preview is not ready to create."))
 
-    je = create_consolidated_payroll_journal_entry_draft(
-        payroll_results=payroll_results,
-        posting_date=ctx["end_date"],
-        company=ctx["company"],
-    )
+    if existing_journal_entry:
+        je = _refresh_draft_consolidated_journal_entry(
+            existing_journal_entry,
+            je_preview,
+        )
+    else:
+        je = create_consolidated_payroll_journal_entry_draft(
+            payroll_results=payroll_results,
+            posting_date=ctx["end_date"],
+            company=ctx["company"],
+        )
 
     journal_entry_name = _extract_journal_entry_name(je)
 
@@ -535,6 +586,7 @@ def create_consolidated_draft_journal_entry(payroll_entry_name: str):
         "employees": employees,
         "journal_entry": journal_entry_name,
         "salary_slip_names": result.get("salary_slip_names", []),
+        "journal_entry_refreshed": bool(existing_journal_entry),
     }
 
 
