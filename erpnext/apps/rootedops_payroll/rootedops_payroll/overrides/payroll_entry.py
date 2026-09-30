@@ -96,9 +96,39 @@ class RootedOpsPayrollEntryMixin:
 
         return [row.get("name") for row in slips]
 
+    def _rootedops_validate_payroll_payable_account(self):
+        """Validate the configured payroll liability account without requiring Payable type."""
+        account = self.get("payroll_payable_account")
+        if not account:
+            frappe.throw(_("Payroll Payable Account is required."))
+
+        details = frappe.db.get_value(
+            "Account",
+            account,
+            ["company", "is_group", "root_type"],
+            as_dict=True,
+        )
+        if not details:
+            frappe.throw(_("Payroll Payable Account {0} does not exist.").format(account))
+
+        if details.company != self.company:
+            frappe.throw(
+                _("Payroll Payable Account {0} belongs to {1}, not {2}.").format(
+                    account, details.company, self.company
+                )
+            )
+
+        if details.is_group:
+            frappe.throw(_("Payroll Payable Account {0} must be a ledger account, not a group account.").format(account))
+
+        if details.root_type != "Liability":
+            frappe.throw(
+                _("Payroll Payable Account {0} must be a Liability account.").format(account)
+            )
+
     def before_submit(self):
         if self._rootedops_can_adopt_salary_slips():
-            self.validate_payroll_payable_account()
+            self._rootedops_validate_payroll_payable_account()
 
             if self.get_employees_with_unmarked_attendance():
                 frappe.throw(_("Cannot submit. Attendance is not marked for some employees."))
