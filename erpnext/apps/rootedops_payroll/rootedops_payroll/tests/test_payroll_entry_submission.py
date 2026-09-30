@@ -11,6 +11,9 @@ class FakeEmployee:
     def __init__(self, employee):
         self.employee = employee
 
+    def get(self, fieldname, default=None):
+        return getattr(self, fieldname, default)
+
 
 class FakePayrollEntry(RootedOpsPayrollEntryMixin):
     company = "Dank Mushrooms, LLC"
