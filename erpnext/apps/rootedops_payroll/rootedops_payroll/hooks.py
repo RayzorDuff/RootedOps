@@ -47,6 +47,15 @@ app_license = "gpl-3.0"
 doctype_js = {
     "Payroll Entry": "public/js/payroll_entry.js",
 }
+
+# RootedOps prepares and submits Salary Slips before the Payroll Entry itself.
+# Extend the HRMS controller so Payroll Entry submission adopts those slips
+# instead of treating them as duplicates and creating a second set.
+extend_doctype_class = {
+    "Payroll Entry": [
+        "rootedops_payroll.overrides.payroll_entry.RootedOpsPayrollEntryMixin",
+    ],
+}
 # doctype_list_js = {"doctype" : "public/js/doctype_list.js"}
 # doctype_tree_js = {"doctype" : "public/js/doctype_tree.js"}
 # doctype_calendar_js = {"doctype" : "public/js/doctype_calendar.js"}
