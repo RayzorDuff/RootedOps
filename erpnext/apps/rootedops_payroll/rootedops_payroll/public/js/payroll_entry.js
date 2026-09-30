@@ -228,9 +228,14 @@ frappe.ui.form.on("Payroll Entry", {
           });
         } else {
           frappe.msgprint({
-            title: "Consolidated JE Draft Created",
+            title: data.journal_entry_refreshed
+              ? "Consolidated JE Draft Refreshed"
+              : "Consolidated JE Draft Created",
             message: `
               <p><b>Journal Entry:</b> ${journalEntryLink(data.journal_entry)}</p>
+              ${data.journal_entry_refreshed
+                ? "<p>The existing Draft Journal Entry was refreshed from the current submitted Salary Slips.</p>"
+                : ""}
             `
           });
         }

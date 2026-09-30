@@ -524,6 +524,10 @@ def create_consolidated_draft_journal_entry(payroll_entry_name: str):
     employees = _get_employees_for_payroll_entry(pe, ctx)
 
     existing_journal_entry = pe.get(PAYROLL_ENTRY_FIELD_CONSOLIDATED_JE)
+    if existing_journal_entry and not frappe.db.exists("Journal Entry", existing_journal_entry):
+        pe.db_set(PAYROLL_ENTRY_FIELD_CONSOLIDATED_JE, None, update_modified=False)
+        pe.reload()
+        existing_journal_entry = None
 
     # Prefer submitted slips if they already exist for this period.
     result = _build_result_from_existing_salary_slips(pe, ctx, employees, submitted_only=True)
