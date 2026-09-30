@@ -692,7 +692,12 @@ def create_tax_reserve_transfer_draft_journal_entry(payroll_entry_name: str):
     )
 
     pe, ctx = _get_payroll_entry_context(payroll_entry_name)
-    _get_existing_link(pe, PAYROLL_ENTRY_FIELD_TAX_RESERVE_TRANSFER_JE, "tax reserve transfer Journal Entry")
+
+    existing_journal_entry = pe.get(PAYROLL_ENTRY_FIELD_TAX_RESERVE_TRANSFER_JE)
+    if existing_journal_entry and not frappe.db.exists("Journal Entry", existing_journal_entry):
+        pe.db_set(PAYROLL_ENTRY_FIELD_TAX_RESERVE_TRANSFER_JE, None, update_modified=False)
+        pe.reload()
+        existing_journal_entry = None
 
     if not pe.get(PAYROLL_ENTRY_FIELD_CONSOLIDATED_JE):
         frappe.throw(_("Create the consolidated payroll accrual Journal Entry first."))
@@ -706,21 +711,46 @@ def create_tax_reserve_transfer_draft_journal_entry(payroll_entry_name: str):
     if not payroll_results:
         frappe.throw(_("No payroll results were generated for this Payroll Entry."))
 
-    je_result = create_consolidated_tax_reserve_transfer_journal_entry_draft(
+    cash_flow = build_consolidated_payroll_cash_flow_preview(
         payroll_results=payroll_results,
-        posting_date=ctx["end_date"],
         company=ctx["company"],
+        posting_date=ctx["end_date"],
     )
+    je_preview = cash_flow.get("tax_reserve_transfer_preview") or {}
+    je_preview["recommended_bank_accounts"] = cash_flow.get("recommended_bank_accounts")
+    je_preview["liability_summary"] = cash_flow.get("liability_summary")
+    je_preview["salary_slip_names"] = cash_flow.get("salary_slip_names")
+    je_preview["employee_count"] = cash_flow.get("employee_count")
+
+    if not je_preview.get("is_balanced"):
+        frappe.throw(_("Tax reserve transfer Journal Entry preview is not balanced."))
+
+    if existing_journal_entry:
+        je_result = _refresh_draft_consolidated_journal_entry(
+            existing_journal_entry,
+            je_preview,
+        )
+    else:
+        je_result = create_consolidated_tax_reserve_transfer_journal_entry_draft(
+            payroll_results=payroll_results,
+            posting_date=ctx["end_date"],
+            company=ctx["company"],
+        )
+
     journal_entry_name = _extract_journal_entry_name(je_result)
 
     _write_payroll_entry_summary(pe, result)
-    _write_payroll_entry_links(pe, **{PAYROLL_ENTRY_FIELD_TAX_RESERVE_TRANSFER_JE: journal_entry_name})
+    _write_payroll_entry_links(
+        pe,
+        **{PAYROLL_ENTRY_FIELD_TAX_RESERVE_TRANSFER_JE: journal_entry_name},
+    )
 
     return {
         "payroll_entry": pe.name,
         "employees": employees,
         "journal_entry": journal_entry_name,
         "salary_slip_names": result.get("salary_slip_names", []),
-        "recommended_bank_accounts": je_result.get("recommended_bank_accounts"),
-        "liability_summary": je_result.get("liability_summary"),
+        "recommended_bank_accounts": je_preview.get("recommended_bank_accounts"),
+        "liability_summary": je_preview.get("liability_summary"),
+        "journal_entry_refreshed": bool(existing_journal_entry),
     }

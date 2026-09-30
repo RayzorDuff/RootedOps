@@ -391,7 +391,9 @@ frappe.ui.form.on("Payroll Entry", {
         const liability = data.liability_summary || {};
         const banks = data.recommended_bank_accounts || {};
         frappe.msgprint({
-          title: "Tax Reserve Transfer JE Draft Created",
+          title: data.journal_entry_refreshed
+            ? "Tax Reserve Transfer JE Draft Refreshed"
+            : "Tax Reserve Transfer JE Draft Created",
           message: `
             <p><b>Journal Entry:</b> ${journalEntryLink(data.journal_entry)}</p>
             <p><b>Checking Bank:</b> ${frappe.utils.escape_html(banks.checking_bank_account || "Not resolved")}</p>
