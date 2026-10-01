@@ -1,4 +1,5 @@
 from unittest import TestCase
+from unittest.mock import patch
 
 from rootedops_payroll.services.nacha_profile import (
     BALANCE_MODE_BALANCED,
@@ -8,6 +9,7 @@ from rootedops_payroll.services.nacha_profile import (
     normalize_ein,
     profile_readiness_errors,
     validate_immediate_destination,
+    get_funding_bank_account_configuration,
     validate_odfi_identification,
 )
 
@@ -82,3 +84,40 @@ class TestNachaProfileValidation(TestCase):
             validate_immediate_destination("10200002")
         with self.assertRaises(ValueError):
             validate_odfi_identification("102000021")
+
+    @patch("rootedops_payroll.services.nacha_profile.frappe.db.get_value")
+    def test_balanced_funding_bank_account_resolution(self, get_value):
+        get_value.return_value = {
+            "company": "Dank Mushrooms, LLC",
+            "is_company_account": 1,
+            "account_name": "Dank Mushrooms Checking",
+            "bank": "High Plains Bank",
+            "bank_account_no": "987654321",
+            "branch_code": "021000021",
+            "account_type": "Checking",
+        }
+        result = get_funding_bank_account_configuration(
+            "Dank Mushrooms Checking - High Plains Bank",
+            "Dank Mushrooms, LLC",
+        )
+        self.assertEqual(result["routing_number"], "021000021")
+        self.assertEqual(result["account_number"], "987654321")
+        self.assertEqual(result["account_type"], "Checking")
+
+    @patch("rootedops_payroll.services.nacha_profile.frappe.db.get_value")
+    def test_balanced_funding_bank_account_rejects_invalid_routing(self, get_value):
+        get_value.return_value = {
+            "company": "Dank Mushrooms, LLC",
+            "is_company_account": 1,
+            "account_name": "Dank Mushrooms Checking",
+            "bank": "High Plains Bank",
+            "bank_account_no": "987654321",
+            "branch_code": "123456789",
+            "account_type": "Checking",
+        }
+        with self.assertRaises(ValueError):
+            get_funding_bank_account_configuration(
+                "Dank Mushrooms Checking - High Plains Bank",
+                "Dank Mushrooms, LLC",
+            )
+
