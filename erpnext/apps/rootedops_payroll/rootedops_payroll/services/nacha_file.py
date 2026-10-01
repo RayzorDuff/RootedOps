@@ -7,6 +7,7 @@ import re
 
 RECORD_LENGTH = 94
 BLOCKING_FACTOR = 10
+SERVICE_CLASS_MIXED = "200"
 SERVICE_CLASS_CREDITS_ONLY = "220"
 TRANSACTION_CHECKING_CREDIT = "22"
 TRANSACTION_CHECKING_DEBIT = "27"
@@ -180,15 +181,11 @@ def build_debit_entry(entry: ACHDebit, odfi: str, trace_sequence: int) -> str:
     )
 
 
-def _control_counts(entries: list[ACHCredit], entry_hash: int, credit_total: int, debit_total: int = 0) -> str:
-    return entry_hash, credit_total, debit_total
-
-
 def build_batch_control(profile: NACHAProfile, entry_count: int, entry_hash: int, credit_total: int, debit_total: int = 0) -> str:
     service = _service_class(profile)
     odfi = _digits(profile.odfi_identification)
     return _record([
-        "8", service, _field(len(entries), 6, align="right", fill="0"),
+        "8", service, _field(entry_count, 6, align="right", fill="0"),
         _field(entry_hash % 10**10, 10, align="right", fill="0"),
         _field(debit_total, 12, align="right", fill="0"),
         _field(credit_total, 12, align="right", fill="0"),
