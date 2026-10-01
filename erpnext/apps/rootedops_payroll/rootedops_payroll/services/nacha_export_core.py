@@ -7,7 +7,13 @@ from decimal import Decimal
 import hashlib
 import re
 
-from rootedops_payroll.services.nacha_file import ACHCredit, NACHAProfile, generate_nacha, validate_nacha
+from rootedops_payroll.services.nacha_file import (
+    ACHCredit,
+    ACHDebit,
+    NACHAProfile,
+    generate_nacha,
+    validate_nacha,
+)
 
 
 @dataclass(frozen=True)
@@ -17,6 +23,7 @@ class PayrollACHExport:
     sha256: str
     entry_count: int
     entry_hash: int
+    debit_total_cents: int
     credit_total_cents: int
     record_count: int
 
@@ -41,6 +48,7 @@ def build_payroll_ach_export(
     *,
     profile: NACHAProfile,
     entries: list[ACHCredit],
+    debit_entry: ACHDebit | None = None,
     payroll_entry: str,
     effective_date: date,
     export_version: int,
@@ -48,19 +56,20 @@ def build_payroll_ach_export(
 ) -> PayrollACHExport:
     if not entries:
         raise ValueError("No ACH employees are eligible for export")
-    if profile.balance_mode != "unbalanced":
-        raise ValueError("Phase E export supports only a confirmed Unbalanced NACHA profile")
-
     content = generate_nacha(
         profile,
         entries,
+        debit_entry=debit_entry,
         creation_date=creation_datetime.strftime("%y%m%d"),
         creation_time=creation_datetime.strftime("%H%M"),
     )
     validation = validate_nacha(content)
     credit_total = sum((_money(entry.amount) for entry in entries), Decimal("0.00"))
+    debit_total = _money(debit_entry.amount) if debit_entry is not None else Decimal("0.00")
     if validation["credit_total_cents"] != int(credit_total * 100):
         raise ValueError("Generated NACHA credit total does not reconcile to payroll net pay")
+    if validation["debit_total_cents"] != int(debit_total * 100):
+        raise ValueError("Generated NACHA debit total does not reconcile to the funding entry")
 
     return PayrollACHExport(
         content=content,
@@ -68,6 +77,7 @@ def build_payroll_ach_export(
         sha256=hashlib.sha256(content.encode("ascii")).hexdigest(),
         entry_count=validation["entry_count"],
         entry_hash=validation["entry_hash"],
+        debit_total_cents=validation["debit_total_cents"],
         credit_total_cents=validation["credit_total_cents"],
         record_count=validation["record_count"],
     )
