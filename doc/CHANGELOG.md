@@ -4,6 +4,29 @@ All notable changes to this project will be documented in this file.
 
 ---
 
+## [1.5.17] - 2026-10-01
+
+### Added
+
+- Issue #6 Phase F balanced payroll NACHA export using the configured ERPNext Funding Bank Account as the offset entry.
+- Balanced NACHA service class 200, funding debit transaction codes, balanced debit/credit controls, and full-entry hash/count validation.
+- Effective-entry-date validation that rejects an effective date earlier than the file creation date.
+- Regression coverage for balanced funding entries, debit/credit totals, service class, effective date, and stale-date rejection.
+
+### Changed
+
+- Balanced NACHA exports now source the funding account number, account type, and ABA routing number from the configured ERPNext Bank Account.
+- RootedOps uses the ERPNext Bank Account Branch Code as the stored ABA routing number for balanced NACHA funding-account resolution.
+- RootedOps payroll app version advanced to 0.4.3.
+
+### Notes
+
+- The existing unbalanced NACHA path remains supported.
+- For the October 5 payroll cycle, the NACHA profile should be set to Balanced and the Funding Bank Account must have a valid ABA routing number in Branch Code.
+- Effective dates remain bank-specific: RootedOps validates that the requested date is not in the past relative to file creation, but does not attempt to encode High Plains Bank processing cutoffs or holiday rules.
+
+---
+
 ## [1.5.9] - 2026-09-27
 
 ### Changed

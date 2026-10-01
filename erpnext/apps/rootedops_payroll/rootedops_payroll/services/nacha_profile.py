@@ -223,6 +223,75 @@ def _validate_funding_bank_account(bank_account: str | None, company: str) -> No
         frappe.throw(_("Funding Bank Account must be a company Bank Account."))
 
 
+def get_funding_bank_account_configuration(
+    bank_account: str | None,
+    company: str,
+) -> dict[str, Any]:
+    """Resolve the ERPNext company Bank Account used as a balanced NACHA offset.
+
+    ERPNext does not expose a dedicated US ABA routing field on Bank Account.
+    RootedOps therefore uses Bank Account.branch_code for the nine-digit ABA
+    routing number and validates it before a balanced export is generated.
+    """
+
+    if not bank_account:
+        raise ValueError("Funding Bank Account is required for a Balanced NACHA profile.")
+
+    values = frappe.db.get_value(
+        "Bank Account",
+        bank_account,
+        [
+            "company",
+            "is_company_account",
+            "account_name",
+            "bank",
+            "bank_account_no",
+            "branch_code",
+            "account_type",
+        ],
+        as_dict=True,
+    )
+    if not values:
+        raise ValueError(f"Funding Bank Account {bank_account} does not exist.")
+    if values.get("company") and values.get("company") != company:
+        raise ValueError(
+            f"Funding Bank Account {bank_account} belongs to {values.get('company')}, not {company}."
+        )
+    if values.get("is_company_account") in (0, "0", False):
+        raise ValueError("Funding Bank Account must be a company Bank Account.")
+
+    from rootedops_payroll.services.nacha_file import validate_routing_number
+
+    try:
+        routing_number = validate_routing_number(values.get("branch_code"))
+    except ValueError as exc:
+        raise ValueError(
+            "Funding Bank Account Branch Code must contain a valid 9-digit ABA routing number."
+        ) from exc
+
+    account_number = str(values.get("bank_account_no") or "").strip()
+    if not account_number:
+        raise ValueError("Funding Bank Account must have a Bank Account No.")
+    if len(account_number) > 17 or any(
+        ch not in "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-"
+        for ch in account_number
+    ):
+        raise ValueError("Funding Bank Account No. must be at most 17 NACHA-compatible characters.")
+
+    account_type = str(values.get("account_type") or "").strip().lower()
+    if account_type not in {"checking", "savings"}:
+        raise ValueError("Funding Bank Account Type must be Checking or Savings.")
+
+    return {
+        "name": bank_account,
+        "account_name": values.get("account_name") or company,
+        "bank": values.get("bank"),
+        "routing_number": routing_number,
+        "account_number": account_number,
+        "account_type": account_type.title(),
+    }
+
+
 def validate_and_project_profile(doc: Any) -> NachaCompanyIdentity:
     """Validate a RootedOps NACHA Profile and refresh derived display fields."""
 
@@ -267,6 +336,12 @@ def validate_and_project_profile(doc: Any) -> NachaCompanyIdentity:
         company_name=company.get("company_name") or doc.company,
         company_tax_id=company.get("tax_id"),
     )
+
+    if doc.balance_mode == BALANCE_MODE_BALANCED and doc.funding_bank_account:
+        try:
+            get_funding_bank_account_configuration(doc.funding_bank_account, doc.company)
+        except ValueError as exc:
+            readiness_errors.append(str(exc))
     doc.configuration_status = "Ready" if not readiness_errors else "Incomplete"
 
     requires_ready_profile = bool(doc.enabled) or doc.certification_status != CERTIFICATION_INCOMPLETE

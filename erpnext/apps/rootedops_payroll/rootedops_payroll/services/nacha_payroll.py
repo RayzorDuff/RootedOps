@@ -1,9 +1,8 @@
-"""Payroll-to-NACHA pre-export planning for RootedOps Issue #6 Phase D.
+"""Payroll-to-NACHA pre-export planning for RootedOps Issue #6 Phase F.
 
-Phase D is intentionally read-only: it resolves a submitted Payroll Entry to
+Phase F retains the read-only planning boundary while supporting: it resolves a submitted Payroll Entry to
 submitted Salary Slips, separates ACH from non-ACH employees, validates ACH
-destination data, reconciles ACH totals to Salary Slip net pay, and exercises
-the Phase C formatter without returning or persisting a NACHA file.
+destination data, reconciles ACH totals to Salary Slip net pay, balanced/unbalanced funding resolution and exercises the NACHA formatter without returning or persisting a NACHA file.
 """
 
 from __future__ import annotations
@@ -12,7 +11,7 @@ from datetime import date, datetime
 from decimal import Decimal
 from typing import Any, Mapping
 
-from rootedops_payroll.services.nacha_file import ACHCredit, NACHAProfile, generate_nacha, validate_nacha
+from rootedops_payroll.services.nacha_file import ACHCredit, ACHDebit, NACHAProfile, generate_nacha, validate_nacha
 
 
 class NachaPayrollValidationError(ValueError):
@@ -78,10 +77,8 @@ def build_nacha_payroll_plan(
         )
     if not profile.get("enabled"):
         raise NachaPayrollValidationError("NACHA Profile is not enabled.")
-    if profile.get("balance_mode") != "Unbalanced":
-        raise NachaPayrollValidationError(
-            "Phase D supports only a confirmed Unbalanced NACHA profile; balanced/offset files are deferred."
-        )
+    if profile.get("balance_mode") not in {"Unbalanced", "Balanced"}:
+        raise NachaPayrollValidationError("NACHA Profile Balance Mode must be Balanced or Unbalanced.")
     if profile.get("certification_status") == "Configuration Incomplete":
         raise NachaPayrollValidationError("NACHA Profile is not ready for export planning.")
 
@@ -181,6 +178,28 @@ def build_nacha_payroll_plan(
     if not ach_rows:
         raise NachaPayrollValidationError("No positive-net-pay employees configured for ACH in this payroll run.")
 
+    funding_bank_account = None
+    if profile.get("balance_mode") == "Balanced":
+        from rootedops_payroll.services.nacha_profile import get_funding_bank_account_configuration
+        try:
+            funding_bank_account = get_funding_bank_account_configuration(
+                profile.get("funding_bank_account"),
+                company,
+            )
+        except ValueError as exc:
+            raise NachaPayrollValidationError(str(exc)) from exc
+
+    funding_entry = None
+    if funding_bank_account:
+        funding_entry = ACHDebit(
+            account_name=funding_bank_account["account_name"],
+            routing_number=funding_bank_account["routing_number"],
+            account_number=funding_bank_account["account_number"],
+            account_type=funding_bank_account["account_type"],
+            amount=ach_total,
+            individual_id=str(profile.get("company_id") or ""),
+        )
+
     profile_for_formatter = NACHAProfile(
         immediate_destination=str(profile.get("immediate_destination") or ""),
         immediate_origin=str(profile.get("immediate_origin") or ""),
@@ -211,6 +230,7 @@ def build_nacha_payroll_plan(
     nacha_text = generate_nacha(
         profile_for_formatter,
         formatter_entries,
+        debit_entry=funding_entry,
         creation_date=created.strftime("%y%m%d"),
         creation_time=created.strftime("%H%M"),
     )
@@ -228,6 +248,7 @@ def build_nacha_payroll_plan(
         "profile": profile.get("profile"),
         "profile_certification_status": profile.get("certification_status"),
         "profile_balance_mode": profile.get("balance_mode"),
+        "funding_bank_account": profile.get("funding_bank_account"),
         "formatter_validation": formatter_validation,
         "employee_count": len(salary_slips),
         "ach_employee_count": len(ach_rows),

@@ -1,4 +1,4 @@
-"""Phase E payroll-to-NACHA export orchestration and audit boundary."""
+"""Phase F payroll-to-NACHA export orchestration and audit boundary."""
 from __future__ import annotations
 
 from datetime import datetime
@@ -18,8 +18,11 @@ from rootedops_payroll.services.employee_payments import (
     get_employee_ach_credentials_for_export,
 )
 from rootedops_payroll.services.nacha_export_core import build_payroll_ach_export
-from rootedops_payroll.services.nacha_file import ACHCredit, NACHAProfile
-from rootedops_payroll.services.nacha_profile import get_nacha_profile_configuration
+from rootedops_payroll.services.nacha_file import ACHCredit, ACHDebit, NACHAProfile
+from rootedops_payroll.services.nacha_profile import (
+    get_funding_bank_account_configuration,
+    get_nacha_profile_configuration,
+)
 
 
 def _require_submitted_payroll_entry(pe):
@@ -70,8 +73,8 @@ def build_payroll_export_plan(payroll_entry_name: str, profile_name: str, effect
         frappe.throw(_("NACHA Profile must be enabled before NACHA export."))
     if profile["configuration_status"] != "Ready":
         frappe.throw(_("NACHA Profile is not ready for export."))
-    if (profile.get("balance_mode") or "") != "Unbalanced":
-        frappe.throw(_("Phase E supports only a confirmed Unbalanced NACHA Profile."))
+    if (profile.get("balance_mode") or "") not in {"Unbalanced", "Balanced"}:
+        frappe.throw(_("NACHA Profile Balance Mode must be Balanced or Unbalanced."))
 
     employees = _get_employees_for_payroll_entry(pe, ctx)
     slips = _get_salary_slips_for_payroll_entry(employees, ctx)
@@ -125,6 +128,16 @@ def build_payroll_export_plan(payroll_entry_name: str, profile_name: str, effect
     if ach_total > total_net_pay:
         frappe.throw(_("ACH total cannot exceed total payroll net pay."))
 
+    funding_bank_account = None
+    if profile.get("balance_mode") == "Balanced":
+        try:
+            funding_bank_account = get_funding_bank_account_configuration(
+                profile.get("funding_bank_account"),
+                ctx["company"],
+            )
+        except ValueError as exc:
+            frappe.throw(_(str(exc)))
+
     return {
         "payroll_entry": pe,
         "context": ctx,
@@ -135,6 +148,7 @@ def build_payroll_export_plan(payroll_entry_name: str, profile_name: str, effect
         "total_net_pay": total_net_pay,
         "ach_total": ach_total,
         "salary_slips": [row["name"] for row in slips],
+        "funding_bank_account": funding_bank_account,
     }
 
 
@@ -142,9 +156,21 @@ def generate_payroll_nacha_file(payroll_entry_name: str, profile_name: str, effe
     plan = build_payroll_export_plan(payroll_entry_name, profile_name, effective_date)
     export_version = _next_export_version(payroll_entry_name)
     formatter_profile = _profile_to_formatter(plan["profile"], plan["effective_date"])
+    debit_entry = None
+    if plan["funding_bank_account"]:
+        funding = plan["funding_bank_account"]
+        debit_entry = ACHDebit(
+            account_name=funding["account_name"],
+            routing_number=funding["routing_number"],
+            account_number=funding["account_number"],
+            account_type=funding["account_type"],
+            amount=plan["ach_total"],
+            individual_id=plan["profile"]["company_id"],
+        )
     export = build_payroll_ach_export(
         profile=formatter_profile,
         entries=plan["entries"],
+        debit_entry=debit_entry,
         payroll_entry=payroll_entry_name,
         effective_date=plan["effective_date"],
         export_version=export_version,
@@ -182,6 +208,7 @@ def generate_payroll_nacha_file(payroll_entry_name: str, profile_name: str, effe
         "sha256": export.sha256,
         "entry_count": export.entry_count,
         "entry_hash": export.entry_hash,
+        "debit_total": float(Decimal(export.debit_total_cents) / Decimal(100)),
         "credit_total": float(Decimal(export.credit_total_cents) / Decimal(100)),
         "record_count": export.record_count,
         "excluded": plan["excluded"],
