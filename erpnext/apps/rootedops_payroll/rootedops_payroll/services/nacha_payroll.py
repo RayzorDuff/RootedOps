@@ -1,9 +1,8 @@
-"""Payroll-to-NACHA pre-export planning for RootedOps Issue #6 Phase D.
+"""Payroll-to-NACHA pre-export planning for RootedOps Issue #6 Phase F.
 
-Phase D is intentionally read-only: it resolves a submitted Payroll Entry to
+Phase F retains the read-only planning boundary while supporting: it resolves a submitted Payroll Entry to
 submitted Salary Slips, separates ACH from non-ACH employees, validates ACH
-destination data, reconciles ACH totals to Salary Slip net pay, and exercises
-the Phase C formatter without returning or persisting a NACHA file.
+destination data, reconciles ACH totals to Salary Slip net pay, balanced/unbalanced funding resolution and exercises the NACHA formatter without returning or persisting a NACHA file.
 """
 
 from __future__ import annotations
