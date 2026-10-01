@@ -1,4 +1,4 @@
-"""Pure Phase E NACHA payroll-export assembly helpers."""
+"""Pure Phase F NACHA payroll-export assembly helpers."""
 from __future__ import annotations
 
 from dataclasses import dataclass
