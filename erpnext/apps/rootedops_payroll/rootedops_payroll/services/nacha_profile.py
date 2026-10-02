@@ -248,6 +248,7 @@ def get_funding_bank_account_configuration(
             "bank_account_no",
             "branch_code",
             "account_type",
+            "account_subtype",
         ],
         as_dict=True,
     )
@@ -278,8 +279,13 @@ def get_funding_bank_account_configuration(
     ):
         raise ValueError("Funding Bank Account No. must be at most 17 NACHA-compatible characters.")
 
-    account_type = str(values.get("account_type") or "").strip().lower()
-    if account_type not in {"checking", "savings"}:
+    # ERPNext stores the banking classification as Account Type/Subtype.
+    # For deposit accounts, Account Type is typically "depository" while
+    # Account Subtype carries the actual Checking/Savings classification.
+    account_subtype = str(values.get("account_subtype") or "").strip().lower()
+    legacy_account_type = str(values.get("account_type") or "").strip().lower()
+    normalized_account_type = account_subtype or legacy_account_type
+    if normalized_account_type not in {"checking", "savings"}:
         raise ValueError("Funding Bank Account Type must be Checking or Savings.")
 
     return {
@@ -288,7 +294,7 @@ def get_funding_bank_account_configuration(
         "bank": values.get("bank"),
         "routing_number": routing_number,
         "account_number": account_number,
-        "account_type": account_type.title(),
+        "account_type": normalized_account_type.title(),
     }
 
 
