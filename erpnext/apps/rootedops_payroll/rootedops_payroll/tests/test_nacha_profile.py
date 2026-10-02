@@ -94,7 +94,8 @@ class TestNachaProfileValidation(TestCase):
             "bank": "High Plains Bank",
             "bank_account_no": "987654321",
             "branch_code": "021000021",
-            "account_type": "Checking",
+            "account_type": "depository",
+            "account_subtype": "checking",
         }
         result = get_funding_bank_account_configuration(
             "Dank Mushrooms Checking - High Plains Bank",
