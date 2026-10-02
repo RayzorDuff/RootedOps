@@ -1,7 +1,7 @@
 """Pure NACHA PPD formatter and validator for synthetic/export-ready data."""
 from __future__ import annotations
 from dataclasses import dataclass
-from datetime import date
+from datetime import date, datetime
 from decimal import Decimal, ROUND_HALF_UP
 import re
 
