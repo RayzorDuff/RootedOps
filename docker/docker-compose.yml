@@ -323,6 +323,15 @@ services:
       - librechat_mongodb_data:/data/db
     restart: unless-stopped
 
+  # --- LibreChat Kids MongoDB ---
+  librechat-kids-mongodb:
+    image: mongo:8.0.20
+    container_name: librechat-kids-mongodb
+    command: ["mongod", "--noauth"]
+    volumes:
+      - librechat_kids_mongodb_data:/data/db
+    restart: unless-stopped
+
   # --- LibreChat ---
   librechat:
     image: librechat/librechat-api:${LIBRECHAT_IMAGE_TAG}
@@ -354,6 +363,39 @@ services:
       - librechat_data:/app/data
       - librechat_uploads:/app/uploads
       - librechat_logs:/app/api/logs
+    restart: unless-stopped
+
+  # --- LibreChat Kids ---
+  # Separate instance so child accounts cannot inherit the adult/developer configuration.
+  librechat-kids:
+    image: librechat/librechat-api:${LIBRECHAT_KIDS_IMAGE_TAG}
+    container_name: librechat-kids
+    depends_on:
+      - librechat-kids-mongodb
+    environment:
+      HOST: 0.0.0.0
+      NODE_ENV: production
+      MONGO_URI: mongodb://librechat-kids-mongodb:27017/LibreChat
+      LIBRECHAT_TEMP_CREDENTIALS_PATH: /app/data/.env.temp
+      DOMAIN_CLIENT: ${LIBRECHAT_KIDS_PUBLIC_URL}
+      DOMAIN_SERVER: ${LIBRECHAT_KIDS_PUBLIC_URL}
+      SEARCH: false
+      OPENROUTER_KEY: ${OPENROUTER_KEY}
+      CREDS_KEY: ${LIBRECHAT_KIDS_CREDS_KEY}
+      CREDS_IV: ${LIBRECHAT_KIDS_CREDS_IV}
+      JWT_SECRET: ${LIBRECHAT_KIDS_JWT_SECRET}
+      JWT_REFRESH_SECRET: ${LIBRECHAT_KIDS_JWT_REFRESH_SECRET}
+      ALLOW_REGISTRATION: ${LIBRECHAT_KIDS_ALLOW_REGISTRATION}
+      ALLOW_SOCIAL_LOGIN: false
+      ALLOW_SOCIAL_REGISTRATION: false
+      ALLOW_PASSWORD_RESET: false
+    ports:
+      - "127.0.0.1:${LIBRECHAT_KIDS_HTTP_PORT}:3080"
+    volumes:
+      - ./librechat-kids.yaml:/app/librechat.yaml:ro
+      - librechat_kids_data:/app/data
+      - librechat_kids_uploads:/app/uploads
+      - librechat_kids_logs:/app/api/logs
     restart: unless-stopped
 
   # --- ERPNext / Frappe HR ---
@@ -592,6 +634,10 @@ services:
 
 volumes:
   librechat_mongodb_data:
+  librechat_kids_mongodb_data:
+  librechat_kids_data:
+  librechat_kids_uploads:
+  librechat_kids_logs:
   librechat_data:
   librechat_uploads:
   librechat_logs:
