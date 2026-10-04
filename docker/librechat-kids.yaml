@@ -18,7 +18,7 @@ endpoints:
       baseURL: "https://openrouter.ai/api/v1"
       models:
         default:
-          - "google/gemini-3.8-flash"
+          - "openrouter/free"
         fetch: false
       modelDisplayLabel: "OpenRouter"
 
@@ -28,7 +28,7 @@ modelSpecs:
   list:
     - name: "kids-chat"
       label: "Chat Buddy"
-      description: "A friendly, age-appropriate AI for kids."
+      description: "A friendly, age-appropriate AI using OpenRouter free models."
       showOnLanding: true
       hideBadgeRow: true
       fileSearch: false
@@ -44,8 +44,8 @@ modelSpecs:
         - "Let's play a riddle game."
       preset:
         endpoint: "OpenRouter"
-        model: "google/gemini-3.8-flash"
-        modelLabel: "Gemini 3.8 Flash"
+        model: "openrouter/free"
+        modelLabel: "OpenRouter Free Model Pool"
         temperature: 0.6
         maxContextTokens: 32000
         promptPrefix: |
