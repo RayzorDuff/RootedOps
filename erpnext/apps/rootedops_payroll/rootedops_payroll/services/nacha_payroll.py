@@ -210,7 +210,7 @@ def build_nacha_payroll_plan(
         odfi_identification=str(profile.get("originating_dfi_identification") or ""),
         effective_entry_date=effective_yyyymmdd,
         reference_code=str(profile.get("reference_code") or ""),
-        balance_mode="unbalanced",
+        balance_mode=str(profile.get("balance_mode") or "").lower(),
     )
 
     formatter_entries = [
@@ -331,7 +331,7 @@ def resolve_nacha_payroll_export_plan(
         pay_period_end=pe.end_date,
         effective_entry_date=effective_date,
         profile=profile,
-        salary_slips=[row.as_dict() for row in salary_slips],
+        salary_slips=[row if isinstance(row, dict) else row.as_dict() for row in salary_slips],
         payment_configurations=payment_configurations,
         ach_credentials=ach_credentials,
         creation_datetime=now_datetime(),
