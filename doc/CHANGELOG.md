@@ -4,6 +4,19 @@ All notable changes to this project will be documented in this file.
 
 ---
 
+## [1.5.25] - 2026-10-10
+
+### Fixed
+
+- RootedOps deployment now restarts and verifies ERPNext WebSocket and frontend services in addition to backend, queues, and scheduler.
+- The frontend is restarted after backend/WebSocket so nginx resolves live upstreams after application deployment, reducing transient 502s immediately after deploy.
+
+### Validation
+
+- The first production SignatureGate cash-deposit synchronization succeeded as Journal Entry `ACC-JV-2026-00430` after prior failed attempts remained non-destructive.
+
+---
+
 ## [1.5.24] - 2026-10-10
 
 ### Fixed
