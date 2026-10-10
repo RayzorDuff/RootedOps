@@ -4,6 +4,20 @@ All notable changes to this project will be documented in this file.
 
 ---
 
+## [1.5.23] - 2026-10-10
+
+### Fixed
+
+- RootedOps Issue #1 n8n service calls now use the ERPNext Gunicorn backend directly on the Docker network (`erpnext-backend:8000`) instead of the ERPNext frontend nginx container.
+- This removes the extra internal nginx hop that returned a same-host 502 while the backend was otherwise reachable.
+
+### Notes
+
+- Existing SignatureGate n8n workflow definitions already use `ERPNEXT_INTERNAL_URL`; after pulling this change, only the n8n container needs to be recreated to receive the corrected default.
+- No ERPNext application deployment is required for this infrastructure-only patch.
+
+---
+
 ## [1.5.22] - 2026-10-10
 
 ### Fixed
