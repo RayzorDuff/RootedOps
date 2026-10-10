@@ -2,6 +2,7 @@ from unittest import TestCase
 
 from rootedops_payroll.services.signaturegate_deposits import (
     SignatureGateDepositError,
+    _fingerprint_change_requires_review,
     _select_unique_match,
     _to_cents,
 )
@@ -49,3 +50,24 @@ class TestSignatureGateDepositMatching(TestCase):
         self.assertEqual(_to_cents("732.00"), 73200)
         self.assertEqual(_to_cents("5"), 500)
         self.assertEqual(_to_cents("1373.58"), 137358)
+
+
+
+class _Event:
+    def __init__(self, status, request_fingerprint):
+        self.status = status
+        self.request_fingerprint = request_fingerprint
+
+
+class TestSignatureGateDepositIdempotency(TestCase):
+    def test_failed_event_may_retry_with_corrected_payload(self):
+        event = _Event("Failed", "old-fingerprint")
+        self.assertFalse(
+            _fingerprint_change_requires_review(event, "new-fingerprint")
+        )
+
+    def test_succeeded_event_rejects_changed_payload(self):
+        event = _Event("Succeeded", "old-fingerprint")
+        self.assertTrue(
+            _fingerprint_change_requires_review(event, "new-fingerprint")
+        )

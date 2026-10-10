@@ -4,6 +4,20 @@ All notable changes to this project will be documented in this file.
 
 ---
 
+## [1.5.20] - 2026-10-10
+
+### Fixed
+
+- RootedOps Issue #1 retries may replace the request fingerprint only when the prior integration attempt is already in Failed state, allowing an audited SignatureGate correction to be retried without deleting the integration registry record.
+- Successful or in-progress events still reject changed payloads under the same source key.
+
+### Safety
+
+- A corrected retry still increments the same integration-event attempt counter.
+- No succeeded ERP document can be silently replaced by a changed upstream payload.
+
+---
+
 ## [1.5.19] - 2026-10-10
 
 ### Added

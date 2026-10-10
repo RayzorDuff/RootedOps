@@ -458,6 +458,16 @@ def _metadata(event_doc) -> dict[str, Any]:
         return {}
 
 
+def _fingerprint_change_requires_review(event_doc, fingerprint: str) -> bool:
+    """Only failed events may accept a corrected payload on retry."""
+    return bool(
+        event_doc
+        and event_doc.request_fingerprint
+        and event_doc.request_fingerprint != fingerprint
+        and event_doc.status != "Failed"
+    )
+
+
 def _replay_response(event_doc) -> dict[str, Any]:
     metadata = _metadata(event_doc)
     return {
@@ -563,10 +573,7 @@ def sync_signaturegate_cash_deposit_event(
 
     existing = _existing_event(event["source_key"])
     if existing:
-        if (
-            existing.request_fingerprint
-            and existing.request_fingerprint != fingerprint
-        ):
+        if _fingerprint_change_requires_review(existing, fingerprint):
             return {
                 "ok": False,
                 "source_key": event["source_key"],
