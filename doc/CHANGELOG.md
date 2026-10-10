@@ -4,6 +4,20 @@ All notable changes to this project will be documented in this file.
 
 ---
 
+## [1.5.24] - 2026-10-10
+
+### Fixed
+
+- RootedOps Issue #1 now supplies ERPNext Bank Entry reference number/date fields when creating SignatureGate cash-deposit Journal Entries.
+- The SignatureGate deposit slip/reference is used as the Journal Entry reference number, with a stable batch-based fallback when blank.
+- The confirmed actual deposit date is used as the Journal Entry reference date.
+
+### Safety
+
+- The failed production attempt did not create a Journal Entry or reconcile any Bank Transactions; the next retry remains idempotent.
+
+---
+
 ## [1.5.23] - 2026-10-10
 
 ### Fixed
