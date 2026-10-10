@@ -166,6 +166,61 @@ def _active_bank_accounts(company: str) -> dict[str, str]:
     return mapping
 
 
+
+def list_signaturegate_cash_deposit_bank_accounts() -> dict[str, Any]:
+    """Return active Rooted Psyche ERPNext Bank Accounts for SignatureGate."""
+    rows = frappe.get_all(
+        "Bank Account",
+        filters={
+            "company": COMPANY,
+            "disabled": 0,
+            "is_company_account": 1,
+        },
+        fields=[
+            "name",
+            "bank",
+            "account_name",
+            "account",
+            "mask",
+            "is_default",
+        ],
+        order_by="is_default desc, bank asc, account_name asc, name asc",
+        limit_page_length=0,
+    )
+
+    accounts = []
+    for row in rows:
+        name = str(row.get("name") or "").strip()
+        if not name:
+            continue
+
+        account_name = str(row.get("account_name") or name).strip()
+        bank = str(row.get("bank") or "").strip()
+        mask = str(row.get("mask") or "").strip()
+
+        label = account_name
+        if bank:
+            label += f" — {bank}"
+        if mask:
+            label += f" (••••{mask})"
+
+        accounts.append(
+            {
+                "value": name,
+                "label": label,
+                "bank": bank,
+                "account_name": account_name,
+                "mask": mask,
+                "is_default": bool(row.get("is_default")),
+            }
+        )
+
+    return {
+        "ok": True,
+        "company": COMPANY,
+        "accounts": accounts,
+    }
+
 def _candidate_bank_transactions(
     *,
     company: str,
