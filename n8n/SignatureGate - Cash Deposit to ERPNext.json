@@ -150,7 +150,7 @@
     {
       "parameters": {
         "method": "POST",
-        "url": "={{ $env.ERPNEXT_PUBLIC_URL + '/api/method/rootedops_payroll.api.integration.sync_signaturegate_cash_deposit' }}",
+        "url": "={{ ($env.ERPNEXT_INTERNAL_URL || $env.ERPNEXT_PUBLIC_URL) + '/api/method/rootedops_payroll.api.integration.sync_signaturegate_cash_deposit' }}",
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [
@@ -161,6 +161,10 @@
             {
               "name": "Content-Type",
               "value": "application/json"
+            },
+            {
+              "name": "Host",
+              "value": "={{ $env.ERPNEXT_SITE_NAME }}"
             }
           ]
         },
@@ -183,7 +187,10 @@
         1200,
         192
       ],
-      "continueOnFail": true
+      "continueOnFail": true,
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000
     },
     {
       "parameters": {
