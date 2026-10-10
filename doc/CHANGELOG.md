@@ -4,6 +4,21 @@ All notable changes to this project will be documented in this file.
 
 ---
 
+## [1.5.22] - 2026-10-10
+
+### Fixed
+
+- RootedOps Issue #1 n8n-to-ERPNext service calls now prefer the internal Docker-network ERPNext frontend instead of hairpinning through Cloudflare.
+- SignatureGate cash-deposit synchronization and ERP bank-account lookup both retry transient internal HTTP failures before reporting failure.
+
+### Safety
+
+- Public ERPNext URL remains available as a fallback.
+- ERPNext API authentication and site routing remain explicit; no credentials are exposed to SignatureGate.
+- Existing idempotency protects cash-deposit retries if an HTTP response is lost after ERP processing succeeds.
+
+---
+
 ## [1.5.21] - 2026-10-10
 
 ### Added
