@@ -101,15 +101,28 @@ log "Clear Frappe cache"
 "${COMPOSE[@]}" exec -T "$BACKEND" \
   bench --site "$SITE" clear-cache
 
-log "Restart ERPNext Python services"
+log "Restart ERPNext application services"
 "${COMPOSE[@]}" restart \
   "$BACKEND" \
   erpnext-queue-short \
   erpnext-queue-long \
-  erpnext-scheduler
+  erpnext-scheduler \
+  erpnext-websocket
+
+# Restart the frontend after backend/websocket so nginx resolves live upstreams
+# after an application deployment. This avoids transient/stale 502s when the
+# backend or Socket.IO service has just been restarted.
+"${COMPOSE[@]}" restart erpnext-frontend
 
 log "Verify services"
-for service in "$BACKEND" erpnext-queue-short erpnext-queue-long erpnext-scheduler; do
+for service in \
+  "$BACKEND" \
+  erpnext-queue-short \
+  erpnext-queue-long \
+  erpnext-scheduler \
+  erpnext-websocket \
+  erpnext-frontend
+do
   state="$(sudo docker inspect "$service" --format '{{if .State.Running}}running{{else}}not-running{{end}}')"
   [[ "$state" == "running" ]] || die "$service is not running after restart."
   echo "$service: $state"
