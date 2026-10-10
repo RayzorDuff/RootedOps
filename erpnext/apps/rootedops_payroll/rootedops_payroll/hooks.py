@@ -158,6 +158,12 @@ extend_doctype_class = {
 # }
 
 doc_events = {
+    "Bank": {
+        "validate": (
+            "rootedops_payroll.services.plaid_erpnext_compat."
+            "bind_stock_linked_bank_profile"
+        ),
+    },
     "Journal Entry": {
         "on_cancel": (
             "rootedops_payroll.services.tax_compliance."
@@ -195,9 +201,12 @@ doc_events = {
 # Overriding Methods
 # ------------------------------
 #
-# override_whitelisted_methods = {
-# 	"frappe.desk.doctype.event.event.get_events": "rootedops_payroll.event.get_events"
-# }
+override_whitelisted_methods = {
+    (
+        "erpnext.erpnext_integrations.doctype.plaid_settings."
+        "plaid_settings.enqueue_synchronization"
+    ): "rootedops_payroll.api.plaid_sync.enqueue_synchronization",
+}
 #
 # each overriding function accepts a `data` argument;
 # generated from the base implementation of the doctype dashboard,

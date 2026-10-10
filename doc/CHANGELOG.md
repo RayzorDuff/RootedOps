@@ -4,6 +4,21 @@ All notable changes to this project will be documented in this file.
 
 ---
 
+## [1.5.18] - 2026-10-10
+
+### Fixed
+
+- Issue #7 Phase 7 automatically binds Banks created through ERPNext's stock Plaid Link flow to the RootedOps profile backed by the same legacy Plaid Settings credentials.
+- ERPNext Plaid Sync Now now skips disabled Bank Accounts, tokenless Banks, unprofiled Items, and Items using non-legacy Plaid profiles instead of queueing unsafe stock synchronization jobs.
+
+### Safety
+
+- Existing Plaid profile assignments are never overwritten.
+- No access token, Bank Account integration ID, Bank Transaction, synchronization cursor, or reconciliation data is rewritten by this patch.
+- Non-legacy profiles remain excluded from the stock global synchronizer until RootedOps implements a fully profile-aware production importer.
+
+---
+
 ## [1.5.17] - 2026-10-01
 
 ### Added
