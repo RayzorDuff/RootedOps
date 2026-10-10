@@ -3,6 +3,7 @@ from frappe import _
 from frappe.utils import cint
 
 from rootedops_payroll.services.signaturegate_deposits import (
+    list_signaturegate_cash_deposit_bank_accounts,
     sync_signaturegate_cash_deposit_event,
 )
 
@@ -45,3 +46,11 @@ def sync_signaturegate_cash_deposit(
         confirmed_at=confirmed_at,
         dry_run=bool(cint(dry_run)),
     )
+
+
+
+@frappe.whitelist(methods=["GET"])
+def list_signaturegate_cash_deposit_bank_accounts_api():
+    """List active Rooted Psyche Bank Accounts for SignatureGate selectors."""
+    _require_integration_user()
+    return list_signaturegate_cash_deposit_bank_accounts()
