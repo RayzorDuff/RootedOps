@@ -21,13 +21,17 @@
     {
       "parameters": {
         "method": "GET",
-        "url": "={{ $env.ERPNEXT_PUBLIC_URL + '/api/method/rootedops_payroll.api.integration.list_signaturegate_cash_deposit_bank_accounts_api' }}",
+        "url": "={{ ($env.ERPNEXT_INTERNAL_URL || $env.ERPNEXT_PUBLIC_URL) + '/api/method/rootedops_payroll.api.integration.list_signaturegate_cash_deposit_bank_accounts_api' }}",
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [
             {
               "name": "Authorization",
               "value": "=token {{ $env.ERPNEXT_API_KEY }}:{{ $env.ERPNEXT_API_SECRET }}"
+            },
+            {
+              "name": "Host",
+              "value": "={{ $env.ERPNEXT_SITE_NAME }}"
             }
           ]
         },
@@ -47,7 +51,10 @@
         280,
         0
       ],
-      "continueOnFail": true
+      "continueOnFail": true,
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000
     },
     {
       "parameters": {
