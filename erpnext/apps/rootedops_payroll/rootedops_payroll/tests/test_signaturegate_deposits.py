@@ -5,6 +5,7 @@ from rootedops_payroll.services.signaturegate_deposits import (
     _fingerprint_change_requires_review,
     _select_unique_match,
     _to_cents,
+    list_signaturegate_cash_deposit_bank_accounts,
 )
 
 
@@ -70,4 +71,54 @@ class TestSignatureGateDepositIdempotency(TestCase):
         event = _Event("Succeeded", "old-fingerprint")
         self.assertTrue(
             _fingerprint_change_requires_review(event, "new-fingerprint")
+        )
+
+
+
+class TestSignatureGateBankAccountOptions(TestCase):
+    def test_active_company_bank_accounts_are_returned_as_safe_options(self):
+        from unittest.mock import patch
+
+        rows = [
+            {
+                "name": "BASIC BUSINESS CHECKING - Canvas Credit Union",
+                "bank": "Canvas Credit Union",
+                "account_name": "BASIC BUSINESS CHECKING",
+                "account": "BASIC BUSINESS CHECKING - Canvas Credit Union - RP",
+                "mask": "2145",
+                "is_default": 1,
+            }
+        ]
+
+        with patch(
+            "rootedops_payroll.services.signaturegate_deposits.frappe.get_all",
+            return_value=rows,
+        ) as get_all:
+            result = list_signaturegate_cash_deposit_bank_accounts()
+
+        self.assertTrue(result["ok"])
+        self.assertEqual(result["company"], "Rooted Psyche")
+        self.assertEqual(
+            result["accounts"][0]["value"],
+            "BASIC BUSINESS CHECKING - Canvas Credit Union",
+        )
+        self.assertIn("Canvas Credit Union", result["accounts"][0]["label"])
+        self.assertNotIn("integration_id", result["accounts"][0])
+        get_all.assert_called_once_with(
+            "Bank Account",
+            filters={
+                "company": "Rooted Psyche",
+                "disabled": 0,
+                "is_company_account": 1,
+            },
+            fields=[
+                "name",
+                "bank",
+                "account_name",
+                "account",
+                "mask",
+                "is_default",
+            ],
+            order_by="is_default desc, bank asc, account_name asc, name asc",
+            limit_page_length=0,
         )
