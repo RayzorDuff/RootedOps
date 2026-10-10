@@ -4,6 +4,20 @@ All notable changes to this project will be documented in this file.
 
 ---
 
+## [1.5.21] - 2026-10-10
+
+### Added
+
+- RootedOps Issue #1 read-only API for active Rooted Psyche ERPNext Bank Accounts so SignatureGate cash-deposit preparation can use canonical ERP account selections instead of free-form text.
+- n8n `SignatureGate - ERP Bank Accounts` workflow exposing safe display metadata only; Plaid integration IDs and credentials are not returned.
+
+### Notes
+
+- The canonical selector value is the ERPNext Bank Account document name.
+- Closed accounts disappear from SignatureGate once their ERPNext Bank Account is disabled.
+
+---
+
 ## [1.5.20] - 2026-10-10
 
 ### Fixed
