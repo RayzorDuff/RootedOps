@@ -1,0 +1,400 @@
+{
+  "name": "SignatureGate - Cash Deposit to ERPNext",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "signaturegate/cash-deposit/erp-sync",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "a91a2c39-c71e-4f30-93bd-fbeed3431001",
+      "name": "Cash Deposit ERP Sync",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        0,
+        0
+      ],
+      "webhookId": "e6a81986-18b1-4b0d-9d5f-1866c94f2001"
+    },
+    {
+      "parameters": {
+        "jsCode": "const body = $json.body ?? $json;\nconst depositBatchId = String(body.deposit_batch_id || '').trim();\nconst mode = String(body.mode || 'production').trim().toLowerCase();\n\nif (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(depositBatchId)) {\n  throw new Error('A valid deposit_batch_id UUID is required.');\n}\nif (!['production', 'test'].includes(mode)) throw new Error('mode must be production or test.');\nreturn [{ json: { deposit_batch_id: depositBatchId, mode } }];"
+      },
+      "id": "a91a2c39-c71e-4f30-93bd-fbeed3431002",
+      "name": "Normalize Request",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        240,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 1
+          },
+          "conditions": [
+            {
+              "id": "test-mode",
+              "leftValue": "={{ $json.mode }}",
+              "rightValue": "test",
+              "operator": {
+                "type": "string",
+                "operation": "equals",
+                "name": "filter.operator.equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "a91a2c39-c71e-4f30-93bd-fbeed3431003",
+      "name": "IF - Test Mode",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        480,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "return [{ json: { ok: true, dry_run: true, status: 'test_skipped', deposit_batch_id: $json.deposit_batch_id, message: 'Test-mode Appsmith request received; production SignatureGate and ERPNext were not changed.' } }];"
+      },
+      "id": "a91a2c39-c71e-4f30-93bd-fbeed3431004",
+      "name": "Test Mode Response",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        720,
+        -160
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT *\nFROM public.begin_cash_deposit_erp_sync($1::uuid);",
+        "options": {
+          "queryReplacement": "={{ $json.deposit_batch_id }}"
+        }
+      },
+      "id": "a91a2c39-c71e-4f30-93bd-fbeed3431005",
+      "name": "PG - Begin ERP Sync",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.4,
+      "position": [
+        720,
+        96
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "r1oDpLoZSVIIOWRS",
+          "name": "Postgres account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 1
+          },
+          "conditions": [
+            {
+              "id": "already-succeeded",
+              "leftValue": "={{ $json.already_succeeded === true }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "a91a2c39-c71e-4f30-93bd-fbeed3431006",
+      "name": "IF - Already Succeeded",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        960,
+        96
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "return [{ json: { ok: true, idempotent_replay: true, status: 'succeeded', deposit_batch_id: $json.deposit_batch_id, source_key: $json.source_key, erp_doctype: $json.erp_doctype, erp_name: $json.erp_name } }];"
+      },
+      "id": "a91a2c39-c71e-4f30-93bd-fbeed3431007",
+      "name": "Existing Success Response",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1200,
+        -48
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.ERPNEXT_PUBLIC_URL + '/api/method/rootedops_payroll.api.integration.sync_signaturegate_cash_deposit' }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=token {{ $env.ERPNEXT_API_KEY }}:{{ $env.ERPNEXT_API_SECRET }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ { source_key: $json.source_key, deposit_batch_id: $json.deposit_batch_id, status: $json.batch_status, deposit_date: $json.deposit_date, deposit_slip_number: $json.deposit_slip_number, destination_bank_account: $json.destination_bank_account, expected_amount_cents: Number($json.expected_amount_cents), actual_amount_cents: Number($json.actual_amount_cents), confirmed_at: $json.confirmed_at } }}",
+        "options": {
+          "response": {
+            "response": {
+              "fullResponse": true
+            }
+          }
+        }
+      },
+      "id": "a91a2c39-c71e-4f30-93bd-fbeed3431008",
+      "name": "HTTP - RootedOps ERP Sync",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.3,
+      "position": [
+        1200,
+        192
+      ],
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "jsCode": "const source = $items('PG - Begin ERP Sync')[0]?.json || {};\nconst body = $json.body ?? $json;\nconst result = body?.message ?? body;\nconst statusCode = $json.statusCode ?? null;\nconst httpFailed = !!$json.error || (statusCode !== null && Number(statusCode) >= 400);\nconst success = !httpFailed && result?.ok === true;\nconst error = success ? null : String($json.error?.message || result?.error || body?.exception || body?.message || 'RootedOps ERP synchronization failed.');\nreturn [{ json: { deposit_batch_id: source.deposit_batch_id, source_key: source.source_key, success, erp_doctype: result?.erp_doctype || '', erp_name: result?.erp_name || '', error, response: result || body || {} } }];"
+      },
+      "id": "a91a2c39-c71e-4f30-93bd-fbeed3431009",
+      "name": "Normalize RootedOps Response",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1440,
+        192
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT *\nFROM public.complete_cash_deposit_erp_sync(\n  '{{ String($json.deposit_batch_id || '').replace(/'/g, \"''\") }}'::uuid,\n  {{ $json.success === true ? 'true' : 'false' }}::boolean,\n  NULLIF('{{ String($json.erp_doctype || '').replace(/'/g, \"''\") }}', ''),\n  NULLIF('{{ String($json.erp_name || '').replace(/'/g, \"''\") }}', ''),\n  NULLIF('{{ String($json.error || '').replace(/'/g, \"''\") }}', ''),\n  '{{ JSON.stringify($json.response || {}).replace(/'/g, \"''\") }}'::jsonb\n);",
+        "options": {}
+      },
+      "id": "a91a2c39-c71e-4f30-93bd-fbeed3431010",
+      "name": "PG - Complete ERP Sync",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.4,
+      "position": [
+        1680,
+        192
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "r1oDpLoZSVIIOWRS",
+          "name": "Postgres account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "return items.map(item => ({ json: { ...item.json, ok: item.json.status === 'succeeded' } }));"
+      },
+      "id": "a91a2c39-c71e-4f30-93bd-fbeed3431011",
+      "name": "Final Sync Response",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1920,
+        192
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ $json }}",
+        "options": {}
+      },
+      "id": "a91a2c39-c71e-4f30-93bd-fbeed3431012",
+      "name": "Return Sync Result",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.4,
+      "position": [
+        2160,
+        0
+      ]
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Cash Deposit ERP Sync": {
+      "main": [
+        [
+          {
+            "node": "Normalize Request",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Normalize Request": {
+      "main": [
+        [
+          {
+            "node": "IF - Test Mode",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF - Test Mode": {
+      "main": [
+        [
+          {
+            "node": "Test Mode Response",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "PG - Begin ERP Sync",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Test Mode Response": {
+      "main": [
+        [
+          {
+            "node": "Return Sync Result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "PG - Begin ERP Sync": {
+      "main": [
+        [
+          {
+            "node": "IF - Already Succeeded",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF - Already Succeeded": {
+      "main": [
+        [
+          {
+            "node": "Existing Success Response",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "HTTP - RootedOps ERP Sync",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Existing Success Response": {
+      "main": [
+        [
+          {
+            "node": "Return Sync Result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP - RootedOps ERP Sync": {
+      "main": [
+        [
+          {
+            "node": "Normalize RootedOps Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Normalize RootedOps Response": {
+      "main": [
+        [
+          {
+            "node": "PG - Complete ERP Sync",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "PG - Complete ERP Sync": {
+      "main": [
+        [
+          {
+            "node": "Final Sync Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Final Sync Response": {
+      "main": [
+        [
+          {
+            "node": "Return Sync Result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "availableInMCP": false
+  },
+  "versionId": "7c3dd85a-b10e-4865-9424-975c34e12001",
+  "meta": {
+    "instanceId": "80f6db60a29056f4b0d55bd1ef6e213f497428949062f982c496e7b46a37f624"
+  },
+  "id": "SgCashDepositERP1",
+  "tags": []
+}

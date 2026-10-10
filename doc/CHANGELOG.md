@@ -4,6 +4,24 @@ All notable changes to this project will be documented in this file.
 
 ---
 
+## [1.5.19] - 2026-10-10
+
+### Added
+
+- RootedOps Issue #1 Phase 1 durable external integration registry and idempotent SignatureGate cash-deposit accounting endpoint.
+- Conservative bank-side matching that resolves a confirmed SignatureGate deposit to one unique same-day subset of already-imported Rooted Psyche Bank Transactions.
+- Native Journal Entry creation and ERPNext Bank Transaction reconciliation for confirmed cash deposits.
+- n8n orchestration that reads authoritative confirmed deposit state from SignatureGate, invokes RootedOps with the existing ERPNext API credentials, records success/failure, and supports a non-writing test mode for the development Appsmith branch.
+- Read-only production preflight for deposit-to-bank matching.
+
+### Safety
+
+- Failed accounting or reconciliation rolls back the Journal Entry and Bank Transaction links before persisting only the integration failure state.
+- Successful retries return the existing ERP document; changed payloads under the same source key are rejected.
+- RootedOps does not create or duplicate Plaid Bank Transactions.
+
+---
+
 ## [1.5.18] - 2026-10-10
 
 ### Fixed

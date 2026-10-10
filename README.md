@@ -1,6 +1,6 @@
 # RootedOps
 
-Current version: **1.5.9**.
+Current version: **1.5.19**.
 
 See [`doc/RELEASE_PROCESS.md`](doc/RELEASE_PROCESS.md) for the repeatable release workflow.
 
@@ -69,7 +69,7 @@ n8n is the workflow automation layer. The `.env.example` shows the integration s
 - Clover API integration
 - scheduled/reporting email destinations
 
-The repository currently includes an n8n workflow export for bank CSV upload into ERPNext. Additional n8n workflows can be imported into the running n8n instance and should be documented when they become part of the operational baseline.
+The repository currently includes n8n workflow exports for bank CSV upload into ERPNext and SignatureGate cash-deposit synchronization into ERPNext. Additional n8n workflows can be imported into the running n8n instance and should be documented when they become part of the operational baseline.
 
 ### Listmonk
 
