@@ -3,6 +3,7 @@ from unittest import TestCase
 from rootedops_payroll.services.signaturegate_deposits import (
     SignatureGateDepositError,
     _fingerprint_change_requires_review,
+    _journal_reference,
     _select_unique_match,
     _to_cents,
     list_signaturegate_cash_deposit_bank_accounts,
@@ -122,3 +123,33 @@ class TestSignatureGateBankAccountOptions(TestCase):
             order_by="is_default desc, bank asc, account_name asc, name asc",
             limit_page_length=0,
         )
+
+
+
+class TestSignatureGateJournalReference(TestCase):
+    def test_deposit_reference_uses_signaturegate_reference_and_actual_date(self):
+        event = {
+            "deposit_batch_id": "31cc02f3-3477-46eb-a4e7-4f2f2a756a12",
+            "deposit_slip_number": "Opening Deposit",
+            "deposit_date": "2026-10-08",
+        }
+
+        reference_no, reference_date = _journal_reference(event)
+
+        self.assertEqual(reference_no, "Opening Deposit")
+        self.assertEqual(reference_date, "2026-10-08")
+
+    def test_missing_deposit_reference_gets_stable_fallback(self):
+        event = {
+            "deposit_batch_id": "31cc02f3-3477-46eb-a4e7-4f2f2a756a12",
+            "deposit_slip_number": "",
+            "deposit_date": "2026-10-08",
+        }
+
+        reference_no, reference_date = _journal_reference(event)
+
+        self.assertEqual(
+            reference_no,
+            "SignatureGate 31cc02f3-3477-46eb-a4e7-4f2f2a756a12",
+        )
+        self.assertEqual(reference_date, "2026-10-08")
