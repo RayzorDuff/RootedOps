@@ -106,8 +106,18 @@ def build_payroll_export_plan(payroll_entry_name: str, profile_name: str, effect
                 "reason": "Non-ACH payment method",
             })
             continue
-        if net_pay <= 0:
-            frappe.throw(_("Salary Slip {0} has non-positive net pay and cannot be exported.").format(slip.name))
+        if net_pay < 0:
+            frappe.throw(_("Salary Slip {0} has negative net pay and cannot be exported.").format(slip.name))
+        if net_pay == 0:
+            excluded.append({
+                "employee": employee,
+                "employee_name": slip.employee_name,
+                "salary_slip": slip.name,
+                "payment_method": payment_method,
+                "net_pay": 0.0,
+                "reason": "Zero net pay",
+            })
+            continue
 
         credentials = get_employee_ach_credentials_for_export(employee, on_date=effective_date)
         account_name = credentials.get("account_holder_name") or slip.employee_name or employee
