@@ -54,6 +54,51 @@ class TestRootedOpsPayrollEntryMixin(unittest.TestCase):
         ]
         self._assert_adoption(slips, "ACC-JV-2026-00418", True)
 
+    def test_zero_dollar_submitted_slip_adopted_without_journal_entry(self):
+        slips = [{
+            "name": "Sal Slip/HR-EMP-00007/00032",
+            "employee": "HR-EMP-00007",
+            "company": "Raymond Danks",
+            "payroll_entry": None,
+            "gross_pay": 0.0,
+            "net_pay": 0.0,
+        }]
+        pe = FakePayrollEntry(["HR-EMP-00007"], None, slips)
+        pe.company = "Raymond Danks"
+        pe.start_date = "2026-10-12"
+        pe.end_date = "2026-10-18"
+        pe.name = "HR-PRUN-2026-00062"
+        with patch("rootedops_payroll.overrides.payroll_entry.frappe.get_all", return_value=slips):
+            self.assertTrue(pe._rootedops_can_adopt_salary_slips())
+
+    def test_nonzero_slip_without_journal_entry_uses_native_validation(self):
+        slips = [{
+            "name": "Sal Slip/HR-EMP-00007/00033",
+            "employee": "HR-EMP-00007",
+            "company": "Raymond Danks",
+            "payroll_entry": None,
+            "gross_pay": 100.0,
+            "net_pay": 90.0,
+        }]
+        pe = FakePayrollEntry(["HR-EMP-00007"], None, slips)
+        pe.company = "Raymond Danks"
+        with patch("rootedops_payroll.overrides.payroll_entry.frappe.get_all", return_value=slips):
+            self.assertFalse(pe._rootedops_can_adopt_salary_slips())
+
+    def test_zero_dollar_slip_linked_to_another_entry_is_rejected(self):
+        slips = [{
+            "name": "Sal Slip/HR-EMP-00007/00032",
+            "employee": "HR-EMP-00007",
+            "company": "Raymond Danks",
+            "payroll_entry": "HR-PRUN-2026-00061",
+            "gross_pay": 0.0,
+            "net_pay": 0.0,
+        }]
+        pe = FakePayrollEntry(["HR-EMP-00007"], None, slips)
+        pe.company = "Raymond Danks"
+        with patch("rootedops_payroll.overrides.payroll_entry.frappe.get_all", return_value=slips):
+            self.assertFalse(pe._rootedops_can_adopt_salary_slips())
+
     def test_refresh_draft_consolidated_journal_entry_updates_existing_draft(self):
         class FakeJournalEntry:
             name = "ACC-JV-2026-00418"
