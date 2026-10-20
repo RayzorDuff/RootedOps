@@ -4,6 +4,19 @@ All notable changes to this project will be documented in this file.
 
 ---
 
+## [1.5.26] - 2026-10-19
+
+### Added
+
+- Pass the optional private SignatureGate paper Drive-folder ID and storage-provider default into n8n.
+- Document Google OAuth configuration ownership, retained NocoDB compatibility and n8n-only service recreation. No file, credential, account or live folder mapping is included.
+
+### Validation
+
+- Release metadata validation and structured Compose environment checks pass. Live Google authorization/storage acceptance remains in the SignatureGate v1.2.0 validation sequence.
+
+---
+
 ## [1.5.25] - 2026-10-10
 
 ### Fixed
