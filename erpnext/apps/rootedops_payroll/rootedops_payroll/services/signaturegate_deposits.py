@@ -418,6 +418,15 @@ def _journal_entry_accounts(
     return lines
 
 
+def _journal_reference(event: dict[str, Any]) -> tuple[str, str]:
+    """Return the ERPNext Bank Entry reference number and reference date."""
+    reference_no = str(event.get("deposit_slip_number") or "").strip()
+    if not reference_no:
+        reference_no = f"SignatureGate {event['deposit_batch_id']}"
+
+    return reference_no, str(getdate(event["deposit_date"]))
+
+
 def _create_journal_entry(
     event: dict[str, Any],
     posting_date: str,
@@ -431,12 +440,16 @@ def _create_journal_entry(
         f"matched {bank_transaction_names}"
     )
 
+    reference_no, reference_date = _journal_reference(event)
+
     je = frappe.get_doc(
         {
             "doctype": "Journal Entry",
             "voucher_type": "Bank Entry",
             "company": COMPANY,
             "posting_date": posting_date,
+            "cheque_no": reference_no,
+            "cheque_date": reference_date,
             "user_remark": remark,
             "accounts": _journal_entry_accounts(
                 matched,

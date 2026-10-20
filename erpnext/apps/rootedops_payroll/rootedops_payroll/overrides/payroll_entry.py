@@ -4,9 +4,9 @@ RootedOps prepares and submits Salary Slips before the Payroll Entry itself.
 Native HRMS Payroll Entry submission expects to create those slips itself,
 so it otherwise treats the already-submitted slips as duplicates.
 
-This extension is deliberately gated on the RootedOps consolidated Journal Entry
-link being present. That keeps ordinary HRMS Payroll Entries on the native
-submission path.
+This extension requires a RootedOps consolidated Journal Entry or a fully
+zero-value set of submitted Salary Slips. Other HRMS Payroll Entries retain
+the native submission path.
 """
 
 import frappe
@@ -35,17 +35,12 @@ class RootedOpsPayrollEntryMixin:
                 "end_date": self.end_date,
                 "docstatus": 1,
             },
-            fields=["name", "employee", "company", "payroll_entry"],
+            fields=["name", "employee", "company", "payroll_entry", "gross_pay", "net_pay"],
             order_by="creation asc",
         )
 
     def _rootedops_can_adopt_salary_slips(self):
         """Return True only for a complete RootedOps-prepared payroll."""
-        # The consolidated JE is created by the RootedOps payroll preparation
-        # workflow and is not part of native HRMS Payroll Entry preparation.
-        if not self.get("rootedops_consolidated_journal_entry"):
-            return False
-
         employees = [
             row.employee
             for row in (self.get("employees") or [])
@@ -70,7 +65,17 @@ class RootedOpsPayrollEntryMixin:
             if row.get("payroll_entry") and row.get("payroll_entry") != self.name:
                 return False
 
-        return True
+        if self.get("rootedops_consolidated_journal_entry"):
+            return True
+
+        # A zero-dollar run produces no consolidated Journal Entry. Only
+        # adopt when every selected employee has a submitted, zero-value slip.
+        # A positive or negative payroll without a JE retains native validation.
+        return all(
+            abs(float(row.get("gross_pay") or 0)) < 0.005
+            and abs(float(row.get("net_pay") or 0)) < 0.005
+            for row in slips
+        )
 
     def _rootedops_adopt_salary_slips(self):
         """Link the already-submitted Salary Slips to this Payroll Entry."""

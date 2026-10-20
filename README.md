@@ -1,6 +1,6 @@
 # RootedOps
 
-Current version: **1.5.22**.
+Current version: **1.5.26**.
 
 See [`doc/RELEASE_PROCESS.md`](doc/RELEASE_PROCESS.md) for the repeatable release workflow.
 
@@ -62,6 +62,7 @@ n8n is the workflow automation layer. The `.env.example` shows the integration s
 
 - Documenso API access
 - NocoDB API access
+- optional SignatureGate paper Google Drive parent folder and storage-provider default (OAuth credentials remain in n8n)
 - temporary Airtable access for MushroomProcess migration/transition workflows
 - Givebutter webhook signature validation
 - ERPNext API access
@@ -243,3 +244,5 @@ This repository is licensed under **GNU GPL v3.0**. See `LICENSE`.
 Rationale: MushroomProcess and SignatureGate are GPL; choosing GPLv3 here keeps license compatibility for shared code or common operational modules between projects.
 
 QR Product routing also passes `MP_APP_PRODUCTS_URL` and `MP_REGULATED_BUSINESS_URL` into n8n; see `LINODE_SETUP.md`.
+
+SignatureGate paper upload provider setup and the n8n-only recreation command are in [doc/SIGNATUREGATE_PAPER_STORAGE.md](doc/SIGNATUREGATE_PAPER_STORAGE.md). Workflow and database source remain in SignatureGate; existing Header Auth credentials are preserved.

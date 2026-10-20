@@ -4,6 +4,60 @@ All notable changes to this project will be documented in this file.
 
 ---
 
+## [1.5.26] - 2026-10-19
+
+### Added
+
+- Pass the optional private SignatureGate paper Drive-folder ID and storage-provider default into n8n.
+- Document Google OAuth configuration ownership, retained NocoDB compatibility and n8n-only service recreation. No file, credential, account or live folder mapping is included.
+
+### Validation
+
+- Release metadata validation and structured Compose environment checks pass. Live Google authorization/storage acceptance remains in the SignatureGate v1.2.0 validation sequence.
+
+---
+
+## [1.5.25] - 2026-10-10
+
+### Fixed
+
+- RootedOps deployment now restarts and verifies ERPNext WebSocket and frontend services in addition to backend, queues, and scheduler.
+- The frontend is restarted after backend/WebSocket so nginx resolves live upstreams after application deployment, reducing transient 502s immediately after deploy.
+
+### Validation
+
+- The first production SignatureGate cash-deposit synchronization succeeded as Journal Entry `ACC-JV-2026-00430` after prior failed attempts remained non-destructive.
+
+---
+
+## [1.5.24] - 2026-10-10
+
+### Fixed
+
+- RootedOps Issue #1 now supplies ERPNext Bank Entry reference number/date fields when creating SignatureGate cash-deposit Journal Entries.
+- The SignatureGate deposit slip/reference is used as the Journal Entry reference number, with a stable batch-based fallback when blank.
+- The confirmed actual deposit date is used as the Journal Entry reference date.
+
+### Safety
+
+- The failed production attempt did not create a Journal Entry or reconcile any Bank Transactions; the next retry remains idempotent.
+
+---
+
+## [1.5.23] - 2026-10-10
+
+### Fixed
+
+- RootedOps Issue #1 n8n service calls now use the ERPNext Gunicorn backend directly on the Docker network (`erpnext-backend:8000`) instead of the ERPNext frontend nginx container.
+- This removes the extra internal nginx hop that returned a same-host 502 while the backend was otherwise reachable.
+
+### Notes
+
+- Existing SignatureGate n8n workflow definitions already use `ERPNEXT_INTERNAL_URL`; after pulling this change, only the n8n container needs to be recreated to receive the corrected default.
+- No ERPNext application deployment is required for this infrastructure-only patch.
+
+---
+
 ## [1.5.22] - 2026-10-10
 
 ### Fixed
