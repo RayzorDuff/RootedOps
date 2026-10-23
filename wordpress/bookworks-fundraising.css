@@ -92,3 +92,26 @@ body.bookworks-fundraising-page .bookworks-donation-top > givebutter-widget {
     padding: 1rem;
   }
 }
+
+/* Approved actual-site photography, injected independently of managed text. */
+body.bookworks-fundraising-page .bookworks-sanctuary-figure {
+  margin: 0 0 2rem;
+  padding: 0;
+}
+body.bookworks-fundraising-page .bookworks-sanctuary-photo {
+  display: block;
+  width: 100%;
+  height: auto;
+  max-height: 520px;
+  object-fit: cover;
+  border-radius: 1rem;
+}
+body.bookworks-fundraising-page .bookworks-sanctuary-figure figcaption {
+  margin-top: .65rem;
+  color: #45564b;
+  font-size: .85rem;
+  line-height: 1.5;
+}
+@media (max-width: 680px) {
+  body.bookworks-fundraising-page .bookworks-sanctuary-photo { max-height: none; }
+}
