@@ -8,5 +8,8 @@ source_qr="grav.mysite/user/pages/01.home/qr.png"
 docker inspect -f '{{.State.Running}}' "$container" | grep -qx true
 docker cp "$source_md" "$container:/tmp/rootedpsyche-grav-home.md"
 docker cp "$source_qr" "$container:/tmp/rootedpsyche-qr.png"
+docker exec "$container" mkdir -p /var/www/html/wp-content/mu-plugins
+docker cp wordpress/mu-plugins/rootedpsyche-givebutter.php "$container:/var/www/html/wp-content/mu-plugins/rootedpsyche-givebutter.php"
 docker cp scripts/import_rootedpsyche_home.php "$container:/tmp/import_rootedpsyche_home.php"
-docker exec -u www-data "$container" php /tmp/import_rootedpsyche_home.php
+# Optional verified Givebutter campaign URL; do not infer it from the widget ID.
+docker exec -u www-data -e ROOTEDPSYCHE_GIVEBUTTER_URL="${ROOTEDPSYCHE_GIVEBUTTER_URL:-}" "$container" php /tmp/import_rootedpsyche_home.php
