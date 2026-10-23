@@ -151,6 +151,8 @@ pg_dump_container nocodb-meta-postgres "$NC_DB_USER" "$NC_DB_NAME" "$NC_DB_PASSW
 pg_dump_container documenso-postgres "$DOCUMENSO_DB_USER" "$DOCUMENSO_DB_NAME" "$DOCUMENSO_DB_PASSWORD" \
   "$BACKUP_DIR/db/documenso-postgres.sql.gz"
 mariadb_dump_all erpnext-db "$ERPNEXT_DB_ROOT_PASSWORD" "$BACKUP_DIR/db/erpnext-all-databases.sql.gz"
+# WordPress is deployed with a separate Compose file but shares the default docker project.
+mariadb_dump_all docker-rootedpsyche-wordpress-db-1 "$ROOTEDPSYCHE_WP_DB_ROOT_PASSWORD" "$BACKUP_DIR/db/rootedpsyche-wordpress-all-databases.sql.gz"
 
 # Non-database Docker volumes needed for a practical restore.
 backup_volume nocodb_data nocodb_data.tgz
@@ -159,6 +161,8 @@ backup_volume appsmith_stacks appsmith_stacks.tgz
 backup_volume erpnext_sites erpnext_sites.tgz
 backup_volume erpnext_apps erpnext_apps.tgz
 backup_volume erpnext_logs erpnext_logs.tgz
+# The full WordPress HTML volume includes uploads, plugins, themes, and MU plugins.
+backup_volume docker_rootedpsyche_wordpress_html rootedpsyche-wordpress-html.tgz
 
 # Usually disposable, but keeping them may help preserve in-flight state.
 backup_volume erpnext_redis_cache_data erpnext_redis_cache_data.tgz
