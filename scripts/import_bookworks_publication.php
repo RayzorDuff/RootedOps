@@ -34,7 +34,11 @@ $slug_owner = get_page_by_path($payload['slug'], OBJECT, 'page');
 if ($slug_owner && (!$page || (int)$slug_owner->ID !== (int)$page->ID)) {
     fail_import('Slug is already owned by another WordPress page');
 }
-$source_hash = hash('sha256', $payload['html']);
+// Normalize through WordPress before comparing, so Pandoc's unsupported attributes
+// do not prevent a safe draft import or cause false changes on repeated runs.
+$html = wp_kses_post($payload['html']);
+if (trim(wp_strip_all_tags($html)) === '') fail_import('No usable content after sanitization');
+$source_hash = hash('sha256', $html);
 $last_hash = $page ? get_post_meta($page->ID, '_bookworks_managed_html_sha256', true) : '';
 if ($page && $last_hash && !hash_equals($last_hash, hash('sha256', $page->post_content))) {
     fail_import('WordPress page was manually edited after last import; refusing overwrite');
@@ -46,11 +50,7 @@ echo json_encode(['action' => $action, 'key' => $key, 'page_id' => $page ? (int)
     'source_commit' => $payload['source_commit'], 'sha256' => $source_hash], JSON_PRETTY_PRINT) . "\n";
 if ($argv[2] === 'dry-run' || $unchanged) exit(0);
 // This adapter intentionally NEVER publishes a page or edits homepage/menu settings.
-// Sanitize imported HTML according to WordPress's content policy.
-$html = wp_kses_post($payload['html']);
-if ($html !== $payload['html']) {
-    fail_import('HTML contains elements/attributes WordPress would strip; correct source before importing');
-}
+// The sanitized HTML above is the content that WordPress will store.
 $args = [
     'post_type' => 'page', 'post_title' => $payload['title'],
     'post_name' => $payload['slug'], 'post_content' => wp_slash($html), 'post_status' => 'draft',
@@ -60,5 +60,6 @@ $id = wp_insert_post($args, true);
 if (is_wp_error($id)) fail_import($id->get_error_message());
 update_post_meta($id, '_bookworks_publication_key', $key);
 update_post_meta($id, '_bookworks_source_commit', $payload['source_commit']);
-update_post_meta($id, '_bookworks_managed_html_sha256', hash('sha256', $html));
+$saved = get_post($id);
+update_post_meta($id, '_bookworks_managed_html_sha256', hash('sha256', $saved->post_content));
 echo "Staged draft WordPress page ID $id; publication requires manual approval.\n";
