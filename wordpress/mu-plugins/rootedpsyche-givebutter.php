@@ -14,3 +14,14 @@ add_action('wp_enqueue_scripts', function () {
         );
     }
 });
+
+/**
+ * Render the custom element after the static homepage content.
+ * WordPress sanitization strips unknown tags from imported post_content.
+ */
+add_filter('the_content', function ($content) {
+    if (!is_admin() && is_main_query() && in_the_loop() && is_front_page()) {
+        $content .= "\n" . '<div class="rootedpsyche-donation-widget"><givebutter-widget id="gJeP4L"></givebutter-widget></div>';
+    }
+    return $content;
+}, 20);
