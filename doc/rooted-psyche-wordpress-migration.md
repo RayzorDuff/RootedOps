@@ -23,7 +23,7 @@ Generate **two different** strong passwords and add these lines to the local `.e
 ```dotenv
 ROOTEDPSYCHE_WP_DB_PASSWORD=<generated-unique-password>
 ROOTEDPSYCHE_WP_DB_ROOT_PASSWORD=<different-generated-unique-password>
-ROOTEDPSYCHE_WP_TEST_PORT=8086
+ROOTEDPSYCHE_WP_TEST_PORT=8096
 ```
 
 Then:
@@ -32,16 +32,16 @@ Then:
 sudo docker compose --env-file ./.env -f docker/docker-compose.wordpress.yml config --quiet
 sudo docker compose --env-file ./.env -f docker/docker-compose.wordpress.yml up -d
 sudo docker compose --env-file ./.env -f docker/docker-compose.wordpress.yml ps
-curl -I http://127.0.0.1:8086/
+curl -I http://127.0.0.1:8096/
 ```
 
 WordPress listens only on loopback. Use an SSH tunnel from your Mac to complete the installer without exposing the unfinished site:
 
 ```bash
-ssh -L 8086:127.0.0.1:8086 <linode-ssh-host>
+ssh -L 8096:127.0.0.1:8096 <linode-ssh-host>
 ```
 
-Then visit `http://localhost:8086`. Do not use the public hostname as the WordPress site URL until cutover. Create an administrator account with a unique password and use the site's intended public title.
+Then visit `http://localhost:8096`. Do not use the public hostname as the WordPress site URL until cutover. Create an administrator account with a unique password and use the site's intended public title.
 
 ## 3. Migrate homepage
 
@@ -54,7 +54,7 @@ Keep the first release minimal: a homepage, basic theme, working donation action
 - Confirm WordPress health, memory/disk use, mobile layout, uploads, and homepage text.
 - Back up the WordPress database and uploads; verify restoration procedure. Back up existing Grav runtime content and Nginx configuration.
 - Inspect **deployed** Nginx config, not only `nginx/grav.conf` (which contains placeholder domains).
-- At cutover, stop Grav and publish WordPress through the same established public host and TLS endpoint. One option is changing the active proxy upstream from port 8085 to WordPress's local port 8086, followed by `sudo nginx -t && sudo systemctl reload nginx`. This is a targeted Nginx change, not a redesign.
+- At cutover, stop Grav and publish WordPress through the same established public host and TLS endpoint. One option is changing the active proxy upstream from port 8085 to WordPress's local port 8096, followed by `sudo nginx -t && sudo systemctl reload nginx`. This is a targeted Nginx change, not a redesign.
 - Configure WordPress canonical home/site URLs for HTTPS at the real hostname, avoiding redirects to localhost. Validate frontend, admin login, permalinks, media, and Givebutter.
 - Keep Grav data and configuration archived until the rollback window is closed. Rollback means restoring the previous proxy upstream and restarting Grav; document any new content written after cutover.
 
