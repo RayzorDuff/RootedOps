@@ -281,10 +281,14 @@ services:
       - documenso_playwright_cache:/home/nodejs/.cache/ms-playwright
     restart: unless-stopped
 
+  # Retired after the 2026-10-23 WordPress cutover. Keep for manual rollback only.
+  # Opt in explicitly with --profile grav-rollback; never start during routine stack up.
   grav:
+    profiles:
+      - grav-rollback
     image: getgrav/grav:latest
     container_name: grav
-    restart: unless-stopped
+    restart: "no"
     ports:
       - "8085:80"
     volumes:
