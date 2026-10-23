@@ -1,0 +1,17 @@
+/* Scoped presentation for BookWorks fundraising landing pages. */
+.bookworks-landing { max-width: 1080px; margin: 0 auto; padding: clamp(1rem, 4vw, 3rem); line-height: 1.65; }
+.bookworks-landing .bookworks-hero { padding: clamp(2rem, 5vw, 5rem) clamp(1.25rem, 4vw, 3.5rem); background: #f1f4ed; border-radius: 1.25rem; margin-bottom: 2.5rem; }
+.bookworks-landing .bookworks-eyebrow { text-transform: uppercase; letter-spacing: .14em; font-size: .85rem; font-weight: 700; }
+.bookworks-landing .bookworks-hero h1 { font-size: clamp(2rem, 5vw, 3.6rem); line-height: 1.15; margin: .5rem 0 1rem; }
+.bookworks-landing .bookworks-subtitle { font-size: clamp(1.1rem, 2vw, 1.4rem); max-width: 45rem; }
+.bookworks-landing .bookworks-section { margin-block: 2.5rem; }
+.bookworks-landing .bookworks-section h1 { font-size: clamp(1.5rem, 3vw, 2.2rem); line-height: 1.25; }
+.bookworks-landing .bookworks-budget-table { width: 100%; border-collapse: collapse; font-size: .95rem; }
+.bookworks-landing .bookworks-budget-table th,
+.bookworks-landing .bookworks-budget-table td { padding: .8rem; text-align: left; border-bottom: 1px solid #cbd5cb; vertical-align: top; }
+.bookworks-landing .bookworks-budget-table th { font-weight: 700; background: #f1f4ed; }
+@media (max-width: 680px) {
+  .bookworks-landing .bookworks-budget-table { display: block; overflow-x: auto; -webkit-overflow-scrolling: touch; }
+  .bookworks-landing .bookworks-budget-table th,
+  .bookworks-landing .bookworks-budget-table td { min-width: 9rem; }
+}
