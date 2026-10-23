@@ -55,7 +55,15 @@ if ($page && $last_hash && !hash_equals($last_hash, hash('sha256', $page->post_c
     fail_import('WordPress page was manually edited after last import; refusing overwrite');
 }
 if ($page && !$last_hash) fail_import('Existing managed page lacks content hash; refusing overwrite');
+// Published content requires a separately reviewed update/republication process.
+// Never let a draft deployment silently unpublish a live page.
 $unchanged = $page && hash_equals($source_hash, $last_hash);
+if ($page && $page->post_status === 'publish' && !$unchanged) {
+    fail_import('Managed page is published; refusing to overwrite or unpublish it. Create a reviewed revision workflow.');
+}
+if ($page && !in_array($page->post_status, ['draft', 'publish'], true)) {
+    fail_import('Unsupported existing page status; refusing mutation');
+}
 $action = !$page ? 'create-draft' : ($unchanged ? 'unchanged' : 'update-draft');
 echo json_encode(['action' => $action, 'key' => $key, 'page_id' => $page ? (int)$page->ID : null,
     'source_commit' => $payload['source_commit'], 'sha256' => $source_hash], JSON_PRETTY_PRINT) . "\n";
