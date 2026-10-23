@@ -91,3 +91,37 @@ add_filter('the_content', function ($content) {
         . '</section>';
     return $top . $content . $bottom;
 }, 20);
+
+
+/*
+ * The sanctuary image is presentation media, not part of BookWorks post_content.
+ * An administrator associates an existing WordPress Media Library attachment with
+ * draft page 15 using _rootedops_sanctuary_image_id. No remote image hotlinking.
+ * WordPress validates the attachment ID before rendering it.
+ */
+add_filter('the_content', function ($content) {
+    if (!in_the_loop() || !is_main_query()) { return $content; }
+    $campaign = rootedops_bookworks_current_campaign();
+    if (!$campaign) { return $content; }
+    $post = get_queried_object();
+    if (!$post instanceof WP_Post) { return $content; }
+    $image_id = absint(get_post_meta($post->ID, '_rootedops_sanctuary_image_id', true));
+    if (!$image_id || !wp_attachment_is_image($image_id)) { return $content; }
+    $image = wp_get_attachment_image($image_id, 'large', false, [
+        'class' => 'bookworks-sanctuary-photo',
+        'loading' => 'eager',
+        'fetchpriority' => 'high',
+        'alt' => 'Rocky mountain valley with sparse regrowth and standing burned trees near the proposed Rooted Psyche sanctuary.',
+    ]);
+    if (!$image) { return $content; }
+    $figure = '<figure class="bookworks-sanctuary-figure">' . $image
+        . '<figcaption>Landscape surrounding the proposed Rooted Psyche sanctuary near Livermore, Colorado.</figcaption>'
+        . '</figure>';
+    // Run after the campaign widget filter: insert between its CTA and the
+    // managed manuscript, without changing the stored manuscript itself.
+    $needle = '<div class="bookworks-landing">';
+    $position = strpos($content, $needle);
+    if ($position === false) { return $content; }
+    $position += strlen($needle);
+    return substr($content, 0, $position) . $figure . substr($content, $position);
+}, 30);
