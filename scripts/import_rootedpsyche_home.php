@@ -2,7 +2,6 @@
 // Run only inside the trusted WordPress container via CLI.
 if (PHP_SAPI !== 'cli') { exit(1); }
 require '/var/www/html/wp-load.php';
-if (!current_user_can('manage_options') && !defined('ABSPATH')) { exit(1); }
 $source = file_get_contents('/tmp/rootedpsyche-grav-home.md');
 if ($source === false) { fwrite(STDERR, "Missing source markdown\n"); exit(1); }
 $source = preg_replace('/\A---\R.*?\R---\R/s', '', $source, 1);
@@ -40,11 +39,18 @@ if ($existing_media) {
     update_post_meta($attachment_id, '_rootedpsyche_grav_qr', '1');
 }
 $qr_url = wp_get_attachment_url($attachment_id);
+$donation_url = getenv('ROOTEDPSYCHE_GIVEBUTTER_URL') ?: '';
+if ($donation_url && !preg_match('~^https://([a-z0-9-]+\\.)*givebutter\\.com/~i', $donation_url)) {
+    fwrite(STDERR, "Donation URL must be an HTTPS givebutter.com link.\\n"); exit(1);
+}
 $qr_html = '<!-- wp:image {"id":'.(int)$attachment_id.',"sizeSlug":"full"} --><figure class="wp-block-image size-full"><img src="'.esc_url($qr_url).'" alt="Rooted Psyche QR code" class="wp-image-'.(int)$attachment_id.'"/></figure><!-- /wp:image -->';
+if ($donation_url) {
+    $qr_html = str_replace('<img ', '<a href="'.esc_url($donation_url).'" target="_blank" rel="noopener noreferrer"><img ', $qr_html);
+    $qr_html = str_replace('</figure>', '</a></figure>', $qr_html);
+}
 $html = str_replace('%%ROOTEDPSYCHE_QR%%', $qr_html, $html);
 if ($widget) {
     $html .= '<!-- wp:html -->'."\n".
-        '<script async src="https://widgets.givebutter.com/latest.umd.cjs?acct=AuYLMcoSt1X5PvLu&amp;p=other"></script>'."\n".
         '<givebutter-widget id="gJeP4L"></givebutter-widget>'."\n".
         '<!-- /wp:html -->'."\n";
 }
@@ -59,4 +65,10 @@ if (get_post_meta($page_id, '_rootedpsyche_grav_imported', true) !== '1' && trim
 $result = wp_update_post(['ID'=>$page_id,'post_content'=>wp_slash($html)], true);
 if (is_wp_error($result)) { fwrite(STDERR, $result->get_error_message()."\n"); exit(1); }
 update_post_meta($page_id, '_rootedpsyche_grav_imported', '1');
-echo "Updated existing static homepage ID $page_id; QR attachment ID $attachment_id. Review Givebutter rendering before cutover.\n";
+// Remove only the untouched WordPress sample page, never arbitrary content.
+$sample = get_page_by_path('sample-page');
+if ($sample && $sample->post_title === 'Sample Page' && (int)$sample->ID !== $page_id) {
+    wp_trash_post($sample->ID);
+    echo "Moved default Sample Page to trash.\\n";
+}
+echo "Updated existing static homepage ID $page_id; QR attachment ID $attachment_id. Review Givebutter rendering before cutover.\\n";
