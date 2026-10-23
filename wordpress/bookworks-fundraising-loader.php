@@ -95,6 +95,21 @@ add_filter('the_content', function ($content) {
 }, 20);
 
 
+
+/**
+ * Resolve explicit managed-media roles, retaining legacy associations for the
+ * already-published Spiritual Center page. Do not infer roles from file order.
+ */
+function rootedops_bookworks_media_attachment($post_id, $role, $legacy_key) {
+    $roles = get_post_meta($post_id, '_bookworks_media_roles', true);
+    if (is_array($roles) && array_key_exists($role, $roles)) {
+        $id = absint($roles[$role]);
+        return $id && wp_attachment_is_image($id) ? $id : 0;
+    }
+    $id = absint(get_post_meta($post_id, $legacy_key, true));
+    return $id && wp_attachment_is_image($id) ? $id : 0;
+}
+
 /*
  * The sanctuary image is presentation media, not part of BookWorks post_content.
  * An administrator associates an existing WordPress Media Library attachment with
@@ -107,7 +122,7 @@ add_filter('the_content', function ($content) {
     if (!$campaign) { return $content; }
     $post = get_queried_object();
     if (!$post instanceof WP_Post) { return $content; }
-    $image_id = absint(get_post_meta($post->ID, '_rootedops_sanctuary_image_id', true));
+    $image_id = rootedops_bookworks_media_attachment($post->ID, 'photo', '_rootedops_sanctuary_image_id');
     if (!$image_id || !wp_attachment_is_image($image_id)) { return $content; }
     $image = wp_get_attachment_image($image_id, 'large', false, [
         'class' => 'bookworks-sanctuary-photo',
@@ -138,7 +153,7 @@ add_filter('the_content', function ($content) {
     }
     $post = get_queried_object();
     if (!$post instanceof WP_Post) { return $content; }
-    $id = absint(get_post_meta($post->ID, '_rootedops_sanctuary_concept_image_id', true));
+    $id = rootedops_bookworks_media_attachment($post->ID, 'concept', '_rootedops_sanctuary_concept_image_id');
     if (!$id || !wp_attachment_is_image($id)) { return $content; }
     $image = wp_get_attachment_image($id, 'large', false, [
         'class' => 'bookworks-sanctuary-concept-image',
