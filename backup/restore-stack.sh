@@ -86,6 +86,7 @@ restore_volume appsmith_stacks appsmith_stacks.tgz
 restore_volume erpnext_sites erpnext_sites.tgz
 restore_volume erpnext_apps erpnext_apps.tgz
 restore_volume erpnext_logs erpnext_logs.tgz
+restore_volume docker_rootedpsyche_wordpress_html rootedpsyche-wordpress-html.tgz
 restore_volume erpnext_redis_cache_data erpnext_redis_cache_data.tgz
 restore_volume erpnext_redis_queue_data erpnext_redis_queue_data.tgz
 
@@ -112,6 +113,24 @@ if [[ -f "$BACKUP_DIR/db/erpnext-all-databases.sql.gz" ]]; then
   log "Restoring MariaDB dump into erpnext-db"
   gunzip -c "$BACKUP_DIR/db/erpnext-all-databases.sql.gz" | \
     $DOCKER_BIN exec -i -e MARIADB_ROOT_PASSWORD="$ERPNEXT_DB_ROOT_PASSWORD" erpnext-db \
+      sh -lc 'exec mariadb -uroot -p"$MARIADB_ROOT_PASSWORD"'
+fi
+
+if [[ -f "$BACKUP_DIR/db/rootedpsyche-wordpress-all-databases.sql.gz" ]]; then
+  log "Starting WordPress MariaDB for restore"
+  sudo docker compose --env-file "$ENV_FILE" -f "$REPO_ROOT/docker/docker-compose.wordpress.yml" up -d rootedpsyche-wordpress-db
+  log "Waiting for WordPress MariaDB readiness"
+  for i in $(seq 1 60); do
+    if $DOCKER_BIN exec -e MARIADB_ROOT_PASSWORD="$ROOTEDPSYCHE_WP_DB_ROOT_PASSWORD" docker-rootedpsyche-wordpress-db-1 \
+      sh -lc 'mariadb-admin ping -uroot -p"$MARIADB_ROOT_PASSWORD" --silent' >/dev/null 2>&1; then
+      break
+    fi
+    if [[ "$i" == 60 ]]; then echo "WordPress MariaDB did not become ready" >&2; exit 1; fi
+    sleep 2
+  done
+  log "Restoring WordPress MariaDB dump"
+  gunzip -c "$BACKUP_DIR/db/rootedpsyche-wordpress-all-databases.sql.gz" | \
+    $DOCKER_BIN exec -i -e MARIADB_ROOT_PASSWORD="$ROOTEDPSYCHE_WP_DB_ROOT_PASSWORD" docker-rootedpsyche-wordpress-db-1 \
       sh -lc 'exec mariadb -uroot -p"$MARIADB_ROOT_PASSWORD"'
 fi
 
