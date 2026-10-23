@@ -37,3 +37,22 @@ body.bookworks-fundraising-page .wp-site-blocks > footer { display: none; }
   .bookworks-landing .bookworks-budget-table th,
   .bookworks-landing .bookworks-budget-table td { padding: .25rem .4rem; }
 }
+
+/* Givebutter widgets are injected at render time, outside BookWorks-managed HTML. */
+.bookworks-donation-top,
+.bookworks-donation-form {
+  max-width: 1080px;
+  margin: 1.5rem auto 2.5rem;
+  padding: clamp(1.25rem, 3vw, 2.5rem);
+  background: #f1f4ed;
+  border-radius: 1.25rem;
+}
+.bookworks-donation-top { display: grid; gap: 1rem; }
+.bookworks-donation-form h2 { margin-top: 0; }
+.bookworks-donation-top givebutter-widget,
+.bookworks-donation-form givebutter-widget { display: block; max-width: 100%; }
+.bookworks-donation-fallback { font-size: .9rem; margin: .5rem 0 0; }
+.bookworks-donation-fallback a { text-decoration: underline; text-underline-offset: .2em; }
+@media print {
+  .bookworks-donation-top, .bookworks-donation-form { break-inside: avoid; padding: 1rem; }
+}
