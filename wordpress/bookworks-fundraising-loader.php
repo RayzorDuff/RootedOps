@@ -1,7 +1,7 @@
 <?php
 /**
  * RootedOps site-specific WordPress presentation for BookWorks landing pages.
- * Installed as an MU plugin; no theme edits and no public-page publishing.
+ * Installed as an MU plugin; no theme edits and no automatic publishing.
  */
 if (!defined('ABSPATH')) { exit; }
 
@@ -59,9 +59,11 @@ function rootedops_bookworks_current_campaign() {
     if (!is_singular('page')) { return null; }
     $post = get_queried_object();
     if (!$post instanceof WP_Post) { return null; }
-    // Never show a donation widget on a published page through this draft
-    // integration until a separate release decision has been made.
-    if ($post->post_status !== 'draft') { return null; }
+    // Presentation must persist when an authorized administrator manually
+    // publishes the managed page. Never display on trashed, private,
+    // password-protected, or other unsupported page states.
+    if (!in_array($post->post_status, ['draft', 'publish'], true)) { return null; }
+    if (!empty($post->post_password)) { return null; }
     $key = get_post_meta($post->ID, '_bookworks_publication_key', true);
     $campaigns = rootedops_bookworks_fundraising_campaigns();
     return is_string($key) && isset($campaigns[$key]) ? $campaigns[$key] : null;
@@ -96,7 +98,7 @@ add_filter('the_content', function ($content) {
 /*
  * The sanctuary image is presentation media, not part of BookWorks post_content.
  * An administrator associates an existing WordPress Media Library attachment with
- * draft page 15 using _rootedops_sanctuary_image_id. No remote image hotlinking.
+ * managed page 15 using _rootedops_sanctuary_image_id. No remote image hotlinking.
  * WordPress validates the attachment ID before rendering it.
  */
 add_filter('the_content', function ($content) {
