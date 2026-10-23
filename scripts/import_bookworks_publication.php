@@ -37,6 +37,17 @@ if ($slug_owner && (!$page || (int)$slug_owner->ID !== (int)$page->ID)) {
 // Normalize through WordPress before comparing, so Pandoc's unsupported attributes
 // do not prevent a safe draft import or cause false changes on repeated runs.
 $html = wp_kses_post($payload['html']);
+// Only the known, media-free landing-page schema is supported here. Asset
+// synchronization requires a separate reviewed importer change.
+if (isset($payload['schema_version']) && $payload['schema_version'] !== 1) {
+    fail_import('Unsupported BookWorks package schema');
+}
+if (!empty($payload['media'])) {
+    fail_import('Media manifest is not supported by this importer yet');
+}
+if (isset($payload['html_sha256']) && !hash_equals($payload['html_sha256'], hash('sha256', $payload['html']))) {
+    fail_import('BookWorks HTML checksum mismatch');
+}
 if (trim(wp_strip_all_tags($html)) === '') fail_import('No usable content after sanitization');
 $source_hash = hash('sha256', $html);
 $last_hash = $page ? get_post_meta($page->ID, '_bookworks_managed_html_sha256', true) : '';
