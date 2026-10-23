@@ -30,8 +30,8 @@ services:
       WORDPRESS_DB_NAME: wordpress
       # Honor the TLS terminator when reverse proxied; leave canonical URL to WP admin.
       WORDPRESS_CONFIG_EXTRA: |
-        if (isset($_SERVER['HTTP_X_FORWARDED_PROTO']) && strpos($_SERVER['HTTP_X_FORWARDED_PROTO'], 'https') !== false) {
-          $_SERVER['HTTPS'] = 'on';
+        if (isset($$_SERVER['HTTP_X_FORWARDED_PROTO']) && strpos($$_SERVER['HTTP_X_FORWARDED_PROTO'], 'https') !== false) {
+          $$_SERVER['HTTPS'] = 'on';
         }
     ports:
       - "127.0.0.1:${ROOTEDPSYCHE_WP_TEST_PORT:-8096}:80"
