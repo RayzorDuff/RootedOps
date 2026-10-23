@@ -23,6 +23,7 @@ if ($argv[3] === 'stage' && $page->post_status !== 'draft') {
     media_fail('Media staging is restricted to drafts; published page requires reviewed revision workflow');
 }
 $roles = [];
+$filenames = [];
 $plans = [];
 foreach ($assets as $asset) {
     if (!is_array($asset)) media_fail('Invalid asset');
@@ -35,6 +36,8 @@ foreach ($assets as $asset) {
     if (!is_string($role) || !preg_match('/^[a-z][a-z0-9-]{0,50}$/', $role) || isset($roles[$role])) media_fail('Invalid or duplicate media role');
     $roles[$role] = true;
     if (!is_string($filename) || !preg_match('/^[a-zA-Z0-9][a-zA-Z0-9._-]{0,160}$/', $filename) || strpos($filename, '..') !== false) media_fail('Invalid filename');
+    if (isset($filenames[$filename])) media_fail('Duplicate media filename');
+    $filenames[$filename] = true;
     if (!is_string($sha) || !preg_match('/^[a-f0-9]{64}$/', $sha)) media_fail('Invalid checksum');
     if (!in_array($mime, ['image/jpeg','image/png','image/webp'], true)) media_fail('Unsupported MIME');
     if (!is_string($alt) || trim($alt) === '' || !is_string($caption) || trim($caption) === '') media_fail('Alt and caption required');
@@ -42,6 +45,8 @@ foreach ($assets as $asset) {
     if (!is_file($path) || !hash_equals($sha, hash_file('sha256', $path))) media_fail('Missing asset or SHA mismatch: ' . $filename);
     $actual_mime = wp_check_filetype_and_ext($path, $filename)['type'] ?? null;
     if ($actual_mime !== $mime) media_fail('MIME mismatch: ' . $filename);
+    $image_info = @getimagesize($path);
+    if ($image_info === false || ($image_info['mime'] ?? '') !== $mime) media_fail('Invalid image bytes: ' . $filename);
     $found = get_posts(['post_type'=>'attachment','post_status'=>'inherit','numberposts'=>-1,
         'meta_key'=>'_bookworks_media_sha256','meta_value'=>$sha]);
     if (count($found) > 1) media_fail('Duplicate managed attachments for checksum');
