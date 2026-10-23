@@ -70,3 +70,30 @@ bash scripts/sync_bookworks_media.sh /tmp/bookworks-media-package/manifest.json 
 `check` verifies files and WordPress managed-page identity without writing. `stage` only accepts an existing **draft** page, imports/deduplicates by SHA-256, and saves an explicit role→attachment map in `_bookworks_media_roles`. It never changes managed `post_content` or page status. A published page is **not eligible** for staging. This intentionally protects the already-published Spiritual Center Fund; do not run `stage` against page 15.
 
 **Current limitation:** the generic role map is not yet consumed by the fundraising presentation adapter, which still uses its historical attachment metadata. The importer and wrapper need disposable-WordPress integration tests and lint before production use. Do not mistake the package command for a complete automatic rendering/deployment pipeline.
+
+
+## Phase 3: single portable deployment ZIP (initial implementation)
+
+On the BookWorks Mac, build a reviewed WordPress payload as before. Then:
+
+```bash
+python3 shared/scripts/package_wordpress_deployment.py \
+  --payload /tmp/spiritual-center-wordpress.json \
+  --out /tmp/spiritual-center-deployment.zip
+# Include approved media when ready:
+# --media-package /tmp/bookworks-media-package
+scp /tmp/spiritual-center-deployment.zip dankmushrooms@appsmith.danks.store:/tmp/
+```
+
+On Linode:
+
+```bash
+cd ~/RootedOps
+bash scripts/deploy_bookworks_bundle.sh /tmp/spiritual-center-deployment.zip check rooted-psyche-fundraising:spiritual-center
+```
+
+The ZIP contains `publication.json`, `deployment.json` with per-file SHA-256, and optional `media/manifest.json` and `media/assets/*`. The RootedOps command validates file inventory, filenames, checksums and publication identity before invoking the existing guarded WordPress importer.
+
+For **a new, reviewed draft only**, use `stage` instead of `check`. A published page must never be updated through draft staging. The published Spiritual Center Fund should be used for read-only `check` only.
+
+**Known limits:** The wrapper is an initial implementation and has not undergone disposable-WordPress integration testing. For a new page with media, `check` may fail media lookup until the draft exists. Stage is not transactionally atomic across content and media; rollback and published revision workflows remain open. Public-facing book profiles and generalized layouts are separate future work.
