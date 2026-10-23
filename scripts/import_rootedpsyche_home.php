@@ -39,7 +39,7 @@ if ($existing_media) {
     update_post_meta($attachment_id, '_rootedpsyche_grav_qr', '1');
 }
 $qr_url = wp_get_attachment_url($attachment_id);
-$donation_url = getenv('ROOTEDPSYCHE_GIVEBUTTER_URL') ?: '';
+$donation_url = getenv('ROOTEDPSYCHE_GIVEBUTTER_URL') ?: 'https://givebutter.com/2yTHnU';
 if ($donation_url && !preg_match('~^https://([a-z0-9-]+\\.)*givebutter\\.com/~i', $donation_url)) {
     fwrite(STDERR, "Donation URL must be an HTTPS givebutter.com link.\\n"); exit(1);
 }
@@ -54,6 +54,14 @@ if ($widget) {
         '<givebutter-widget id="gJeP4L"></givebutter-widget>'."\n".
         '<!-- /wp:html -->'."\n";
 }
+$html .= '<!-- wp:heading --><h2 class="wp-block-heading">Donate to Rooted Psyche</h2><!-- /wp:heading -->'."\n";
+$html .= '<!-- wp:paragraph --><p><a href="'.esc_url($donation_url).'" target="_blank" rel="noopener noreferrer">Donate to Rooted Psyche through Givebutter</a></p><!-- /wp:paragraph -->'."\n";
+$html .= '<!-- wp:heading --><h2 class="wp-block-heading">Subscribe</h2><!-- /wp:heading -->'."\n";
+$html .= '<!-- wp:paragraph --><p><a href="https://listmonk.rootedpsyche.org/subscription/form">Subscribe to the Rooted Psyche mailing list</a></p><!-- /wp:paragraph -->'."\n";
+$html .= '<!-- wp:heading --><h2 class="wp-block-heading">Contact</h2><!-- /wp:heading -->'."\n";
+$html .= '<!-- wp:paragraph --><p>For general questions, please contact us by email or phone.</p><!-- /wp:paragraph -->'."\n";
+$html .= '<!-- wp:paragraph --><p><strong>Email:</strong> rootedpsyche [at] gmail [dot] com</p><!-- /wp:paragraph -->'."\n";
+$html .= '<!-- wp:paragraph --><p><strong>Phone:</strong> nine seven zero · four zero eight · zero eight five eight</p><!-- /wp:paragraph -->'."\n";
 $page_id = (int)get_option('page_on_front');
 if (!$page_id || get_post_type($page_id) !== 'page') {
     fwrite(STDERR, "No valid static homepage configured. Configure Settings > Reading first.\n"); exit(1);
