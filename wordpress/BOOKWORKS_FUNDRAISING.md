@@ -1,6 +1,6 @@
 # BookWorks fundraising WordPress presentation
 
-This branch is intentionally separate from RootedOps main. It does not publish
+RootedOps develops this integration on main. Installation does not publish
 pages or change the active WordPress theme.
 
 ## Draft import
@@ -13,9 +13,19 @@ protection and draft-only updates.
 ## Styling
 
 `wordpress/bookworks-fundraising.css` contains scoped responsive styles for
-`.bookworks-landing`, including the hero and budget table. This file is **not
-automatically loaded** by WordPress. It must be reviewed and installed into
-the active theme or an approved site-specific stylesheet/enqueue mechanism.
+`.bookworks-landing`, including the hero and budget table. The MU plugin `wordpress/bookworks-fundraising-loader.php` loads the stylesheet
+only for pages whose BookWorks publication key begins with
+`rooted-psyche-fundraising:`. Install both files using:
+
+```bash
+cd ~/RootedOps
+git pull --ff-only origin main
+bash scripts/install_bookworks_fundraising_styles.sh
+```
+
+This copies files into the running container. Confirm that your WordPress
+`wp-content` volume persists across container replacement; otherwise install
+these files in the persistent volume or repeat the installation after recreation.
 Do not paste this stylesheet into publication content.
 
 ## Media
