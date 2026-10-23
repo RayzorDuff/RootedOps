@@ -29,3 +29,44 @@ For a **new or existing draft**, use `--mode stage` only after reviewing the pla
 - Versioned published-page revision workflow with explicit approval, preview, conflict detection, and rollback.
 - Automated PHP and shell integration tests in CI against a disposable WordPress instance.
 - Eventually an end-to-end Mac build/package/transfer command. No unattended publication.
+
+
+## Phase 2: explicit media packaging (initial implementation)
+
+BookWorks `shared/scripts/package_wordpress_media.py` packages approved images from a JSON plan into an independent directory containing `manifest.json` and `assets/`. The plan identifies `publication_key` and each image's `role`, absolute or home-relative `source`, `alt`, `caption`, and optional expected `sha256`. Only JPEG, PNG, and WebP files are accepted. Example plan:
+
+```json
+{
+  "publication_key": "rooted-psyche-fundraising:spiritual-center",
+  "assets": [
+    {
+      "role": "photo",
+      "source": "/path/to/approved/actual-site-photo.jpg",
+      "sha256": "REPLACE_WITH_ACTUAL_64_CHARACTER_SHA256",
+      "alt": "Actual mountain landscape at the proposed sanctuary",
+      "caption": "Existing sanctuary landscape near Livermore, Colorado."
+    },
+    {
+      "role": "concept",
+      "source": "/path/to/approved/concept.png",
+      "sha256": "REPLACE_WITH_ACTUAL_64_CHARACTER_SHA256",
+      "alt": "Concept illustration of proposed sanctuary improvements",
+      "caption": "Concept illustration only. Proposed sanctuary improvements are illustrative; the finished design may change as plans are developed."
+    }
+  ]
+}
+```
+
+Build on Mac: `python3 shared/scripts/package_wordpress_media.py --plan /path/to/plan.json --out /tmp/bookworks-media-package`. Transfer the **whole package directory** to Linode, e.g. `scp -r /tmp/bookworks-media-package dankmushrooms@appsmith.danks.store:/tmp/`.
+
+On Linode:
+
+```bash
+bash scripts/sync_bookworks_media.sh /tmp/bookworks-media-package/manifest.json /tmp/bookworks-media-package/assets check
+# For a reviewed DRAFT only:
+bash scripts/sync_bookworks_media.sh /tmp/bookworks-media-package/manifest.json /tmp/bookworks-media-package/assets stage
+```
+
+`check` verifies files and WordPress managed-page identity without writing. `stage` only accepts an existing **draft** page, imports/deduplicates by SHA-256, and saves an explicit role→attachment map in `_bookworks_media_roles`. It never changes managed `post_content` or page status. A published page is **not eligible** for staging. This intentionally protects the already-published Spiritual Center Fund; do not run `stage` against page 15.
+
+**Current limitation:** the generic role map is not yet consumed by the fundraising presentation adapter, which still uses its historical attachment metadata. The importer and wrapper need disposable-WordPress integration tests and lint before production use. Do not mistake the package command for a complete automatic rendering/deployment pipeline.
