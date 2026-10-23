@@ -136,3 +136,19 @@ body.bookworks-fundraising-page h1.wp-block-post-title {
     padding-inline: .5rem;
   }
 }
+
+body.bookworks-fundraising-page .bookworks-sanctuary-concept {
+  margin: 2rem 0;
+}
+body.bookworks-fundraising-page .bookworks-sanctuary-concept-image {
+  display: block;
+  width: 100%;
+  height: auto;
+  border-radius: 1rem;
+}
+body.bookworks-fundraising-page .bookworks-sanctuary-concept figcaption {
+  font-size: .9rem;
+  color: #45564b;
+  margin-top: .75rem;
+  line-height: 1.5;
+}
