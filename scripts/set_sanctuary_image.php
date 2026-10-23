@@ -8,8 +8,8 @@
  */
 if (PHP_SAPI !== 'cli') { exit(1); }
 require '/var/www/html/wp-load.php';
-if ($argc !== 2 || !ctype_digit($argv[1]) || (int)$argv[1] < 1) {
-    fwrite(STDERR, "Usage: php set_sanctuary_image.php <attachment-id>\n");
+if (($argc !== 2 && $argc !== 3) || !ctype_digit($argv[1]) || (int)$argv[1] < 1 || ($argc === 3 && $argv[2] !== 'concept')) {
+    fwrite(STDERR, "Usage: php set_sanctuary_image.php <attachment-id> [concept]\n");
     exit(2);
 }
 $id = (int)$argv[1];
@@ -28,5 +28,6 @@ if (count($matches) !== 1 || (int)$matches[0]->ID !== 15) {
     fwrite(STDERR, "Expected exactly one managed draft at page 15; refusing change\n");
     exit(1);
 }
-update_post_meta(15, '_rootedops_sanctuary_image_id', $id);
-echo "Linked attachment $id to managed draft page 15; publication status unchanged.\n";
+$meta_key = $argc === 3 ? '_rootedops_sanctuary_concept_image_id' : '_rootedops_sanctuary_image_id';
+update_post_meta(15, $meta_key, $id);
+echo "Linked attachment $id ($meta_key) to managed draft page 15; publication status unchanged.\n";
