@@ -125,3 +125,35 @@ add_filter('the_content', function ($content) {
     $position += strlen($needle);
     return substr($content, 0, $position) . $figure . substr($content, $position);
 }, 30);
+
+
+/* Optional conceptual image: an independent Media Library attachment.
+ * It is always labeled as a proposal, never as a photograph of existing work.
+ */
+add_filter('the_content', function ($content) {
+    if (!in_the_loop() || !is_main_query() || !rootedops_bookworks_current_campaign()) {
+        return $content;
+    }
+    $post = get_queried_object();
+    if (!$post instanceof WP_Post) { return $content; }
+    $id = absint(get_post_meta($post->ID, '_rootedops_sanctuary_concept_image_id', true));
+    if (!$id || !wp_attachment_is_image($id)) { return $content; }
+    $image = wp_get_attachment_image($id, 'large', false, [
+        'class' => 'bookworks-sanctuary-concept-image',
+        'loading' => 'lazy',
+        'alt' => 'Conceptual illustration of a modest ceremonial heat shelter near a stone fire circle, shade area, paths and young trees on a mountain slope.',
+    ]);
+    if (!$image) { return $content; }
+    $figure = '<figure class="bookworks-sanctuary-figure bookworks-sanctuary-concept">'
+        . $image
+        . '<figcaption><strong>Concept illustration only.</strong> Proposed sanctuary improvements are illustrative; the finished design may change as plans are developed.</figcaption>'
+        . '</figure>';
+    // Place the illustration after the first chapter, before the fundraising
+    // budget section, without changing BookWorks post_content.
+    $next = '<section class="bookworks-section">';
+    $first = strpos($content, $next);
+    if ($first === false) { return $content; }
+    $second = strpos($content, $next, $first + strlen($next));
+    if ($second === false) { return $content; }
+    return substr($content, 0, $second) . $figure . substr($content, $second);
+}, 40);
