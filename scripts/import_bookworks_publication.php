@@ -40,6 +40,9 @@ if ($slug_owner && (!$page || (int)$slug_owner->ID !== (int)$page->ID)) {
 // An unresolved role remains a harmless HTML comment until the second stage pass.
 $raw_html = $payload['html'];
 if (($payload['layout'] ?? '') === 'public-edition') {
+    // The WordPress page title and the illustrated cover already carry the
+    // publication identity. Avoid repeating the BookWorks subtitle below it.
+    $raw_html = preg_replace('~<header class="bookworks-hero">.*?</header>~s', '', $raw_html, 1);
     $role_map = $page ? get_post_meta($page->ID, '_bookworks_media_roles', true) : [];
     if (!is_array($role_map)) $role_map = [];
     foreach (['cover', 'chapter-01', 'chapter-02', 'chapter-03', 'chapter-04', 'chapter-05'] as $role) {
@@ -52,7 +55,11 @@ if (($payload['layout'] ?? '') === 'public-edition') {
             $alt = get_post_meta($id, '_wp_attachment_image_alt', true);
             $url = wp_get_attachment_url($id);
             if (!$url) fail_import('Missing URL for media role ' . $role);
-            $figure = '<figure class="bookworks-media bookworks-media-' . esc_attr($role) . '"><img src="' . esc_url($url) . '" alt="' . esc_attr($alt) . '" /></figure>';
+            $cover_style = $role === 'cover'
+                ? ' style="max-width: 420px; width: 100%; height: auto; margin: 0 auto 2rem;"'
+                : '';
+            $image_style = $role === 'cover' ? ' style="display: block; width: 100%; height: auto;"' : '';
+            $figure = '<figure class="bookworks-media bookworks-media-' . esc_attr($role) . '"' . $cover_style . '><img src="' . esc_url($url) . '" alt="' . esc_attr($alt) . '"' . $image_style . ' /></figure>';
             $raw_html = str_replace($marker, $figure, $raw_html);
         }
     }
