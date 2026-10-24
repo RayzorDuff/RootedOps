@@ -65,12 +65,6 @@ if (($payload['layout'] ?? '') === 'public-edition') {
     }
 }
 $html = wp_kses_post($raw_html);
-// Scoped styling for the managed public-edition page. WordPress renders
-// its page title outside post_content, so hide that duplicate with a
-// narrowly targeted selector keyed to this publication's page ID.
-if (($payload['layout'] ?? '') === 'public-edition') {
-    $html = '<style>.wp-block-post-title:has(+ .entry-content .bookworks-public-edition) { display: none; }</style>' . $html;
-}
 // Only the known, media-free landing-page schema is supported here. Asset
 // synchronization requires a separate reviewed importer change.
 if (isset($payload['schema_version']) && $payload['schema_version'] !== 1) {
@@ -112,6 +106,16 @@ if ($page) $args['ID'] = $page->ID;
 $id = wp_insert_post($args, true);
 if (is_wp_error($id)) fail_import($id->get_error_message());
 update_post_meta($id, '_bookworks_publication_key', $key);
+// The theme renders the post title outside imported HTML. Store a scoped
+// page-specific CSS rule in WordPress Custom CSS, preserving existing rules.
+if (($payload['layout'] ?? '') === 'public-edition') {
+    $rule = 'body.page-id-' . (int)$id . ' .wp-block-post-title { display: none; }';
+    $existing_css = wp_get_custom_css();
+    if (strpos($existing_css, $rule) === false) {
+        $updated_css = wp_update_custom_css_post(trim($existing_css . "\\n" . $rule));
+        if (is_wp_error($updated_css)) fail_import('Could not save page-scoped title CSS: ' . $updated_css->get_error_message());
+    }
+}
 update_post_meta($id, '_bookworks_source_commit', $payload['source_commit']);
 $saved = get_post($id);
 update_post_meta($id, '_bookworks_managed_html_sha256', hash('sha256', $saved->post_content));
