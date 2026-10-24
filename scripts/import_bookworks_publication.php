@@ -34,6 +34,15 @@ $slug_owner = get_page_by_path($payload['slug'], OBJECT, 'page');
 if ($slug_owner && (!$page || (int)$slug_owner->ID !== (int)$page->ID)) {
     fail_import('Slug is already owned by another WordPress page');
 }
+// Apply theme presentation settings even when imported content is unchanged.
+function ensure_public_edition_css($page_id) {
+    $rule = 'body.page-id-' . (int)$page_id . ' .wp-block-post-title, body.page-id-' . (int)$page_id . ' h1.entry-title { display: none !important; }';
+    $existing_css = wp_get_custom_css();
+    if (strpos($existing_css, $rule) === false) {
+        $updated_css = wp_update_custom_css_post(trim($existing_css . "\n" . $rule));
+        if (is_wp_error($updated_css)) fail_import('Could not save page-scoped title CSS: ' . $updated_css->get_error_message());
+    }
+}
 // Normalize through WordPress before comparing, so Pandoc's unsupported attributes
 // do not prevent a safe draft import or cause false changes on repeated runs.
 // Resolve only explicit managed image roles, after media has been staged to this draft.
@@ -55,10 +64,8 @@ if (($payload['layout'] ?? '') === 'public-edition') {
             $alt = get_post_meta($id, '_wp_attachment_image_alt', true);
             $url = wp_get_attachment_url($id);
             if (!$url) fail_import('Missing URL for media role ' . $role);
-            $cover_style = $role === 'cover'
-                ? ' style="max-width: 650px; width: 100%; height: auto; margin: 0 auto 2rem;"'
-                : '';
-            $image_style = $role === 'cover' ? ' style="display: block; width: 100%; height: auto;"' : '';
+            $cover_style = ' style="max-width: 520px; width: 100%; height: auto; margin: 0 auto 2rem;"';
+            $image_style = ' style="display: block; max-width: 100%; height: auto;"';
             $figure = '<figure class="bookworks-media bookworks-media-' . esc_attr($role) . '"' . $cover_style . '><img src="' . esc_url($url) . '" alt="' . esc_attr($alt) . '"' . $image_style . ' /></figure>';
             $raw_html = str_replace($marker, $figure, $raw_html);
         }
@@ -95,7 +102,11 @@ if ($page && !in_array($page->post_status, ['draft', 'publish'], true)) {
 $action = !$page ? 'create-draft' : ($unchanged ? 'unchanged' : 'update-draft');
 echo json_encode(['action' => $action, 'key' => $key, 'page_id' => $page ? (int)$page->ID : null,
     'source_commit' => $payload['source_commit'], 'sha256' => $source_hash], JSON_PRETTY_PRINT) . "\n";
-if ($argv[2] === 'dry-run' || $unchanged) exit(0);
+if ($argv[2] === 'dry-run') exit(0);
+if ($unchanged) {
+    if (($payload['layout'] ?? '') === 'public-edition') ensure_public_edition_css($page->ID);
+    exit(0);
+}
 // This adapter intentionally NEVER publishes a page or edits homepage/menu settings.
 // The sanitized HTML above is the content that WordPress will store.
 $args = [
@@ -106,16 +117,7 @@ if ($page) $args['ID'] = $page->ID;
 $id = wp_insert_post($args, true);
 if (is_wp_error($id)) fail_import($id->get_error_message());
 update_post_meta($id, '_bookworks_publication_key', $key);
-// The theme renders the post title outside imported HTML. Store a scoped
-// page-specific CSS rule in WordPress Custom CSS, preserving existing rules.
-if (($payload['layout'] ?? '') === 'public-edition') {
-    $rule = 'body.page-id-' . (int)$id . ' .wp-block-post-title { display: none; }';
-    $existing_css = wp_get_custom_css();
-    if (strpos($existing_css, $rule) === false) {
-        $updated_css = wp_update_custom_css_post(trim($existing_css . "\\n" . $rule));
-        if (is_wp_error($updated_css)) fail_import('Could not save page-scoped title CSS: ' . $updated_css->get_error_message());
-    }
-}
+if (($payload['layout'] ?? '') === 'public-edition') ensure_public_edition_css($id);
 update_post_meta($id, '_bookworks_source_commit', $payload['source_commit']);
 $saved = get_post($id);
 update_post_meta($id, '_bookworks_managed_html_sha256', hash('sha256', $saved->post_content));
