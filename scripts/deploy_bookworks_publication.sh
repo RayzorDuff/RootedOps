@@ -39,7 +39,7 @@ for name in required:
         raise SystemExit(f"Missing/invalid payload field: {name}")
 if data.get("schema_version") != 1:
     raise SystemExit("Only BookWorks WordPress schema version 1 is supported")
-if data.get("media") != []:
+if data.get("layout") not in ("fundraising-landing", "public-edition"):\n    raise SystemExit("Unsupported WordPress layout")\nif data.get("media") != []:
     raise SystemExit("Media manifest is not yet supported; refusing incomplete deployment")
 if not re.fullmatch(r"[a-f0-9]{40}", data["source_commit"]):
     raise SystemExit("Invalid source commit")
@@ -58,7 +58,10 @@ if expected and expected != key:
 print(f"Validated BookWorks package: {key} at {data['source_commit'][:12]} (sha256 {digest[:12]})")
 PY
 if [[ "$MODE" == stage ]]; then
-  bash "$ROOT/scripts/install_bookworks_fundraising_styles.sh"
+  LAYOUT="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["layout"])' "$PAYLOAD")"
+  if [[ "$LAYOUT" == fundraising-landing ]]; then
+    bash "$ROOT/scripts/install_bookworks_fundraising_styles.sh"
+  fi
 fi
 # The existing importer performs WordPress-side uniqueness, slug ownership,
 # stored-content checksum, and published-page checks.
