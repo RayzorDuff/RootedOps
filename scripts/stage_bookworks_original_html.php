@@ -10,10 +10,8 @@ $file = $slug . '.html';
 $path = '/var/www/html/bookworks/' . $file;
 if (!is_file($path)) bw_fail('Missing deployed HTML: ' . $path);
 if (!is_file(WP_PLUGIN_DIR . '/bookworks-original-html/bookworks-original-html.php')) bw_fail('Renderer plugin not installed');
-if (!is_plugin_active('bookworks-original-html/bookworks-original-html.php')) {
-    require_once ABSPATH . 'wp-admin/includes/plugin.php';
-    if (!is_plugin_active('bookworks-original-html/bookworks-original-html.php')) bw_fail('Renderer plugin not active');
-}
+require_once ABSPATH . 'wp-admin/includes/plugin.php';
+if (!is_plugin_active('bookworks-original-html/bookworks-original-html.php')) bw_fail('Renderer plugin not active');
 $matches = get_posts(['post_type'=>'page','post_status'=>'any','numberposts'=>-1,'meta_key'=>'_bookworks_original_key','meta_value'=>$key]);
 if (count($matches)>1) bw_fail('Duplicate managed pages');
 $page = $matches ? $matches[0] : null;
