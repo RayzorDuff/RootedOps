@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Install the original, checksum-approved BookWorks HTML without reformatting.
 set -Eeuo pipefail
-usage(){ echo "Usage: bash scripts/deploy_bookworks_original_html.sh --release DIR --html FILE [--mode check|stage]" >&2; exit 2; }
+usage(){ echo "Usage: bash scripts/deploy_bookworks_original_html.sh --release DIR [--html FILE] [--mode check|stage]" >&2; exit 2; }
 RELEASE="" HTML="" MODE=check
 while (($#)); do
  case "$1" in
@@ -12,8 +12,15 @@ while (($#)); do
  esac
 done
 [[ "$MODE" == check || "$MODE" == stage ]] || usage
-[[ -d "$RELEASE" && -f "$HTML" ]] || usage
-RELEASE="$(realpath "$RELEASE")"; HTML="$(realpath "$HTML")"
+[[ -d "$RELEASE" ]] || usage
+RELEASE="$(realpath "$RELEASE")"
+if [[ -z "$HTML" ]]; then
+  readarray -t MATCHES < <(find "$RELEASE/original-html" -maxdepth 1 -type f -name "*.html" 2>/dev/null)
+  [[ "${#MATCHES[@]}" == 1 ]] || { echo "Expected one packaged original HTML file" >&2; exit 1; }
+  HTML="${MATCHES[0]}"
+fi
+HTML="$(realpath "$HTML")"
+[[ "$HTML" == "$RELEASE"/original-html/* ]] || { echo "HTML must come from approved release" >&2; exit 1; }
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 # The approved release must explicitly bind this original HTML digest to its receipt.
 readarray -t DETAILS < <(python3 - "$RELEASE" "$HTML" <<'PY'
@@ -32,8 +39,9 @@ sidecar=root/'original-html-approval.json'
 if not sidecar.is_file(): raise SystemExit('Missing separately reviewed original-html-approval.json')
 approval=json.loads(sidecar.read_text())
 if approval.get('approval')!='approved-original-html-for-wordpress-draft': raise SystemExit('Original HTML not approved')
-if approval.get('approval_receipt_sha256')!=hashlib.sha256((root/'approval.json').read_bytes()).hexdigest(): raise SystemExit('Original approval receipt changed')
+if 'approval_receipt_sha256' in approval and approval['approval_receipt_sha256']!=hashlib.sha256((root/'approval.json').read_bytes()).hexdigest(): raise SystemExit('Original approval receipt changed')
 if approval.get('publication_key')!=receipt.get('publication_key') or approval.get('source_commit')!=receipt.get('source_commit'): raise SystemExit('Original HTML approval provenance mismatch')
+if approval.get('original_html_filename')!=html.name: raise SystemExit('Original HTML filename mismatch')
 expected=approval.get('original_html_sha256')
 actual=hashlib.sha256(html.read_bytes()).hexdigest()
 if not isinstance(expected,str) or not re.fullmatch('[a-f0-9]{64}',expected) or expected!=actual: raise SystemExit('Original HTML is not approved by receipt')
