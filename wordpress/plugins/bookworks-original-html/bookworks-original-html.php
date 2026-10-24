@@ -62,3 +62,12 @@ add_shortcode('bookworks_publication', function ($atts) {
     <?php
     return ob_get_clean();
 });
+
+// The BookWorks HTML already contains its own cover/title. Suppress only the
+// WordPress theme's Post Title block on managed original-HTML pages.
+add_filter('render_block', function ($content, $block) {
+    if (($block['blockName'] ?? '') !== 'core/post-title' || is_admin() || !is_singular('page')) return $content;
+    $page_id = get_queried_object_id();
+    if (!$page_id || !get_post_meta($page_id, '_bookworks_original_key', true)) return $content;
+    return '';
+}, 10, 2);
