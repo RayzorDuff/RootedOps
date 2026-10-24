@@ -7,6 +7,7 @@ after comparing the source HTML to the intended public publication.
 import argparse
 import hashlib
 import json
+import shutil
 from pathlib import Path
 
 def digest(path):
@@ -39,10 +40,27 @@ def main():
         'original_html_filename': html.name,
     }
     dest = root / 'original-html-approval.json'
+    packaged_dir = root / 'original-html'
+    packaged = packaged_dir / html.name
     if dest.exists():
-        raise SystemExit(f'Refusing to overwrite existing approval: {dest}')
-    dest.write_text(json.dumps(approval, indent=2) + '\n')
-    print(f'Wrote {dest} ({approval["approval"]})')
+        previous = json.loads(dest.read_text())
+        if previous == approval:
+            print(f'Already recorded: {dest} ({approval["approval"]})')
+            return
+        if not args.approve or previous.get('approval') != 'pending-review':
+            raise SystemExit(f'Refusing to overwrite existing approval: {dest}')
+        expected_previous = dict(approval, approval='pending-review')
+        if previous != expected_previous:
+            raise SystemExit('Pending approval differs from reviewed HTML or provenance; refusing promotion')
+    if packaged.exists() and digest(packaged) != approval['original_html_sha256']:
+        raise SystemExit('Packaged HTML checksum mismatch; refusing overwrite')
+    packaged_dir.mkdir(parents=True, exist_ok=True)
+    if not packaged.exists():
+        shutil.copyfile(html, packaged)
+    if digest(packaged) != approval['original_html_sha256']:
+        raise SystemExit('Packaged HTML checksum mismatch')
+    dest.write_text(json.dumps(approval, indent=2) + '\\n')
+    print(f'Wrote {dest} ({approval["approval"]}); packaged {packaged}')
 
 if __name__ == '__main__':
     main()
