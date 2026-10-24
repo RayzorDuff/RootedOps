@@ -39,7 +39,9 @@ for name in required:
         raise SystemExit(f"Missing/invalid payload field: {name}")
 if data.get("schema_version") != 1:
     raise SystemExit("Only BookWorks WordPress schema version 1 is supported")
-if data.get("layout") not in ("fundraising-landing", "public-edition"):\n    raise SystemExit("Unsupported WordPress layout")\nif data.get("media") != []:
+if data.get("layout") not in ("fundraising-landing", "public-edition"):
+    raise SystemExit("Unsupported WordPress layout")
+if data.get("media") != []:
     raise SystemExit("Media manifest is not yet supported; refusing incomplete deployment")
 if not re.fullmatch(r"[a-f0-9]{40}", data["source_commit"]):
     raise SystemExit("Invalid source commit")
