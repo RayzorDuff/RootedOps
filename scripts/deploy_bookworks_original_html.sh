@@ -28,7 +28,13 @@ if receipt.get('source_commit')!=payload.get('source_commit'): raise SystemExit(
 slug=payload.get('slug','')
 if not re.fullmatch('[a-z0-9][a-z0-9-]{0,180}',slug): raise SystemExit('Invalid slug')
 # No reliance on manually selected HTML: receipt must attest to these exact bytes.
-expected=receipt.get('original_html_sha256')
+sidecar=root/'original-html-approval.json'
+if not sidecar.is_file(): raise SystemExit('Missing separately reviewed original-html-approval.json')
+approval=json.loads(sidecar.read_text())
+if approval.get('approval')!='approved-original-html-for-wordpress-draft': raise SystemExit('Original HTML not approved')
+if approval.get('approval_receipt_sha256')!=hashlib.sha256((root/'approval.json').read_bytes()).hexdigest(): raise SystemExit('Original approval receipt changed')
+if approval.get('publication_key')!=receipt.get('publication_key') or approval.get('source_commit')!=receipt.get('source_commit'): raise SystemExit('Original HTML approval provenance mismatch')
+expected=approval.get('original_html_sha256')
 actual=hashlib.sha256(html.read_bytes()).hexdigest()
 if not isinstance(expected,str) or not re.fullmatch('[a-f0-9]{64}',expected) or expected!=actual: raise SystemExit('Original HTML is not approved by receipt')
 if html.is_symlink() or html.suffix!='.html': raise SystemExit('Invalid HTML file')
