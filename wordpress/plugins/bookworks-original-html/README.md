@@ -30,7 +30,7 @@ Extend the approved BookWorksArtifacts release format to carry the original HTML
 
 `scripts/deploy_bookworks_original_html.sh` is an **opt-in** parallel path. It does not replace the existing WordPress JSON importer.
 
-**Approval prerequisite:** `approval.json` must contain `original_html_sha256`, the SHA-256 of the exact standalone HTML being deployed. Existing approval receipts without this field intentionally fail closed. Do not hand-edit a signed-off receipt; regenerate/reapprove the release with this digest in the BookWorksArtifacts producer workflow.
+**Approval prerequisite:** A separate `original-html-approval.json` must bind the exact standalone HTML digest to the existing approved `approval.json` receipt. Do not edit the existing approval receipt. Prepare the sidecar using `python3 scripts/approve_bookworks_original_html.py --release "$RELEASE" --html "$APPROVED_HTML"` (pending review), then after comparing the publication and confirming approval, create it with `--approve` instead. The script refuses to overwrite a prior sidecar; remove a pending review sidecar only after checking it. The deployment script fails closed if the sidecar is missing, pending, or inconsistent.
 
 ```bash
 cd ~/RootedOps
@@ -42,4 +42,4 @@ The stage command copies the plugin and HTML into the existing WordPress contain
 
 The original HTML must currently be self-contained (e.g. embedded images) or use assets already accessible at the correct relative URLs. Packaging and verifying a complete external asset manifest is a remaining requirement before generalizing this to all publications.
 
-**Not yet completed:** producer-side receipt extension, asset-bundle handling, WordPress server execution, preview testing, and publication. This branch must not be represented as deployed to production.
+**Not yet completed:** generalized asset-bundle handling, WordPress server execution, preview testing, and publication. This separate approval step is intentionally explicit; it does not claim to represent a preexisting BookWorksArtifacts approval. This branch must not be represented as deployed to production.
