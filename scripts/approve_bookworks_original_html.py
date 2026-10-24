@@ -59,7 +59,7 @@ def main():
         shutil.copyfile(html, packaged)
     if digest(packaged) != approval['original_html_sha256']:
         raise SystemExit('Packaged HTML checksum mismatch')
-    dest.write_text(json.dumps(approval, indent=2) + '\\n')
+    dest.write_text(json.dumps(approval, indent=2) + '\n')
     print(f'Wrote {dest} ({approval["approval"]}); packaged {packaged}')
 
 if __name__ == '__main__':
