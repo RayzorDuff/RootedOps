@@ -3,15 +3,24 @@
 set -Eeuo pipefail
 usage(){ echo "Usage: bash scripts/deploy_bookworks_original_html.sh --release DIR [--html FILE] [--mode check|stage]" >&2; exit 2; }
 RELEASE="" HTML="" MODE=check
+ARTIFACT_ROOT="${BOOKWORKS_ARTIFACT_ROOT:-/mnt/GoogleDrive-ray@edanks.com/BookWorksArtifacts}"
 while (($#)); do
  case "$1" in
  --release) RELEASE="${2:-}"; shift 2;;
  --html) HTML="${2:-}"; shift 2;;
  --mode) MODE="${2:-}"; shift 2;;
+ --artifact-root) ARTIFACT_ROOT="${2:-}"; shift 2;;
  *) usage;;
  esac
 done
 [[ "$MODE" == check || "$MODE" == stage ]] || usage
+if [[ -z "$RELEASE" ]]; then
+  RELEASE="$ARTIFACT_ROOT/rooted-psyche-spiritual-foundations/wordpress-original-html/public-introduction"
+  [[ -d "$RELEASE" ]] || { echo "Artifact release directory missing: $RELEASE" >&2; exit 1; }
+  readarray -t RELEASES < <(find "$RELEASE" -mindepth 1 -maxdepth 1 -type d ! -name ".*" | sort)
+  [[ "${#RELEASES[@]}" == 1 ]] || { echo "Specify --release explicitly when multiple releases exist" >&2; exit 1; }
+  RELEASE="${RELEASES[0]}"
+fi
 [[ -d "$RELEASE" ]] || usage
 RELEASE="$(realpath "$RELEASE")"
 if [[ -z "$HTML" ]]; then
