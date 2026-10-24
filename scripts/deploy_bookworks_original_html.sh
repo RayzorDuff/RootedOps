@@ -66,6 +66,23 @@ if [[ "$MODE" == check ]]; then
  echo "Read-only check complete; stage installs the plugin and HTML, then creates an unpublished page."
  exit 0
 fi
+# Never replace the live static document while a managed page is published.
+# A draft can be refreshed; publishing requires a separate explicit action.
+sudo docker exec -i "$CONTAINER" php "$KEY" "$SLUG" <<'PHP'
+<?php
+require '/var/www/html/wp-load.php';
+$key = $argv[1]; $slug = $argv[2];
+$matches = get_posts(['post_type'=>'page','post_status'=>'any','numberposts'=>-1,
+  'meta_key'=>'_bookworks_original_key','meta_value'=>$key]);
+if (count($matches) > 1) { fwrite(STDERR, "Multiple managed pages; refusing update\\n"); exit(1); }
+if ($matches && $matches[0]->post_status !== 'draft') {
+  fwrite(STDERR, "Managed page is not a draft; refusing live HTML replacement\\n"); exit(1);
+}
+$owner = get_page_by_path($slug, OBJECT, 'page');
+if ($owner && (!$matches || $owner->ID !== $matches[0]->ID)) {
+  fwrite(STDERR, "Slug belongs to another WordPress page\\n"); exit(1);
+}
+PHP
 # Stage to a temporary file; checksum verified before final rename.
 sudo docker exec "$CONTAINER" mkdir -p /var/www/html/bookworks /var/www/html/wp-content/plugins/bookworks-original-html
 sudo docker cp "$ROOT/wordpress/plugins/bookworks-original-html/bookworks-original-html.php" "$CONTAINER:/var/www/html/wp-content/plugins/bookworks-original-html/bookworks-original-html.php"
