@@ -36,7 +36,28 @@ if ($slug_owner && (!$page || (int)$slug_owner->ID !== (int)$page->ID)) {
 }
 // Normalize through WordPress before comparing, so Pandoc's unsupported attributes
 // do not prevent a safe draft import or cause false changes on repeated runs.
-$html = wp_kses_post($payload['html']);
+// Resolve only explicit managed image roles, after media has been staged to this draft.
+// An unresolved role remains a harmless HTML comment until the second stage pass.
+$raw_html = $payload['html'];
+if (($payload['layout'] ?? '') === 'public-edition') {
+    $role_map = $page ? get_post_meta($page->ID, '_bookworks_media_roles', true) : [];
+    if (!is_array($role_map)) $role_map = [];
+    foreach (['cover', 'chapter-01', 'chapter-02', 'chapter-03', 'chapter-04', 'chapter-05'] as $role) {
+        $marker = '<!-- bookworks-media:' . $role . ' -->';
+        if (isset($role_map[$role])) {
+            $id = (int)$role_map[$role];
+            if (!wp_attachment_is_image($id) || get_post_meta($id, '_bookworks_media_sha256', true) === '') {
+                fail_import('Unmanaged or invalid media attachment for role ' . $role);
+            }
+            $alt = get_post_meta($id, '_wp_attachment_image_alt', true);
+            $url = wp_get_attachment_url($id);
+            if (!$url) fail_import('Missing URL for media role ' . $role);
+            $figure = '<figure class="bookworks-media bookworks-media-' . esc_attr($role) . '"><img src="' . esc_url($url) . '" alt="' . esc_attr($alt) . '" /></figure>';
+            $raw_html = str_replace($marker, $figure, $raw_html);
+        }
+    }
+}
+$html = wp_kses_post($raw_html);
 // Only the known, media-free landing-page schema is supported here. Asset
 // synchronization requires a separate reviewed importer change.
 if (isset($payload['schema_version']) && $payload['schema_version'] !== 1) {
