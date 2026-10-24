@@ -884,3 +884,55 @@ MP_REGULATED_BUSINESS_URL=https://rootedpsyche.org
 ```
 
 `MP_APP_PRODUCTS_URL` should use the Appsmith static Products URL. Fresh/freezer tray scans deep-link there. `MP_REGULATED_BUSINESS_URL` is the base public website used for regulated freeze-dried mushroom/capsule Products that cannot resolve to ecommerce.
+
+
+## BookWorksArtifacts shared Drive and WordPress drafts
+
+The Mac's untracked `.bookworks.local.yml` defines `artifact_root`
+as the Google Drive `BookWorksArtifacts` folder. On Linode, the
+`dankmushrooms` account has configured rclone remote `gdrive2:` and
+mounted it at `/mnt/GoogleDrive-ray@edanks.com` using
+`rclone-gdrive2.service`. The same release files appear beneath
+`/mnt/GoogleDrive-ray@edanks.com/BookWorksArtifacts/`.
+
+Verify the persistent mount (do not launch a second interactive mount):
+
+```bash
+sudo systemctl cat rclone-gdrive2.service
+systemctl status rclone-gdrive2.service
+journalctl -u rclone-gdrive2.service -n 80 --no-pager
+findmnt /mnt/GoogleDrive-ray@edanks.com
+ls /mnt/GoogleDrive-ray@edanks.com/BookWorksArtifacts/
+```
+
+The manual diagnostic mount used
+`/usr/bin/rclone mount gdrive2: /mnt/GoogleDrive-ray@edanks.com --config=/home/dankmushrooms/.config/rclone/rclone.conf --vfs-cache-mode=full`.
+Only use it after stopping the service and confirming the target is unmounted.
+For a stale mount: `sudo systemctl stop rclone-gdrive2.service`,
+then `sudo fusermount -uz /mnt/GoogleDrive-ray@edanks.com`, then
+`sudo systemctl start rclone-gdrive2.service`. Keep OAuth credentials
+and rclone configuration outside Git.
+
+To approve a website draft on Mac:
+
+```bash
+make wordpress-approve-book BOOK=publications/rooted-psyche-spiritual-foundations
+```
+
+This creates `BookWorksArtifacts/rooted-psyche-spiritual-foundations/wordpress/public-introduction/<commit>/`
+with `approval.json`, `wordpress.json`, and `media/`. After Google
+Drive synchronization, deploy from Linode:
+
+```bash
+cd ~/RootedOps
+git pull --ff-only origin main
+BASE=/mnt/GoogleDrive-ray@edanks.com/BookWorksArtifacts/rooted-psyche-spiritual-foundations/wordpress/public-introduction
+ls "$BASE"
+RELEASE="$BASE/<commit>"  # use the directory printed by Mac approval
+bash scripts/deploy_bookworks_artifact.sh --release "$RELEASE" --mode check
+bash scripts/deploy_bookworks_artifact.sh --release "$RELEASE" --mode stage
+```
+
+The first command is read-only. Staging creates/updates a draft and
+its six managed images, but never publishes, changes menus, or edits a
+published page. Inspect the WordPress draft before manual publication.
