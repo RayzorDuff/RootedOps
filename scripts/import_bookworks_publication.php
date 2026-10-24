@@ -56,7 +56,7 @@ if (($payload['layout'] ?? '') === 'public-edition') {
             $url = wp_get_attachment_url($id);
             if (!$url) fail_import('Missing URL for media role ' . $role);
             $cover_style = $role === 'cover'
-                ? ' style="max-width: 420px; width: 100%; height: auto; margin: 0 auto 2rem;"'
+                ? ' style="max-width: 650px; width: 100%; height: auto; margin: 0 auto 2rem;"'
                 : '';
             $image_style = $role === 'cover' ? ' style="display: block; width: 100%; height: auto;"' : '';
             $figure = '<figure class="bookworks-media bookworks-media-' . esc_attr($role) . '"' . $cover_style . '><img src="' . esc_url($url) . '" alt="' . esc_attr($alt) . '"' . $image_style . ' /></figure>';
@@ -65,6 +65,12 @@ if (($payload['layout'] ?? '') === 'public-edition') {
     }
 }
 $html = wp_kses_post($raw_html);
+// Scoped styling for the managed public-edition page. WordPress renders
+// its page title outside post_content, so hide that duplicate with a
+// narrowly targeted selector keyed to this publication's page ID.
+if (($payload['layout'] ?? '') === 'public-edition') {
+    $html = '<style>.wp-block-post-title:has(+ .entry-content .bookworks-public-edition) { display: none; }</style>' . $html;
+}
 // Only the known, media-free landing-page schema is supported here. Asset
 // synchronization requires a separate reviewed importer change.
 if (isset($payload['schema_version']) && $payload['schema_version'] !== 1) {
