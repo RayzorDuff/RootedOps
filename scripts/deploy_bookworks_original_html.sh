@@ -68,7 +68,7 @@ if [[ "$MODE" == check ]]; then
 fi
 # Never replace the live static document while a managed page is published.
 # A draft can be refreshed; publishing requires a separate explicit action.
-sudo docker exec -i "$CONTAINER" php "$KEY" "$SLUG" <<'PHP'
+sudo docker exec -i "$CONTAINER" php /dev/stdin "$KEY" "$SLUG" <<'PHP'
 <?php
 require '/var/www/html/wp-load.php';
 $key = $argv[1]; $slug = $argv[2];
