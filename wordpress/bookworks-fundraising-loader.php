@@ -76,6 +76,7 @@ add_filter('the_content', function ($content) {
         return $content;
     }
     $url = esc_url($campaign['url']);
+    $label = esc_html($campaign['heading']);
     $goal = esc_attr($campaign['goal']);
     $button = esc_attr($campaign['button']);
     $form = esc_attr($campaign['form']);
@@ -83,7 +84,7 @@ add_filter('the_content', function ($content) {
     $top = '<aside class="bookworks-donation-top" aria-label="Fundraising progress and donation">'
         . '<givebutter-widget id="' . $goal . '"></givebutter-widget>'
         . '<givebutter-widget id="' . $button . '"></givebutter-widget>'
-        . '<p class="bookworks-donation-fallback"><a href="' . $url . '" rel="noopener noreferrer">Donate to the Spiritual Center Fund</a></p>'
+        . '<p class="bookworks-donation-fallback"><a href="' . $url . '" rel="noopener noreferrer">' . $label . '</a></p>'
         . '</aside>';
     $bottom = '<section class="bookworks-donation-form" aria-label="Sanctuary donation form">'
         . '<h2>' . $heading . '</h2>'
