@@ -14,7 +14,9 @@ if (!$owner || $owner->post_status !== 'publish') fail_bw('Expected one publishe
 $expected = '[bookworks_publication file="' . $slug . '.html"]';
 if (trim($owner->post_content) !== $expected) fail_bw('Page content differs from managed shortcode; refusing');
 $matches = get_posts(['post_type'=>'page','post_status'=>'any','numberposts'=>-1,'meta_key'=>'_bookworks_original_key','meta_value'=>$key]);
-if (count($matches) > 1 || ($matches && (int)$matches[0]->ID !== (int)$owner->ID)) fail_bw('Managed key conflict');
+// Trashed predecessors must not prevent adopting a replacement page. Never adopt if another non-trashed page owns the key.
+$active_matches = array_values(array_filter($matches, function($p) { return !in_array($p->post_status, ['trash', 'auto-draft'], true); }));
+if (count($active_matches) > 1 || ($active_matches && (int)$active_matches[0]->ID !== (int)$owner->ID)) fail_bw('Managed key conflict');
 $existing = get_post_meta($owner->ID, '_bookworks_original_key', true);
 if ($existing && $existing !== $key) fail_bw('Page managed by another publication');
 if ($mode === 'record' && !$existing) fail_bw('Adopt the page first');
