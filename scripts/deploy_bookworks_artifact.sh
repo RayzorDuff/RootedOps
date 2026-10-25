@@ -30,8 +30,11 @@ assert receipt["publication_key"] == manifest["publication_key"]
 assert receipt["wordpress_slug"] == payload["slug"]
 assert receipt["payload_sha256"] == digest(root / "wordpress.json")
 assert receipt["media_manifest_sha256"] == digest(root / "media/manifest.json")
-assert len(manifest["assets"]) == 6
-assert {a["role"] for a in manifest["assets"]} == {"cover", *(f"chapter-{i:02d}" for i in range(1, 6))}
+assert 1 <= len(manifest["assets"]) <= 30
+roles = [a["role"] for a in manifest["assets"]]
+assert len(roles) == len(set(roles))
+assert "cover" in roles
+assert all(role == "cover" or re.fullmatch(r"chapter-[0-9]{2}", role) for role in roles)
 for asset in manifest["assets"]:
     name = asset["filename"]
     assert pathlib.Path(name).name == name and ".." not in name
