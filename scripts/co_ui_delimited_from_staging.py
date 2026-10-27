@@ -60,7 +60,7 @@ def prepare_rows(source, account, flags_ack):
         ])
         total += wage
     if not flags_ack:
-        return None, len(records), sum((Decimal(r["ui_gross_wages"]) for r in records), Decimal("0.00"))
+        return None, len(records), sum((Decimal(r["ui_gross_wages"]) for r in records), Decimal("0.00")), Decimal("0.00")
     if len(rows) != len(records) or any(len(row) != 14 for row in rows):
         raise ValueError("Unexpected output row structure")
     return rows, len(records), total, total
