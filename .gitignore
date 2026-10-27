@@ -1,0 +1,10 @@
+# Runtime configuration and credentials
+.env
+.env.*
+!.env.example
+# Local upstream Rallly self-hosting checkout and its generated secrets
+docker/scheduling/rallly-selfhosted/
+# Local developer artifacts
+.DS_Store
+__pycache__/
+*.pyc
