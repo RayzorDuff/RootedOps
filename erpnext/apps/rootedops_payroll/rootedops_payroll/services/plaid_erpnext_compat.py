@@ -25,6 +25,8 @@ from typing import Any
 
 import frappe
 
+from rootedops_payroll.services.plaid_client import get_plaid_client_for_bank
+
 from rootedops_payroll.services.plaid_item import (
     PLAID_ACCESS_TOKEN_FIELD,
     PLAID_PROFILE_FIELD,
@@ -115,13 +117,15 @@ def stock_sync_plan() -> dict[str, list[dict[str, str]]]:
             "integration_id": ["is", "set"],
             "disabled": 0,
         },
-        fields=["name", "bank"],
+        fields=["name", "bank", "integration_id"],
         order_by="name asc",
         limit_page_length=0,
     )
 
     candidates: list[dict[str, str]] = []
     skipped: list[dict[str, str]] = []
+
+    membership_cache: dict[str, tuple[set[str] | None, str | None]] = {}
 
     for row in rows:
         bank_account = row.get("name")
@@ -170,6 +174,36 @@ def stock_sync_plan() -> dict[str, list[dict[str, str]]]:
                     ),
                 }
             )
+            continue
+
+        # A Plaid account ID is scoped to its Item. A Bank can still have a
+        # valid token after relinking to a DIFFERENT Item, making old account
+        # IDs unsafe. Fail closed on any lookup error, with one lookup per Bank.
+        if bank not in membership_cache:
+            try:
+                token = frappe.get_doc("Bank", bank).get_password(PLAID_ACCESS_TOKEN_FIELD)
+                if not token:
+                    raise PlaidERPNextCompatibilityError("No readable Plaid token")
+                client = get_plaid_client_for_bank(bank)
+                response = client.post("/accounts/get", {"access_token": token})
+                membership_cache[bank] = (
+                    {a["account_id"] for a in response["accounts"] if a.get("account_id")},
+                    None,
+                )
+            except Exception:
+                # Do not expose remote errors, credentials or account metadata in
+                # user-facing sync plans.
+                membership_cache[bank] = (None, "Plaid account membership verification failed")
+        available_ids, membership_error = membership_cache[bank]
+        if membership_error:
+            skipped.append({"bank_account": bank_account, "bank": bank, "reason": membership_error})
+            continue
+        if not row.get("integration_id") or row["integration_id"] not in available_ids:
+            skipped.append({
+                "bank_account": bank_account,
+                "bank": bank,
+                "reason": "Bank Account integration ID is absent from current Plaid Item",
+            })
             continue
 
         candidates.append(
