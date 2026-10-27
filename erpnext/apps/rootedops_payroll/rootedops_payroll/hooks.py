@@ -46,6 +46,7 @@ app_license = "gpl-3.0"
 # doctype_js = {"doctype" : "public/js/doctype.js"}
 doctype_js = {
     "Payroll Entry": "public/js/payroll_entry.js",
+    "Plaid Settings": "public/js/plaid_separate_item.js",
 }
 
 # RootedOps prepares and submits Salary Slips before the Payroll Entry itself.
