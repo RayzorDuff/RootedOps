@@ -99,3 +99,37 @@ class TestPlaidLink(TestCase):
 
         with self.assertRaises(PlaidLinkError):
             bind_exchanged_item("Existing Bank", "personal", "public-personal")
+
+    @patch("rootedops_payroll.services.plaid_link.exchange_public_token")
+    @patch("rootedops_payroll.services.plaid_link._require_profile", return_value="legacy-current")
+    @patch("rootedops_payroll.services.plaid_link._require_item_model")
+    @patch("rootedops_payroll.services.plaid_link.frappe.get_doc")
+    def test_existing_item_cannot_be_overwritten_even_with_shared_institution(
+        self, get_doc, require_item_model, require_profile, exchange
+    ):
+        bank = MagicMock()
+        bank.get.side_effect = lambda field: (
+            "existing-personal-token" if field == "plaid_access_token" else None
+        )
+        get_doc.return_value = bank
+        with self.assertRaises(PlaidLinkError):
+            bind_exchanged_item("Existing institution Item", "legacy-current", "new-public-token")
+        exchange.assert_not_called()
+        bank.save.assert_not_called()
+
+    @patch("rootedops_payroll.services.plaid_link.exchange_public_token")
+    @patch("rootedops_payroll.services.plaid_link._require_profile", return_value="legacy-current")
+    @patch("rootedops_payroll.services.plaid_link._require_item_model")
+    @patch("rootedops_payroll.services.plaid_link.frappe.get_doc")
+    def test_existing_profile_cannot_be_rebound(
+        self, get_doc, require_item_model, require_profile, exchange
+    ):
+        bank = MagicMock()
+        bank.get.side_effect = lambda field: (
+            "legacy-current" if field == "plaid_profile" else None
+        )
+        get_doc.return_value = bank
+        with self.assertRaises(PlaidLinkError):
+            bind_exchanged_item("Profiled Bank", "legacy-current", "public-token")
+        exchange.assert_not_called()
+        bank.save.assert_not_called()
