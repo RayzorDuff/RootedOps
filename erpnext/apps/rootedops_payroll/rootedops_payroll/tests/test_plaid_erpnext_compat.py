@@ -47,18 +47,20 @@ class TestStockPlaidProfileBinding(TestCase):
 
 
 class TestStockPlaidSyncPlan(TestCase):
+    @patch("rootedops_payroll.services.plaid_erpnext_compat.get_plaid_client_for_bank")
+    @patch("rootedops_payroll.services.plaid_erpnext_compat.frappe.get_doc")
     @patch("rootedops_payroll.services.plaid_erpnext_compat.frappe.db.get_value")
     @patch("rootedops_payroll.services.plaid_erpnext_compat.frappe.get_all")
     @patch("rootedops_payroll.services.plaid_erpnext_compat._legacy_profile_rows")
     def test_plan_skips_tokenless_unprofiled_and_nonlegacy_items(
-        self, legacy_rows, get_all, get_value
+        self, legacy_rows, get_all, get_value, get_doc, get_client
     ):
         legacy_rows.return_value = [{"name": "legacy-current", "is_default": 1}]
         get_all.return_value = [
-            {"name": "Canvas Checking", "bank": "Canvas"},
-            {"name": "Stale Checking", "bank": "Stale"},
-            {"name": "Unprofiled Checking", "bank": "Unprofiled"},
-            {"name": "Personal Checking", "bank": "Personal"},
+            {"name": "Canvas Checking", "bank": "Canvas", "integration_id": "acct-canvas"},
+            {"name": "Stale Checking", "bank": "Stale", "integration_id": "acct-stale"},
+            {"name": "Unprofiled Checking", "bank": "Unprofiled", "integration_id": "acct-unprofiled"},
+            {"name": "Personal Checking", "bank": "Personal", "integration_id": "acct-personal"},
         ]
 
         values = {
@@ -73,6 +75,8 @@ class TestStockPlaidSyncPlan(TestCase):
         }
         get_value.side_effect = lambda doctype, name, field: values[(doctype, name, field)]
 
+        get_doc.return_value.get_password.return_value = "token-canvas"
+        get_client.return_value.post.return_value = {"accounts": [{"account_id": "acct-canvas"}]}
         plan = stock_sync_plan()
 
         self.assertEqual(
@@ -92,10 +96,41 @@ class TestStockPlaidSyncPlan(TestCase):
                 "integration_id": ["is", "set"],
                 "disabled": 0,
             },
-            fields=["name", "bank"],
+            fields=["name", "bank", "integration_id"],
             order_by="name asc",
             limit_page_length=0,
         )
+
+    @patch("rootedops_payroll.services.plaid_erpnext_compat.get_plaid_client_for_bank")
+    @patch("rootedops_payroll.services.plaid_erpnext_compat.frappe.get_doc")
+    @patch("rootedops_payroll.services.plaid_erpnext_compat.frappe.db.get_value")
+    @patch("rootedops_payroll.services.plaid_erpnext_compat.frappe.get_all")
+    @patch("rootedops_payroll.services.plaid_erpnext_compat._legacy_profile_rows")
+    def test_membership_mismatch_and_lookup_failure_fail_closed(
+        self, legacy_rows, get_all, get_value, get_doc, get_client
+    ):
+        legacy_rows.return_value = [{"name": "legacy-current", "is_default": 1}]
+        get_all.return_value = [
+            {"name": "Stale", "bank": "One", "integration_id": "old-id"},
+            {"name": "Current", "bank": "One", "integration_id": "new-id"},
+            {"name": "Failed", "bank": "Two", "integration_id": "other-id"},
+        ]
+        get_value.side_effect = lambda doctype, name, field: (
+            "legacy-current" if field == "plaid_profile" else "present-token"
+        )
+        get_doc.return_value.get_password.return_value = "present-token"
+        def pick_client(bank):
+            client = MagicMock()
+            if bank == "One":
+                client.post.return_value = {"accounts": [{"account_id": "new-id"}]}
+            else:
+                client.post.side_effect = RuntimeError("API unavailable")
+            return client
+        get_client.side_effect = pick_client
+        result = stock_sync_plan()
+        self.assertEqual([r["bank_account"] for r in result["candidates"]], ["Current"])
+        self.assertEqual({r["bank_account"] for r in result["skipped"]}, {"Stale", "Failed"})
+        self.assertEqual(get_client.call_count, 2)
 
     @patch("rootedops_payroll.services.plaid_erpnext_compat.frappe.enqueue")
     @patch("rootedops_payroll.services.plaid_erpnext_compat.stock_sync_plan")
