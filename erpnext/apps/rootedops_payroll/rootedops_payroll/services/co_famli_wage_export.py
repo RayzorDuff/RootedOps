@@ -107,8 +107,10 @@ def export(company, year, quarter, output_path, payment_amount_total='0', settle
     a=_address(company)
     ein=re.sub(r'[^0-9]','',str(frappe.db.get_value('Company',company,'tax_id') or ''))
     if len(ein)!=9: frappe.throw('Company tax_id must contain a nine-digit FEIN')
-    if not all((a.address_line1,a.city,a.state,a.pincode,a.country)):
-        frappe.throw('Company linked Address lacks one or more required FAMLI fields')
+    required_address_fields = ('address_line1', 'city', 'state', 'pincode', 'country')
+    missing_address_fields = [field for field in required_address_fields if not a.get(field)]
+    if missing_address_fields:
+        frappe.throw('Company Address is missing required fields: ' + ', '.join(missing_address_fields))
     timestamp=settlement_date or datetime.now(timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ')
     if not re.fullmatch(r'\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(?:Z|[+-]\d\d:\d\d)',timestamp):
         frappe.throw('Invalid settlement timestamp')
