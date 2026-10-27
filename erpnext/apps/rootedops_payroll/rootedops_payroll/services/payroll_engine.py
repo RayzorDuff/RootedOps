@@ -2557,6 +2557,18 @@ def get_default_checking_bank_gl_account(company):
 
 
 def get_withholding_bank_gl_account(company):
+    # Explicit company setting takes precedence over legacy name-based guessing.
+    # Value is an ERPNext Account (GL), not a bank account number or credential.
+    if frappe.get_meta("Company").get_field("custom_rootedops_withholding_bank_gl_account"):
+        configured = frappe.db.get_value("Company", company, "custom_rootedops_withholding_bank_gl_account")
+        if configured:
+            account = frappe.db.get_value(
+                "Account", configured, ["company", "account_type", "is_group"], as_dict=True
+            )
+            if not account or account.company != company or account.account_type != "Bank" or account.is_group:
+                frappe.throw("Company withholding bank GL account must be a non-group Bank account belonging to this Company")
+            return configured
+
     bank_rows = frappe.get_all(
         "Bank Account",
         filters={"company": company, "is_company_account": 1},
