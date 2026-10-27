@@ -12,7 +12,7 @@ import os
 import re
 import tempfile
 from collections import defaultdict
-from datetime import date, datetime, timezone
+from datetime import date, datetime
 from decimal import Decimal, ROUND_HALF_UP
 from pathlib import Path
 
@@ -111,8 +111,8 @@ def export(company, year, quarter, output_path, payment_amount_total='0', settle
     missing_address_fields = [field for field in required_address_fields if not a.get(field)]
     if missing_address_fields:
         frappe.throw('Company Address is missing required fields: ' + ', '.join(missing_address_fields))
-    timestamp=settlement_date or datetime.now(timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ')
-    if not re.fullmatch(r'\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(?:Z|[+-]\d\d:\d\d)',timestamp):
+    timestamp=settlement_date or datetime.now().strftime('%Y-%m-%dT%H:%M:%S')
+    if not re.fullmatch(r'\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d',timestamp):
         frappe.throw('Invalid settlement timestamp')
     common=dict(DocumentCount=str(len(employees)),AmendedReturn='false', FAMLIPremiumStartDate=start.isoformat(),
         FAMLIPremiumEndDate=end.isoformat(), PreparerLegalName='', PreparerFEIN='',SettlementDate=timestamp,
