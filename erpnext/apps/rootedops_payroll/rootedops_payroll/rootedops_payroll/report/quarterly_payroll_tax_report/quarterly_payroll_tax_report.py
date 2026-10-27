@@ -46,6 +46,14 @@ def execute(filters=None):
         end_date=end_date,
         docstatus_filter=docstatus_filter,
     )
+    total_row = _build_total_row(rows)
+    data = rows + ([total_row] if rows else [])
+    return (
+        _get_columns(),
+        data,
+        None,
+        _get_report_summary(rows, start_date, end_date),
+    )
 
 
 def get_quarter_tax_totals(company, year, quarter):
@@ -55,15 +63,6 @@ def get_quarter_tax_totals(company, year, quarter):
     )
     rows = _get_rows(company, start_date, end_date, (1,))
     return _build_total_row(rows) if rows else {}
-    total_row = _build_total_row(rows)
-    data = rows + ([total_row] if rows else [])
-
-    return (
-        _get_columns(),
-        data,
-        None,
-        _get_report_summary(rows, start_date, end_date),
-    )
 
 
 def _get_quarter_dates(filters):
