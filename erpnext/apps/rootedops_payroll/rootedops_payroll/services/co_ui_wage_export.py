@@ -34,7 +34,7 @@ def _get_ssn(employee):
         if not df:
             continue
         if df.fieldtype == "Password":
-            value = frappe.get_password("Employee", employee, fieldname, raise_exception=False)
+            value = frappe.get_doc("Employee", employee).get_password(fieldname, raise_exception=False)
         else:
             value = frappe.db.get_value("Employee", employee, fieldname)
         ssn = re.sub(r"\D", "", str(value or ""))
