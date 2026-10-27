@@ -36,3 +36,7 @@ sudo docker compose --env-file ./.env -f docker/docker-compose.yml exec erpnext-
 sudo docker compose --env-file ./.env -f docker/docker-compose.yml exec erpnext-backend bench build --app rootedops_payroll
 sudo docker compose --env-file ./.env -f docker/docker-compose.yml restart erpnext-backend erpnext-frontend
 ```
+
+## Phase 9 — Fail-closed sync checks
+
+Before submitting ERPNext stock Plaid sync jobs, RootedOps calls `/accounts/get` using the current Item token and checks that each active Bank Account's integration ID is present. The result is cached by Bank within each planning pass. Missing IDs and failed API lookups fail closed and are reported as skipped without exposing tokens or account IDs. This guard does not rewrite bank mappings, change account ownership, remove duplicate transactions, restore a personal login, or settle payments. Run the updated unit tests before using Sync Now. Continue suspending synchronization on the overlapping account mappings until they have been corrected.
