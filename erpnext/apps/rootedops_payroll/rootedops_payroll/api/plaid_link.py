@@ -20,6 +20,5 @@ def bind_profile_item(bank_name: str, profile_name: str, public_token: str):
     """
     if not frappe.has_permission("RootedOps Plaid Connection Profile", ptype="write"):
         frappe.throw("Permission denied for Plaid connection profiles.", frappe.PermissionError)
-    if not frappe.has_permission("Bank", doc=bank_name, ptype="write"):
-        frappe.throw("Permission denied for this Bank.", frappe.PermissionError)
+    frappe.get_doc("Bank", bank_name).check_permission("write")
     return bind_exchanged_item(bank_name, profile_name, public_token)
