@@ -29,7 +29,7 @@ def _money(value):
 def _get_ssn(employee):
     """Read Employee's actual SSN, supporting password-type custom fields."""
     meta = frappe.get_meta("Employee")
-    for fieldname in ("ssn", "social_security_number", "custom_ssn"):
+    for fieldname in ("ssn", "social_security_number", "social_security_no", "custom_ssn", "custom_social_security_number", "custom_social_security_no", "custom_social_security", "custom_ss_no"):
         df = meta.get_field(fieldname)
         if not df:
             continue
