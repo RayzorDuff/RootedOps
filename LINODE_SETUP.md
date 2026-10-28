@@ -936,3 +936,8 @@ bash scripts/deploy_bookworks_artifact.sh --release "$RELEASE" --mode stage
 The first command is read-only. Staging creates/updates a draft and
 its six managed images, but never publishes, changes menus, or edits a
 published page. Inspect the WordPress draft before manual publication.
+
+
+## Scheduling service backup coverage (RootedOps #17)
+
+The shared `backup/backup-stack.sh` now includes the independent scheduling Compose deployments: Tymeslot (embedded PostgreSQL and app data) and Rallly (PostgreSQL, Garage metadata/data and upstream setup-generated `.env`). This uses the existing SHA256, rclone upload and retention path. Consistent copies briefly stop only scheduling containers and restart those that were running; run the backup during a quiet scheduling period. The restore script restores all five volumes together with scheduling containers stopped, and leaves them stopped for operator validation. Verify a full remote snapshot and an **isolated** restore before treating the new services as protected. See `doc/SCHEDULING.md` for precise archive filenames, commands, and recovery procedures.
