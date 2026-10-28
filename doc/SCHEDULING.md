@@ -141,7 +141,7 @@ Run Nginx checks before requesting certificates, and confirm DNS points to the L
 
 ## Production acceptance / restore
 
-Before treating either service as production-ready: verify SMTP login and delivery, board poll responses, calendar conflict prevention, participant booking and cancellation, Google Meet link creation, and persisted records after a restart. Check Linode capacity. Backups currently **do not include** the newly created Tymeslot volumes or the Rallly Postgres/Garage data; extend RootedOps backup/restore scripts and test a restore, including OAuth/encryption keys. Keep all booking fields minimal; sensitive participant agreements remain in SignatureGate.
+Before treating either service as production-ready: verify SMTP login and delivery, board poll responses, calendar conflict prevention, participant booking and cancellation, Google Meet link creation, and persisted records after a restart. Check Linode capacity. The RootedOps backup and restore scripts now include both scheduling applications' persistent volumes and the upstream Rallly `.env`. An end-to-end Google Drive backup and isolated restore test must still be performed. Keep all booking fields minimal; sensitive participant agreements remain in SignatureGate.
 
 ## October 28 operational follow-up: startup, permissions, one-organizer Rallly
 
@@ -183,3 +183,47 @@ sudo ./rallly.sh logs web
 A successful restart may initially show `health: starting`; recheck status after initialization. The `ACME_EMAIL` warning is nonblocking because `PROXY_MODE=external` and host Nginx/Certbot manage HTTPS. Rallly's container may print `No .env file found, continuing without it` from its internal Next.js/Prisma process; this is **not automatically** a failure to load the host Compose .env. The stronger evidence is a healthy container, successful OAuth sign-in, and the Google Meet provider appearing and connecting in Settings. If in doubt, inspect presence of individual variables without printing their values or secrets.
 
 Do not run Docker `down -v` or delete Rallly Postgres/Garage volumes. Verify meeting URL and email/calendar invitations on an appropriately completed poll; the active board meeting poll is awaiting directors' responses. Upstream reference: https://github.com/lukevella/rallly/blob/main/apps/docs/self-hosting/conferencing.mdx
+
+## Scheduling backup and restore integration (Refs: #17)
+
+RootedOps `backup/backup-stack.sh` now discovers the installed scheduling volumes. It requires all five to be present together and briefly stops **only** these scheduling containers (not ERPNext, n8n or WordPress) for cold, consistent PostgreSQL and Garage archives. Running scheduling containers are restarted on success and on script exit after a failure; containers that were already stopped remain stopped.
+
+| Live volume | Backup archive |
+| --- | --- |
+| `rootedops-scheduling_tymeslot_data` | `volumes/rootedops-scheduling_tymeslot_data.tgz` |
+| `rootedops-scheduling_tymeslot_pg` | `volumes/rootedops-scheduling_tymeslot_pg.tgz` |
+| `rallly-selfhosted_db-data` | `volumes/rallly-selfhosted_db-data.tgz` |
+| `rallly-selfhosted_garage-meta` | `volumes/rallly-selfhosted_garage-meta.tgz` |
+| `rallly-selfhosted_garage-data` | `volumes/rallly-selfhosted_garage-data.tgz` |
+
+Also archived: `bind_mounts/rallly-selfhosted-env.tgz` containing the upstream-generated Rallly `.env` with its OAuth and storage/database secrets, and `meta/tymeslot.compose.yml` for deployment provenance. The RootedOps root `.env` (containing Tymeslot secrets) was already archived by the existing backup process. **Treat all off-site backup copies as confidential.** Limit rclone/Google Drive access; consider remote encryption for backup at rest.
+
+Run the existing backup command only after pulling from `main`:
+
+```bash
+cd ~/RootedOps
+git pull --ff-only origin main
+bash -n backup/backup-stack.sh backup/restore-stack.sh
+sudo docker volume ls --format '{{.Name}}' | grep -E '^(rootedops-scheduling_tymeslot_|rallly-selfhosted_)'
+bash backup/backup-stack.sh
+```
+
+The existing script creates a time-stamped staging directory, computes SHA256 checksums, copies it to `REMOTE_BACKUP_ROOT/BACKUP_PREFIX`, applies normal retention, then removes local staging. Backups are **not** guaranteed by the commits alone: run a live backup and verify the five archives, credential archive and SHA256SUMS in the selected remote snapshot. For example:
+
+```bash
+rclone lsf "rootedops-gdrive:RootedOpsBackups/rootedops/" --dirs-only
+# Choose the timestamp produced by the completed backup:
+rclone lsf "rootedops-gdrive:RootedOpsBackups/rootedops/<TIMESTAMP>/volumes/"
+rclone lsf "rootedops-gdrive:RootedOpsBackups/rootedops/<TIMESTAMP>/bind_mounts/"
+```
+
+`backup/restore-stack.sh` accepts a **locally downloaded** backup timestamp directory; it validates checksums and now restores all five scheduling volumes together, plus the upstream Rallly .env, with their application containers stopped. It deliberately does not restart scheduling after restore. Restore is destructive to the local target volumes: use a fresh test VM or an explicitly planned maintenance window. The original Rallly upstream checkout must exist (or be reinstalled at a compatible pinned revision), and its `rallly.sh` deployment files are not bundled in RootedOps backups. Resume scheduling with:
+
+```bash
+cd ~/RootedOps/docker/scheduling/rallly-selfhosted
+sudo ./rallly.sh start
+cd ~/RootedOps
+sudo docker compose --env-file .env -p rootedops-scheduling -f docker/scheduling/tymeslot.compose.yml up -d
+```
+
+**Pending acceptance:** complete one production backup, inspect rclone artifacts/checksums, test restore on an isolated host, and verify administrator login, existing Rallly poll and Tymeslot configuration. Do not close issue #17 on source changes alone.
