@@ -37,3 +37,17 @@ The adapter checks the stable `publication_id:profile` key, refuses slug collisi
 - WordPress may normalize markup on save. The next dry-run/update may detect such changes as a conflict; resolve by comparing the stored hash to the actual post body, not by forcibly overwriting.
 - WordPress publication approvals, Givebutter campaign-specific links, and fundraising governance gates are separate from this adapter.
 - Test in a staging WordPress instance before relying on the importer for live production drafts.
+
+## WordPress environment and deployment configuration
+
+The separate WordPress Compose stack reads these variables from the **local** RootedOps `.env` (sample values are maintained in `.env.example`):
+
+```dotenv
+ROOTEDPSYCHE_WP_DB_PASSWORD=change_me_unique_wordpress_db_password
+ROOTEDPSYCHE_WP_DB_ROOT_PASSWORD=change_me_different_wordpress_root_password
+ROOTEDPSYCHE_WP_TEST_PORT=8086
+```
+
+Use independently generated passwords, never sample values, and never commit real secrets. **Port 8086 also appears as `ERPNEXT_HTTP_PORT=8086` in the example**; when ERPNext is active, use `ROOTEDPSYCHE_WP_TEST_PORT=8096` (the WordPress Compose default and current production proxy upstream) or another verified free port. Do not change the production host port without reviewing the active Nginx configuration.
+
+The current BookWorks release workflow uses immutable approved artifacts, checksum-verified native draft staging, read-only verification, and guarded native promotion/rollback commands in RootedOps. Fundraising widgets are owned by the RootedOps WordPress presentation plugin, outside BookWorks-managed `post_content`. Published-revision replacement remains a separate reviewed workflow; do not use draft staging to overwrite a published page. See `scripts/check_bookworks_native_release.sh` and `scripts/promote_bookworks_native.sh`. The earlier sections document the initial v0 importer and should not be treated as the complete current deployment contract.
