@@ -214,6 +214,33 @@ def stock_sync_plan() -> dict[str, list[dict[str, str]]]:
             }
         )
 
+    # Two enabled Bank Account records pointing at the same Plaid Item/account
+    # would enqueue two imports of the same real-world transactions. Refuse
+    # both mappings until the operator disables or corrects the duplicate.
+    mappings: dict[tuple[str, str], list[str]] = {}
+    for row in rows:
+        bank, account_id = row.get("bank"), row.get("integration_id")
+        if bank and account_id:
+            mappings.setdefault((bank, account_id), []).append(row.get("name"))
+    duplicate_names = {
+        name
+        for names in mappings.values()
+        if len(names) > 1
+        for name in names
+    }
+    if duplicate_names:
+        safe_candidates = []
+        for candidate in candidates:
+            if candidate["bank_account"] in duplicate_names:
+                skipped.append({
+                    "bank_account": candidate["bank_account"],
+                    "bank": candidate["bank"],
+                    "reason": "Duplicate active Plaid Item/account mapping",
+                })
+            else:
+                safe_candidates.append(candidate)
+        candidates = safe_candidates
+
     return {
         "candidates": candidates,
         "skipped": skipped,
