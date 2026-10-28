@@ -19,8 +19,8 @@ set +a
 TIMESTAMP="$(date +%Y%m%d-%H%M%S)"
 BACKUP_PREFIX="${BACKUP_PREFIX:-rootedops}"
 LOCAL_STAGING_PARENT="${LOCAL_STAGING_PARENT:-/var/tmp/rootedops-backups}"
-RCLONE_REMOTE="${RCLONE_REMOTE:-rootedops-gdrive}"
-REMOTE_BACKUP_ROOT="${REMOTE_BACKUP_ROOT:-${RCLONE_REMOTE}:RootedOpsBackups}"
+RCLONE_REMOTE="${RCLONE_REMOTE:-signaturegate-gdrive-free}"
+REMOTE_BACKUP_ROOT="${REMOTE_BACKUP_ROOT:-${RCLONE_REMOTE}:SignatureGateBackups}"
 REMOTE_PREFIX_PATH="${REMOTE_BACKUP_ROOT%/}/${BACKUP_PREFIX}"
 DOCKER_BIN="${DOCKER_BIN:-sudo docker}"
 # Optional explicit path to the rclone config used by unattended backups.
@@ -89,7 +89,7 @@ if [[ -n "$RCLONE_CONFIG_FILE" ]]; then
   fi
   export RCLONE_CONFIG="$RCLONE_CONFIG_FILE"
 fi
-REMOTE_NAME="${RCLONE_REMOTE%%:*}"
+REMOTE_NAME="${REMOTE_BACKUP_ROOT%%:*}"
 if ! rclone listremotes | grep -Fxq "${REMOTE_NAME}:"; then
   echo "rclone remote ${REMOTE_NAME}: not found for user $(id -un)." >&2
   echo "Check: rclone config file; rclone listremotes; RCLONE_CONFIG_FILE in .env" >&2
