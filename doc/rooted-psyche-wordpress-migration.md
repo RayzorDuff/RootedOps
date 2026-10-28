@@ -18,13 +18,15 @@ Confirm memory, disk, the active domain and SSL configuration, and that a recent
 
 ## 2. Start isolated WordPress
 
-Generate **two different** strong passwords and add these lines to the local `.env` (never commit secrets):
+Copy the WordPress settings from the tracked `.env.example` into the local `.env`, then generate **two different** strong passwords (never commit secrets). The example file includes `ROOTEDPSYCHE_WP_TEST_PORT=8086` as requested, but **8086 conflicts with `ERPNEXT_HTTP_PORT=8086` if both services run on the same host**. The Compose default and current WordPress production upstream are **8096**, so use 8096 for that deployment:
 
 ```dotenv
 ROOTEDPSYCHE_WP_DB_PASSWORD=<generated-unique-password>
 ROOTEDPSYCHE_WP_DB_ROOT_PASSWORD=<different-generated-unique-password>
 ROOTEDPSYCHE_WP_TEST_PORT=8096
 ```
+
+Keep the existing production port unchanged unless you intentionally plan and verify an Nginx upstream change. Changing `.env` alone does not update Nginx, and changing the MariaDB passwords after initialization does not automatically rotate existing database credentials. Validate with `docker compose ... config --quiet` and check host port availability before restarting.
 
 Then:
 
