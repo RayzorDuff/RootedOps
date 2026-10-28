@@ -211,10 +211,10 @@ bash backup/backup-stack.sh
 The existing script creates a time-stamped staging directory, computes SHA256 checksums, copies it to `REMOTE_BACKUP_ROOT/BACKUP_PREFIX`, applies normal retention, then removes local staging. Backups are **not** guaranteed by the commits alone: run a live backup and verify the five archives, credential archive and SHA256SUMS in the selected remote snapshot. For example:
 
 ```bash
-rclone lsf "rootedops-gdrive:RootedOpsBackups/rootedops/" --dirs-only
+rclone lsf "signaturegate-gdrive-free:SignatureGateBackups/rootedops/" --dirs-only
 # Choose the timestamp produced by the completed backup:
-rclone lsf "rootedops-gdrive:RootedOpsBackups/rootedops/<TIMESTAMP>/volumes/"
-rclone lsf "rootedops-gdrive:RootedOpsBackups/rootedops/<TIMESTAMP>/bind_mounts/"
+rclone lsf "signaturegate-gdrive-free:SignatureGateBackups/rootedops/<TIMESTAMP>/volumes/"
+rclone lsf "signaturegate-gdrive-free:SignatureGateBackups/rootedops/<TIMESTAMP>/bind_mounts/"
 ```
 
 `backup/restore-stack.sh` accepts a **locally downloaded** backup timestamp directory; it validates checksums and now restores all five scheduling volumes together, plus the upstream Rallly .env, with their application containers stopped. It deliberately does not restart scheduling after restore. Restore is destructive to the local target volumes: use a fresh test VM or an explicitly planned maintenance window. The original Rallly upstream checkout must exist (or be reinstalled at a compatible pinned revision), and its `rallly.sh` deployment files are not bundled in RootedOps backups. Resume scheduling with:
@@ -243,7 +243,7 @@ sudo rclone config file
 sudo rclone listremotes
 ```
 
-If `rootedops-gdrive:` appears only under `sudo`, find the existing rclone configuration and use it consistently, preferably by setting `RCLONE_CONFIG_FILE=/absolute/path/to/rclone.conf` in the private RootedOps root `.env`. Ensure the account running the backup can read that file, or execute the backup as the same account that already owns the configured remote. Do **not** post rclone configuration contents or tokens. An rclone FUSE mount is not required for `rclone copy` to a named remote.
+If `signaturegate-gdrive-free:` appears only under `sudo`, find the existing rclone configuration and use it consistently, preferably by setting `RCLONE_CONFIG_FILE=/absolute/path/to/rclone.conf` in the private RootedOps root `.env`. Ensure the account running the backup can read that file, or execute the backup as the same account that already owns the configured remote. Do **not** post rclone configuration contents or tokens. An rclone FUSE mount is not required for `rclone copy` to a named remote.
 
 Retention now applies `--drive-use-trash=false` to `rclone purge` **only for expired dated snapshot directories under `REMOTE_BACKUP_ROOT/BACKUP_PREFIX`**. That permanently deletes the selected backup files instead of moving them to Drive trash. It does not empty trash left by *older* runs, nor any unrelated trashed files. Avoid `rclone cleanup remote:`: it empties the entire Google Drive account's trash, beyond RootedOps. For already-trashed backups, manually inspect the Google Drive trash and remove only those entries. Permanent deletion is irreversible; verify the configured remote and backup root before running retention.
 
