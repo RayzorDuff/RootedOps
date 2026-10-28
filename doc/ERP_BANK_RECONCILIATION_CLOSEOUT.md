@@ -98,11 +98,13 @@ git log -5 --oneline
 make validate
 make release-check
 
+# Run on a dedicated test site, NEVER on production accounting data.
+# Replace <erp-test-site> with the configured test site's name:
 sudo docker compose --env-file ./.env -f docker/docker-compose.yml \
-  exec erpnext-backend bench --site erp.danks.store run-tests \
+  exec erpnext-backend bench --site <erp-test-site> run-tests \
   --app rootedops_payroll --module rootedops_payroll.tests.test_plaid_erpnext_compat
 sudo docker compose --env-file ./.env -f docker/docker-compose.yml \
-  exec erpnext-backend bench --site erp.danks.store run-tests \
+  exec erpnext-backend bench --site <erp-test-site> run-tests \
   --app rootedops_payroll --module rootedops_payroll.tests.test_tax_compliance
 ```
 
