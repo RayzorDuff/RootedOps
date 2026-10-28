@@ -24,7 +24,17 @@ if ($mode==='promote' || $mode==='check') {
     if ($page->post_status==='draft' && get_post_meta($id,'_bookworks_source_commit',true)!==$p['source_commit']) bw_native_fail('Staged source revision differs from approved release');
     $expected=hash('sha256',wp_kses_post($p['html']));
     if ($page->post_status==='draft' && !hash_equals($expected,$actual)) bw_native_fail('Draft differs from approved native payload');
-    if ($page->post_status==='publish' && $mode==='promote') bw_native_fail('Already published; use reviewed update workflow');
+    if ($page->post_status==='publish' && $mode==='promote') {
+        // Published website revisions are explicit approved-release promotions,
+        // not draft staging; retain the WordPress page ID and live URL.
+        if (!in_array($p['profile'], ['privacy-policy','terms-of-service','reserve-office-time','homepage'], true)
+            || ($p['media'] ?? []) !== []) bw_native_fail('Published revision must be an approved text-only website profile');
+        if (hash_equals($expected,$actual)) {
+            echo "Published page already matches approved release; no content change required.\n";
+            if ($mode==='promote') exit(0);
+        }
+    }
+    if ($page->post_status==='publish' && $mode==='promote' && $p['publication_id'] !== 'rooted-psyche-website') bw_native_fail('Published updates are supported only for reviewed text-only website releases');
 } else {
     if (!preg_match('/^[a-f0-9]{64}$/',$target) || !isset($history[$target])) bw_native_fail('Unknown rollback snapshot');
     if ($page->post_status!=='publish') bw_native_fail('Rollback only permitted on published managed page');
@@ -51,6 +61,11 @@ $update=['ID'=>$id,'post_status'=>$new_status];
 if ($mode==='rollback') {
     $update['post_content']=wp_slash($next['content']);
     $update['post_title']=$next['title'];
+} elseif ($page->post_status==='publish') {
+    // The existing published page is updated atomically without unpublishing.
+    // The earlier content has been persisted as a content-hashed snapshot.
+    $update['post_content']=wp_slash(wp_kses_post($p['html']));
+    $update['post_title']=$p['title'];
 }
 $result=wp_update_post($update,true);
 if (is_wp_error($result) || (int)$result!==$id) bw_native_fail('WordPress update failed; history retained');
@@ -59,6 +74,10 @@ if (!$after || $after->post_status!==$new_status || $after->post_name!==$p['slug
 if ($mode==='rollback') {
     if (hash('sha256',$after->post_content)!==$target) bw_native_fail('Rollback content mismatch');
     update_post_meta($id,'_bookworks_source_commit',$next['source_commit']);
+} elseif ($mode==='promote') {
+    $expected_after=hash('sha256',wp_kses_post($p['html']));
+    if (!hash_equals($expected_after,hash('sha256',$after->post_content))) bw_native_fail('Promoted content differs from approved payload');
+    update_post_meta($id,'_bookworks_source_commit',$p['source_commit']);
 }
 update_post_meta($id,'_bookworks_managed_html_sha256',hash('sha256',$after->post_content));
 update_post_meta($id,'_bookworks_native_active_sha256',hash('sha256',$after->post_content));
