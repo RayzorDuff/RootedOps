@@ -608,7 +608,7 @@ rclone config
 ```
 
 Recommended choices:
-- New remote name: `rootedops-gdrive`
+- Existing backup remote: `signaturegate-gdrive-free`
 - Storage type: `drive`
 - Scope: usually full drive access for a dedicated backup destination
 - Use auto config if you have a browser available; otherwise follow the headless flow
@@ -616,7 +616,7 @@ Recommended choices:
 Confirm the remote works:
 
 ```bash
-rclone lsd rootedops-gdrive:
+rclone lsd signaturegate-gdrive-free:
 ```
 
 ### 9.3 Create local mount directories
@@ -700,8 +700,8 @@ Suggested defaults used by the script:
 
 ```text
 LOCAL_STAGING_PARENT=/var/tmp/rootedops-backups
-RCLONE_REMOTE=rootedops-gdrive
-REMOTE_BACKUP_ROOT=rootedops-gdrive:RootedOpsBackups
+RCLONE_REMOTE=signaturegate-gdrive-free
+REMOTE_BACKUP_ROOT=signaturegate-gdrive-free:SignatureGateBackups
 BACKUP_PREFIX=rootedops
 ```
 
@@ -740,7 +740,7 @@ bash backup/backup-stack.sh
 Inspect the remote backup set:
 
 ```bash
-rclone lsf rootedops-gdrive:RootedOpsBackups/rootedops/
+rclone lsf signaturegate-gdrive-free:SignatureGateBackups/rootedops/
 ```
 
 To verify that Minecraft is included, inspect a completed backup for:
@@ -767,7 +767,7 @@ Recommended nightly job at 2:30 AM local time:
 Optional environment overrides for the cron job:
 
 ```cron
-30 2 * * * cd /home/rootedops/rootedops && LOCAL_STAGING_PARENT=/var/tmp/rootedops-backups RCLONE_REMOTE=rootedops-gdrive REMOTE_BACKUP_ROOT=rootedops-gdrive:RootedOpsBackups /usr/bin/bash backup/backup-stack.sh >> /home/rootedops/.local/state/rootedops-backup.log 2>&1
+30 2 * * * cd /home/rootedops/rootedops && LOCAL_STAGING_PARENT=/var/tmp/rootedops-backups RCLONE_REMOTE=signaturegate-gdrive-free REMOTE_BACKUP_ROOT=signaturegate-gdrive-free:SignatureGateBackups /usr/bin/bash backup/backup-stack.sh >> /home/rootedops/.local/state/rootedops-backup.log 2>&1
 ```
 
 ### 10.4 Recommended backup validation routine
@@ -800,14 +800,14 @@ Using `rclone` directly is often cleaner on a fresh host because it recreates th
 
 ```bash
 mkdir -p /tmp/rootedops-restore
-rclone copy --links rootedops-gdrive:RootedOpsBackups/rootedops/20260313-023000 /tmp/rootedops-restore/20260313-023000
+rclone copy --links signaturegate-gdrive-free:SignatureGateBackups/rootedops/20260313-023000 /tmp/rootedops-restore/20260313-023000
 ```
 
 If you want to restore the remote `latest` pointer too, you can also copy the whole prefix instead:
 
 ```bash
 mkdir -p /tmp/rootedops-restore-prefix
-rclone copy --links rootedops-gdrive:RootedOpsBackups/rootedops /tmp/rootedops-restore-prefix
+rclone copy --links signaturegate-gdrive-free:SignatureGateBackups/rootedops /tmp/rootedops-restore-prefix
 ls -l /tmp/rootedops-restore-prefix/latest
 ```
 
