@@ -90,6 +90,54 @@ restore_volume docker_rootedpsyche_wordpress_html rootedpsyche-wordpress-html.tg
 restore_volume erpnext_redis_cache_data erpnext_redis_cache_data.tgz
 restore_volume erpnext_redis_queue_data erpnext_redis_queue_data.tgz
 
+
+# Scheduling restore is destructive. Run only against a maintenance-window host
+# where the appropriate scheduling containers may be stopped. Never start
+# services while underlying Postgres/Garage files are being replaced.
+restore_scheduling() {
+  local -a archives=(
+    rootedops-scheduling_tymeslot_data
+    rootedops-scheduling_tymeslot_pg
+    rallly-selfhosted_db-data
+    rallly-selfhosted_garage-meta
+    rallly-selfhosted_garage-data
+  )
+  local volume present=0
+  for volume in "${archives[@]}"; do
+    if [[ -f "$BACKUP_DIR/volumes/$volume.tgz" ]]; then
+      present=$((present+1))
+    fi
+  done
+  if [[ "$present" -eq 0 ]]; then
+    log "No scheduling volumes in this backup; skipping scheduling restore"
+    return 0
+  fi
+  if [[ "$present" -ne "${#archives[@]}" || ! -f "$BACKUP_DIR/bind_mounts/rallly-selfhosted-env.tgz" ]]; then
+    echo "Incomplete scheduling archive; refusing partial restore" >&2
+    return 1
+  fi
+  log "Stopping scheduling applications for cold restore"
+  local container
+  for container in rootedops-tymeslot rallly-selfhosted-web-1 rallly-selfhosted-db-1 rallly-selfhosted-garage-1; do
+    if $DOCKER_BIN inspect "$container" >/dev/null 2>&1; then
+      $DOCKER_BIN stop "$container" >/dev/null
+    fi
+  done
+  for volume in "${archives[@]}"; do
+    restore_volume "$volume" "$volume.tgz"
+  done
+  local rallly_dir="$REPO_ROOT/docker/scheduling/rallly-selfhosted"
+  mkdir -p "$rallly_dir"
+  restore_bind_archive rallly-selfhosted-env.tgz "$rallly_dir"
+  chmod 600 "$rallly_dir/.env"
+  log "Scheduling data restored, services intentionally stopped."
+  log "Verify .env and the upstream Rallly checkout, then start with:"
+  log "  cd $rallly_dir && sudo ./rallly.sh start"
+  log "  cd $REPO_ROOT && sudo docker compose --env-file .env -p rootedops-scheduling -f docker/scheduling/tymeslot.compose.yml up -d"
+}
+
+restore_scheduling
+
 log "Restoring bind-mounted content"
 restore_bind_archive documenso-certs.tgz "$REPO_ROOT/documenso"
 restore_bind_archive grav.tgz "$REPO_ROOT"
