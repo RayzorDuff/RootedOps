@@ -93,13 +93,13 @@ if ($page && !$last_hash) fail_import('Existing managed page lacks content hash;
 // Published content requires a separately reviewed update/republication process.
 // Never let a draft deployment silently unpublish a live page.
 $unchanged = $page && hash_equals($source_hash, $last_hash);
-if ($page && $page->post_status === 'publish' && !$unchanged) {
-    fail_import('Managed page is published; refusing to overwrite or unpublish it. Create a reviewed revision workflow.');
+if ($page && $page->post_status === 'publish' && !$unchanged && $argv[2] !== 'dry-run') {
+    fail_import('Managed page is published; staging cannot overwrite it. Use approved deploy.sh promote for a reviewed website revision.');
 }
 if ($page && !in_array($page->post_status, ['draft', 'publish'], true)) {
     fail_import('Unsupported existing page status; refusing mutation');
 }
-$action = !$page ? 'create-draft' : ($unchanged ? 'unchanged' : 'update-draft');
+$action = !$page ? 'create-draft' : ($unchanged ? 'unchanged' : ($page->post_status === 'publish' ? 'published-revision-requires-promote' : 'update-draft'));
 echo json_encode(['action' => $action, 'key' => $key, 'page_id' => $page ? (int)$page->ID : null,
     'source_commit' => $payload['source_commit'], 'sha256' => $source_hash], JSON_PRETTY_PRINT) . "\n";
 if ($argv[2] === 'dry-run') exit(0);
