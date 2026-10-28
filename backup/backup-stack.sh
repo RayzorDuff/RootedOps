@@ -41,7 +41,22 @@ cleanup() {
     rm -rf "$LOCAL_STAGE_ROOT"
   fi
 }
-trap cleanup EXIT
+# Scheduling containers are paused only during the cold volume snapshots.
+# If archiving fails, resume them before removing the temporary staging directory.
+SCHEDULING_PAUSED=()
+resume_scheduling() {
+  local container
+  for container in "${SCHEDULING_PAUSED[@]}"; do
+    log "Restarting scheduling container $container"
+    $DOCKER_BIN start "$container" >/dev/null || true
+  done
+  SCHEDULING_PAUSED=()
+}
+cleanup_and_resume() {
+  resume_scheduling
+  cleanup
+}
+trap cleanup_and_resume EXIT
 
 log() {
   printf '[%s] %s\n' "$(date '+%F %T')" "$*"
@@ -167,6 +182,65 @@ backup_volume docker_rootedpsyche_wordpress_html rootedpsyche-wordpress-html.tgz
 # Usually disposable, but keeping them may help preserve in-flight state.
 backup_volume erpnext_redis_cache_data erpnext_redis_cache_data.tgz
 backup_volume erpnext_redis_queue_data erpnext_redis_queue_data.tgz
+
+
+# Dedicated Compose projects created during the scheduling deployment:
+# rootedops-scheduling (Tymeslot), rallly-selfhosted (Rallly).
+# Cold volume archives protect embedded Postgres and Rallly's Garage metadata/data.
+# We do not quietly create an empty backup for a missing, configured installation.
+backup_scheduling() {
+  local -a running=()
+  local volume container
+  local -a containers=(rootedops-tymeslot rallly-selfhosted-web-1 rallly-selfhosted-db-1 rallly-selfhosted-garage-1)
+  local -a volumes=(
+    rootedops-scheduling_tymeslot_data
+    rootedops-scheduling_tymeslot_pg
+    rallly-selfhosted_db-data
+    rallly-selfhosted_garage-meta
+    rallly-selfhosted_garage-data
+  )
+  local present=0
+  for volume in "${volumes[@]}"; do
+    if $DOCKER_BIN volume inspect "$volume" >/dev/null 2>&1; then
+      present=$((present+1))
+    fi
+  done
+  if [[ "$present" -eq 0 ]]; then
+    log "Scheduling volumes not installed; skipping scheduling backup"
+    return 0
+  fi
+  if [[ "$present" -ne "${#volumes[@]}" ]]; then
+    echo "Scheduling volumes partially installed ($present/${#volumes[@]}); refusing incomplete backup" >&2
+    return 1
+  fi
+  # Check whether each container is running before stopping; only resume those.
+  for container in "${containers[@]}"; do
+    if container_is_running "$container"; then
+      running+=("$container")
+    fi
+  done
+  for container in "${running[@]}"; do
+    log "Pausing scheduling container $container for consistent volume archive"
+    $DOCKER_BIN stop "$container" >/dev/null
+    SCHEDULING_PAUSED+=("$container")
+  done
+  for volume in "${volumes[@]}"; do
+    backup_volume "$volume" "$volume.tgz"
+  done
+  # The upstream setup-generated Rallly .env contains secrets needed to recover
+  # OAuth, signing, Postgres and Garage; it is not in the RootedOps root .env.
+  local rallly_env="$REPO_ROOT/docker/scheduling/rallly-selfhosted/.env"
+  if [[ ! -f "$rallly_env" ]]; then
+    echo "Rallly .env missing; refusing incomplete scheduling backup" >&2
+    return 1
+  fi
+  backup_bind_path "$rallly_env" rallly-selfhosted-env.tgz
+  cp "$REPO_ROOT/docker/scheduling/tymeslot.compose.yml" "$BACKUP_DIR/meta/tymeslot.compose.yml"
+  log "Scheduling volumes and credentials captured"
+  resume_scheduling
+}
+
+backup_scheduling
 
 # Repo bind mounts and config required for a full restore.
 backup_bind_path "$REPO_ROOT/documenso/certs" documenso-certs.tgz
