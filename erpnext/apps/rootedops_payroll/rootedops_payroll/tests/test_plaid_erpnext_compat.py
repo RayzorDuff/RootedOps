@@ -132,6 +132,37 @@ class TestStockPlaidSyncPlan(TestCase):
         self.assertEqual({r["bank_account"] for r in result["skipped"]}, {"Stale", "Failed"})
         self.assertEqual(get_client.call_count, 2)
 
+    @patch("rootedops_payroll.services.plaid_erpnext_compat.get_plaid_client_for_bank")
+    @patch("rootedops_payroll.services.plaid_erpnext_compat.frappe.get_doc")
+    @patch("rootedops_payroll.services.plaid_erpnext_compat.frappe.db.get_value")
+    @patch("rootedops_payroll.services.plaid_erpnext_compat.frappe.get_all")
+    @patch("rootedops_payroll.services.plaid_erpnext_compat._legacy_profile_rows")
+    def test_two_active_mappings_to_same_plaid_account_both_fail_closed(
+        self, legacy_rows, get_all, get_value, get_doc, get_client
+    ):
+        legacy_rows.return_value = [{"name": "legacy-current", "is_default": 1}]
+        get_all.return_value = [
+            {"name": "Checking A", "bank": "Bank", "integration_id": "shared-id"},
+            {"name": "Checking B", "bank": "Bank", "integration_id": "shared-id"},
+            {"name": "Savings", "bank": "Bank", "integration_id": "unique-id"},
+        ]
+        get_value.side_effect = lambda doctype, name, field: (
+            "legacy-current" if field == "plaid_profile" else "present-token"
+        )
+        get_doc.return_value.get_password.return_value = "present-token"
+        get_client.return_value.post.return_value = {"accounts": [
+            {"account_id": "shared-id"}, {"account_id": "unique-id"}
+        ]}
+
+        plan = stock_sync_plan()
+        self.assertEqual([row["bank_account"] for row in plan["candidates"]], ["Savings"])
+        self.assertEqual(
+            {row["bank_account"] for row in plan["skipped"]},
+            {"Checking A", "Checking B"},
+        )
+        self.assertTrue(all("Duplicate active" in row["reason"] for row in plan["skipped"]))
+        get_client.assert_called_once_with("Bank")
+
     @patch("rootedops_payroll.services.plaid_erpnext_compat.frappe.enqueue")
     @patch("rootedops_payroll.services.plaid_erpnext_compat.stock_sync_plan")
     def test_enqueue_queues_only_safe_candidates(self, plan, enqueue):
