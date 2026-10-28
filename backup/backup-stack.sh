@@ -23,6 +23,9 @@ RCLONE_REMOTE="${RCLONE_REMOTE:-rootedops-gdrive}"
 REMOTE_BACKUP_ROOT="${REMOTE_BACKUP_ROOT:-${RCLONE_REMOTE}:RootedOpsBackups}"
 REMOTE_PREFIX_PATH="${REMOTE_BACKUP_ROOT%/}/${BACKUP_PREFIX}"
 DOCKER_BIN="${DOCKER_BIN:-sudo docker}"
+# Optional explicit path to the rclone config used by unattended backups.
+# Rclone may otherwise select a different config for each Unix user.
+RCLONE_CONFIG_FILE="${RCLONE_CONFIG_FILE:-}"
 COMPOSE_SH=(sudo docker compose --env-file "$ENV_FILE" -f "$COMPOSE_FILE")
 MINECRAFT_BEDROCK_DATA_PATH="${MINECRAFT_BEDROCK_DATA_PATH:-$REPO_ROOT/minecraft/bedrock}"
 if [[ "$MINECRAFT_BEDROCK_DATA_PATH" != /* ]]; then
@@ -78,6 +81,20 @@ require_cmd python3
 require_cmd rclone
 require_cmd sha256sum
 require_cmd tar
+
+if [[ -n "$RCLONE_CONFIG_FILE" ]]; then
+  if [[ ! -r "$RCLONE_CONFIG_FILE" ]]; then
+    echo "Rclone configuration is not readable: $RCLONE_CONFIG_FILE" >&2
+    exit 1
+  fi
+  export RCLONE_CONFIG="$RCLONE_CONFIG_FILE"
+fi
+REMOTE_NAME="${RCLONE_REMOTE%%:*}"
+if ! rclone listremotes | grep -Fxq "${REMOTE_NAME}:"; then
+  echo "rclone remote ${REMOTE_NAME}: not found for user $(id -un)." >&2
+  echo "Check: rclone config file; rclone listremotes; RCLONE_CONFIG_FILE in .env" >&2
+  exit 1
+fi
 
 mkdir -p "$BACKUP_DIR"/{db,volumes,bind_mounts,meta}
 
@@ -234,7 +251,14 @@ backup_scheduling() {
     echo "Rallly .env missing; refusing incomplete scheduling backup" >&2
     return 1
   fi
-  backup_bind_path "$rallly_env" rallly-selfhosted-env.tgz
+  # setup generates mode 600/root-owned credentials; read via Docker root helper
+  # rather than relaxing permissions on host credentials.
+  log "Archiving protected Rallly configuration"
+  $DOCKER_BIN run --rm \
+    -v "$rallly_env:/source/.env:ro" \
+    -v "$BACKUP_DIR/bind_mounts:/backup" \
+    alpine:3.20 \
+    sh -lc 'cd /source && tar -czf /backup/rallly-selfhosted-env.tgz .env'
   cp "$REPO_ROOT/docker/scheduling/tymeslot.compose.yml" "$BACKUP_DIR/meta/tymeslot.compose.yml"
   log "Scheduling volumes and credentials captured"
   resume_scheduling
@@ -322,7 +346,9 @@ for name, _, _ in parsed:
 
   for dir_name in "${to_delete[@]}"; do
     log "Pruning remote backup $dir_name"
-    rclone purge "$remote_prefix/$dir_name"
+    # Only expired snapshots in our own backup prefix are deleted permanently.
+    # Never use rclone cleanup here: it empties unrelated Drive trash.
+    rclone purge "$remote_prefix/$dir_name" --drive-use-trash=false
   done
 }
 
