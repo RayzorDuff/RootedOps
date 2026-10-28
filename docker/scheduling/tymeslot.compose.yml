@@ -22,6 +22,8 @@ services:
       SMTP_PASSWORD: ${SCHEDULING_SMTP_PASSWORD:?Set app password}
       GOOGLE_CLIENT_ID: ${TYMESLOT_GOOGLE_CLIENT_ID:-}
       GOOGLE_CLIENT_SECRET: ${TYMESLOT_GOOGLE_CLIENT_SECRET:-}
+      GOOGLE_STATE_SECRET: ${TYMESLOT_GOOGLE_STATE_SECRET:-}
+      ENABLE_GOOGLE_AUTH: ${TYMESLOT_ENABLE_GOOGLE_AUTH:-false}
     volumes:
       - tymeslot_data:/app/data
       - tymeslot_pg:/var/lib/postgresql/data
