@@ -1,45 +1,117 @@
-# Rooted Psyche scheduling (RootedOps issue #17)
+# Rooted Psyche scheduling — Issue #17
 
-Services: Rallly at https://poll.rootedpsyche.org and Tymeslot at https://schedule.rootedpsyche.org.
+Public endpoints: Rallly https://poll.rootedpsyche.org; Tymeslot https://schedule.rootedpsyche.org. DNS records have been added by the operator. The external host Nginx/Certbot setup is still required. Deploy directly from RootedOps `main`; no feature branch.
 
-## SMTP
-Reuse the Listmonk-tested Gmail app-password pattern: smtp.gmail.com, port 587, STARTTLS, SMTP authentication with the full Gmail login. The sender address must be authorized by that Gmail account. Do not commit passwords or application encryption keys. Gmail quotas and spam filtering may affect notifications.
+## SMTP: reuse the Listmonk Gmail pattern
 
-## Tymeslot
-The Compose project is intentionally separate to avoid disrupting the main stack.
-In the RootedOps root .env add:
+Listmonk already used Gmail SMTP; scheduling uses the same provider but a **separate Google app password** for Tymeslot. Authentication user: `rootedpsyche@gmail.com`. SMTP: `smtp.gmail.com`, port `587`, STARTTLS, password authentication. Use the same authorized email address as sender. Never commit app passwords. Google OAuth *client secret* is unrelated to Gmail SMTP *app password*.
+
+Open https://myaccount.google.com/apppasswords signed into `rootedpsyche@gmail.com`. Under the current interface, enter an app label such as `Tymeslot`, choose **Create**, and securely copy the generated 16-character app password (often displayed as four groups of four characters). The historic **Select app → Other → Create → Done** instructions refer to an older interface; follow the current prompts. App passwords generally require 2-Step Verification and may not be available on all accounts. Keep Listmonk's existing app password unchanged.
+
+Rallly needs its own `SMTP_USER` and `SMTP_PWD` in its **separate** upstream `.env`. Prefer a separate labeled Google app password for Rallly, too. Google SMTP usage limits mean this setup is appropriate for modest volumes, not bulk delivery.
+
+## Tymeslot: existing Docker installation
+
+User confirmed `luka1thb/tymeslot:1.6.0` pulled and `rootedops-tymeslot` started successfully using `docker/scheduling/tymeslot.compose.yml`. This only establishes container start; email delivery, OAuth and external routing remain untested. Environment keys in the RootedOps root `.env.example` must be mirrored into the untracked root `.env`:
+
 ```dotenv
-TYMESLOT_IMAGE_TAG=<pin-a-verified-upstream-release>
-TYMESLOT_SECRET_KEY_BASE=<openssl-rand-base64-64>
-TYMESLOT_DATA_ENCRYPTION_KEY=<generate-per-tymeslot-docs>
-SCHEDULING_SMTP_USER=<existing-authorized-gmail-address>
-SCHEDULING_SMTP_PASSWORD=<google-app-password>
-TYMESLOT_GOOGLE_CLIENT_ID=
-TYMESLOT_GOOGLE_CLIENT_SECRET=
+TYMESLOT_IMAGE_TAG=1.6.0
+TYMESLOT_SECRET_KEY_BASE=<generated-secret>
+TYMESLOT_DATA_ENCRYPTION_KEY=<generated-encryption-key>
+SCHEDULING_SMTP_USER=rootedpsyche@gmail.com
+SCHEDULING_SMTP_PASSWORD=<Tymeslot-specific-Gmail-app-password>
+TYMESLOT_GOOGLE_CLIENT_ID=<OAuth-web-client-ID>
+TYMESLOT_GOOGLE_CLIENT_SECRET=<OAuth-web-client-secret>
+TYMESLOT_GOOGLE_STATE_SECRET=<random-state-signing-secret>
+TYMESLOT_ENABLE_GOOGLE_AUTH=false
 ```
-Use a verified upstream release tag; check Tymeslot documentation for the exact encryption key format before starting. The key must be retained in backup and restoration. To run:
+
+Generate secrets once and preserve them across upgrades and restores:
+
+```bash
+openssl rand -base64 64    # SECRET_KEY_BASE
+openssl rand -base64 48    # DATA_ENCRYPTION_KEY; check exact requirements for pinned image
+openssl rand -hex 32       # GOOGLE_STATE_SECRET
+```
+
+Avoid regenerating the encryption key when upgrading or restoring. `TYMESLOT_ENABLE_GOOGLE_AUTH=false` hides Google account sign-in but still allows Calendar and Meet OAuth integrations.
+
+### Configure Google Cloud
+
+Reference: https://tymeslot.app/docs/google-oauth and https://support.google.com/cloud/answer/15544987
+
+1. Sign in to https://console.cloud.google.com as the account administering the OAuth project. Select or create a project (e.g., Rooted Psyche Scheduling).
+2. Under **APIs & Services → Library**, enable **Google Calendar API** and **Google Meet API**. Google People API is not needed for Tymeslot.
+3. Open **Google Auth Platform**. For a new app, choose **Get started**, enter app name, support email, and developer contact under **Branding**. Set **Audience → External** for a personal `@gmail.com` account; Internal is for an eligible Google Workspace organization.
+4. Under **Data Access**, configure required scopes as Tymeslot documents (Calendar requires `https://www.googleapis.com/auth/calendar`; Meet scope is requested by Tymeslot when needed). Do not guess extra broad permissions. Google's interface may defer scope consent until actual connection; use the product's documented scopes.
+5. Under **Audience → Test users**, add `rootedpsyche@gmail.com` (and any other administrator who must authorize during testing). In Testing, OAuth access/refresh tokens with Calendar scopes generally expire after **7 days**; evaluate production publishing and Google's verification requirements before relying on uninterrupted synchronization.
+6. Under **Clients**, create an **OAuth client ID → Web application**. The following **three exact authorized redirect URIs** are required for Tymeslot's separate flows:
+   - `https://schedule.rootedpsyche.org/auth/google/callback` (optional Google login)
+   - `https://schedule.rootedpsyche.org/auth/google/calendar/callback` (Calendar)
+   - `https://schedule.rootedpsyche.org/auth/google/video/callback` (Meet)
+7. Copy client ID and client secret into the untracked RootedOps `.env`, alongside the generated `TYMESLOT_GOOGLE_STATE_SECRET`. Restart Tymeslot after updates. HTTPS/Certbot must be working for Google OAuth redirects.
+8. In Tymeslot, connect the Google Calendar account, explicitly select calendars for conflict checking and where bookings are written, and enable Google Meet on the event type. Test a busy slot being blocked and a successful event/Meet booking. Google account authentication and calendar authorization are separate operations.
+
+CLI to apply new Compose environment without touching ERPNext:
+
 ```bash
 cd ~/RootedOps
+git pull --ff-only origin main
 sudo docker compose --env-file .env -p rootedops-scheduling -f docker/scheduling/tymeslot.compose.yml config --quiet
-sudo docker compose --env-file .env -p rootedops-scheduling -f docker/scheduling/tymeslot.compose.yml up -d
+sudo docker compose --env-file .env -p rootedops-scheduling -f docker/scheduling/tymeslot.compose.yml up -d --no-deps tymeslot
 sudo docker compose --env-file .env -p rootedops-scheduling -f docker/scheduling/tymeslot.compose.yml ps
+sudo docker logs --tail 100 rootedops-tymeslot
+curl -I http://127.0.0.1:4000
 ```
-Configure Google OAuth callback `https://schedule.rootedpsyche.org/auth/google/callback`, then explicitly select calendars used for conflict detection. Test confirmation and cancellation mail. Disable open admin registration after setup.
 
-## Rallly
-Use the official production bundle at https://github.com/lukevella/rallly-selfhosted, not an improvised single-container image:
+Do not paste resolved `docker compose config` (without `--quiet`) or container environment into public issue comments; they contain secrets.
+
+## Rallly is already a Docker deployment
+
+The official https://github.com/lukevella/rallly-selfhosted project provides **Docker Compose**, not an application that has to be rebuilt. It launches the published Rallly web image, PostgreSQL, Garage object storage, and (by default) Traefik. **We do not need to create a custom Dockerfile/image.** Keep the upstream Compose bundle intact to ease maintenance.
+
+Manual installation managed from the RootedOps local checkout:
+
 ```bash
 cd ~/RootedOps
 git clone https://github.com/lukevella/rallly-selfhosted.git docker/scheduling/rallly-selfhosted
 cd docker/scheduling/rallly-selfhosted
 ./rallly.sh setup
 ```
-Set the upstream Rallly environment: `DOMAIN=poll.rootedpsyche.org`, `PROXY_MODE=external`, `WEB_PORT=127.0.0.1:3003`, `NEXT_PUBLIC_BASE_URL=https://poll.rootedpsyche.org`, `SMTP_HOST=smtp.gmail.com`, `SMTP_PORT=587`, `SMTP_SECURE=false`, and `SMTP_USER`/`SMTP_PWD` using the authorized Gmail address/app password. Keep generated `SECRET_PASSWORD` and storage credentials private. Review upstream startup/help output before invoking `./rallly.sh start`.
 
-The upstream checkout is a host-local working directory and should remain untracked; do not git-add it to RootedOps. Pin the upstream revision during deployment.
+Configure its locally generated `.env` with:
 
-## Host Nginx
-After DNS resolves to Linode, copy each config from `nginx/` to `/etc/nginx/sites-available/`, symlink into `sites-enabled`, run `sudo nginx -t && sudo systemctl reload nginx`, then run `sudo certbot --nginx -d poll.rootedpsyche.org -d schedule.rootedpsyche.org`. Check that both HTTP services listen only on localhost.
+```dotenv
+DOMAIN=poll.rootedpsyche.org
+PROXY_MODE=external
+WEB_PORT=127.0.0.1:3003
+SMTP_HOST=smtp.gmail.com
+SMTP_PORT=587
+SMTP_SECURE=false
+SMTP_USER=rootedpsyche@gmail.com
+SMTP_PWD=<Rallly-specific-Gmail-app-password>
+SUPPORT_EMAIL=rootedpsyche@gmail.com
+NOREPLY_EMAIL=rootedpsyche@gmail.com
+```
 
-## Pre-production gates
-Verify `docker compose ps`, service logs, TLS, outbound Gmail SMTP delivery, date polls, booking conflict detection, Google Meet creation, and backup/restore of both stacks. Rallly Postgres/Garage and Tymeslot data/Postgres volumes are **not yet covered** by the RootedOps backup scripts. Do not treat this initial bootstrap as production-ready.
+With external proxy mode, Rallly's bundled Traefik will not claim host ports 80/443. Rallly derives `NEXT_PUBLIC_BASE_URL=https://poll.rootedpsyche.org` from DOMAIN. Preserve upstream-generated secret/storage credentials; do not commit the nested checkout or its `.env`. Pin/check its upstream revision. Start from the directory with `./rallly.sh start`, then check `./rallly.sh status` and logs.
+
+## Host Nginx and Certbot (not yet installed)
+
+Both services bind only to loopback (`127.0.0.1:3003` for Rallly and `127.0.0.1:4000` for Tymeslot). Copy the RootedOps `nginx/rallly.conf` and `nginx/tymeslot.conf` virtual hosts into `/etc/nginx/sites-available/` and enable them:
+
+```bash
+cd ~/RootedOps
+sudo cp nginx/rallly.conf /etc/nginx/sites-available/rallly.conf
+sudo cp nginx/tymeslot.conf /etc/nginx/sites-available/tymeslot.conf
+sudo ln -sfn /etc/nginx/sites-available/rallly.conf /etc/nginx/sites-enabled/rallly.conf
+sudo ln -sfn /etc/nginx/sites-available/tymeslot.conf /etc/nginx/sites-enabled/tymeslot.conf
+sudo nginx -t && sudo systemctl reload nginx
+sudo certbot --nginx -d poll.rootedpsyche.org -d schedule.rootedpsyche.org
+```
+
+Run Nginx checks before requesting certificates, and confirm DNS points to the Linode. Then test both public endpoints and TLS renewal.
+
+## Production acceptance / restore
+
+Before treating either service as production-ready: verify SMTP login and delivery, board poll responses, calendar conflict prevention, participant booking and cancellation, Google Meet link creation, and persisted records after a restart. Check Linode capacity. Backups currently **do not include** the newly created Tymeslot volumes or the Rallly Postgres/Garage data; extend RootedOps backup/restore scripts and test a restore, including OAuth/encryption keys. Keep all booking fields minimal; sensitive participant agreements remain in SignatureGate.
