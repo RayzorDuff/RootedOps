@@ -227,3 +227,35 @@ sudo docker compose --env-file .env -p rootedops-scheduling -f docker/scheduling
 ```
 
 **Pending acceptance:** complete one production backup, inspect rclone artifacts/checksums, test restore on an isolated host, and verify administrator login, existing Rallly poll and Tymeslot configuration. Do not close issue #17 on source changes alone.
+
+
+## Backup 2026-10-28: protected Rallly credentials, rclone configuration and permanent retention deletion
+
+First live backup failed before upload: Rallly's generated `.env` is protected from unprivileged `tar`. The backup now archives it using the existing privileged Docker helper without changing its permissions; cold-snapshot cleanup correctly restarted scheduling containers after that failure.
+
+The backup now checks the expected `RCLONE_REMOTE` exists before taking services offline. Rclone remotes belong to a particular Unix user or config file. Diagnose from **the same user that runs the backup**:
+
+```bash
+whoami
+rclone config file
+rclone listremotes
+sudo rclone config file
+sudo rclone listremotes
+```
+
+If `rootedops-gdrive:` appears only under `sudo`, find the existing rclone configuration and use it consistently, preferably by setting `RCLONE_CONFIG_FILE=/absolute/path/to/rclone.conf` in the private RootedOps root `.env`. Ensure the account running the backup can read that file, or execute the backup as the same account that already owns the configured remote. Do **not** post rclone configuration contents or tokens. An rclone FUSE mount is not required for `rclone copy` to a named remote.
+
+Retention now applies `--drive-use-trash=false` to `rclone purge` **only for expired dated snapshot directories under `REMOTE_BACKUP_ROOT/BACKUP_PREFIX`**. That permanently deletes the selected backup files instead of moving them to Drive trash. It does not empty trash left by *older* runs, nor any unrelated trashed files. Avoid `rclone cleanup remote:`: it empties the entire Google Drive account's trash, beyond RootedOps. For already-trashed backups, manually inspect the Google Drive trash and remove only those entries. Permanent deletion is irreversible; verify the configured remote and backup root before running retention.
+
+After pulling the fix, execute:
+
+```bash
+cd ~/RootedOps
+git pull --ff-only origin main
+bash -n backup/backup-stack.sh backup/restore-stack.sh
+rclone config file
+rclone listremotes
+bash backup/backup-stack.sh
+```
+
+Only report backup success after the rclone copy and pruning complete and the new time-stamped snapshot can be listed remotely. A restore test remains pending.
