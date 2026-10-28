@@ -66,6 +66,33 @@ curl -I http://127.0.0.1:4000
 
 Do not paste resolved `docker compose config` (without `--quiet`) or container environment into public issue comments; they contain secrets.
 
+## First administrator and Google sign-in (Tymeslot)
+
+The **first registered user** in a new Tymeslot database is automatically administrator; there is no default username/password. Use the intended Rooted Psyche administrator account (`rootedpsyche@gmail.com`) to register, preferably using Google Sign-In after OAuth is configured. After registration open `https://schedule.rootedpsyche.org/admin` and disable public registration. If another user registered first, use the documented Tymeslot release admin promotion command rather than resetting the database.
+
+To enable the Google sign-in button set `TYMESLOT_ENABLE_GOOGLE_AUTH=true` in RootedOps root `.env` and rerun:
+
+```bash
+cd ~/RootedOps
+sudo docker compose --env-file .env -p rootedops-scheduling -f docker/scheduling/tymeslot.compose.yml up -d --no-deps tymeslot
+```
+
+The OAuth client supports login, Calendar, and Meet, but each uses a distinct registered redirect URI. Environment variables override admin-UI controls for the same setting.
+
+## Deployment verification (2026-10-28)
+
+The operator confirmed Tymeslot 1.6.0 running with HTTP 302 to `/auth/login`, active background jobs and no observed startup error. Host Nginx validated and reloaded; Certbot installed HTTPS on both scheduling domains, with certificate expiry 2027-01-26 and scheduled renewal. Google OAuth redirect links were added by the operator. Neither Google login nor SMTP delivery has yet been end-to-end verified.
+
+Rallly initial `./rallly.sh start` failed on Docker socket permission denied (`unix:///var/run/docker.sock`). This is a Docker access problem, **not** evidence of broken Rallly services. From the upstream checkout try:
+
+```bash
+cd ~/RootedOps/docker/scheduling/rallly-selfhosted
+sudo ./rallly.sh start
+sudo ./rallly.sh status
+```
+
+Use `sudo` for both so the Docker commands can access the daemon; an unprivileged `./rallly.sh status` may fail even if the stack is running. Do not loosen Docker socket permissions with `chmod 666`. Be cautious if `sudo` changes ownership of files in the checkout. The upstream script may warn `ACME_EMAIL` is unset under external proxy mode; host Certbot manages the public certificates, so that alone is not a blocker. Inspect `sudo docker ps` and logs if startup still fails.
+
 ## Rallly is already a Docker deployment
 
 The official https://github.com/lukevella/rallly-selfhosted project provides **Docker Compose**, not an application that has to be rebuilt. It launches the published Rallly web image, PostgreSQL, Garage object storage, and (by default) Traefik. **We do not need to create a custom Dockerfile/image.** Keep the upstream Compose bundle intact to ease maintenance.
