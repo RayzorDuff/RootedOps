@@ -1,5 +1,18 @@
 # Changelog
 
+## [1.5.27] - 2026-10-27
+
+### Safety and verification
+
+- Fail closed in ERPNext stock Plaid Sync Now when two enabled account mappings point to the same Plaid Item account ID; retain existing account-membership and credential guards.
+- Add regression coverage for duplicate active mappings and tax-payment cancel/amend metadata and uniqueness behavior.
+- Document bank-reconciliation closeout exceptions, non-destructive Plaid sync validation, and review-first temporary-script cleanup.
+- Do not infer historical balance adjustments from complete transaction matching. Different Plaid Items with reminted account/transaction IDs still require a fingerprint-aware importer before historical backfill.
+
+### Validation
+
+- Repository changes committed to main; deployment, runtime tests, and production /tmp cleanup must be executed on the RootedOps host.
+
 All notable changes to this project will be documented in this file.
 
 ---
