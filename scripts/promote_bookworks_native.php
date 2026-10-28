@@ -8,6 +8,9 @@ $p = json_decode(file_get_contents($argv[1]), true);
 if (!is_array($p) || ($p['schema_version'] ?? null) !== 1 || ($p['layout'] ?? null) !== 'fundraising-landing') bw_native_fail('Invalid native fundraising payload');
 foreach (['publication_id','profile','slug','source_commit','html','html_sha256'] as $f) if (!isset($p[$f]) || !is_string($p[$f])) bw_native_fail('Missing field '.$f);
 $key = $p['publication_id'].':'.$p['profile'];
+// Front-page adoption does not yet imply permission to replace imported QR media.
+if ($key === 'rooted-psyche-website:homepage' && $argv[2] === 'promote')
+    bw_native_fail('Homepage promotion is held until QR preservation and front-page rollback are verified');
 if (!preg_match('/^[a-z0-9-]+:[a-z0-9-]+$/',$key) || !preg_match('/^[a-z0-9-]+$/',$p['slug']) || !preg_match('/^[a-f0-9]{40}$/',$p['source_commit']) || !preg_match('/^[a-f0-9]{64}$/',$p['html_sha256']) || !hash_equals($p['html_sha256'],hash('sha256',$p['html']))) bw_native_fail('Payload integrity failure');
 $pages = get_posts(['post_type'=>'page','post_status'=>'any','numberposts'=>-1,'meta_key'=>'_bookworks_publication_key','meta_value'=>$key]);
 if (count($pages)!==1) bw_native_fail('Expected exactly one managed page');
