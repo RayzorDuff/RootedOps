@@ -150,3 +150,36 @@ Before treating either service as production-ready: verify SMTP login and delive
 - Rallly supports changing an account email from user account settings (upstream release notes discuss fixes to email-change handling). While signed in as `ray@edanks.com`, use the account/profile settings to change to `rootedpsyche@gmail.com` if no separate user already owns that address, then complete the email verification. This keeps the same user ID, administrator rights and existing polls. The `/control-panel` is for instance administrators, not necessarily the best place to rename a user's login. `INITIAL_ADMIN_EMAIL` selects the initial administrator; do not assume altering it retroactively renames an established account. If the address is already in use, avoid duplicate accounts and use supported account-management controls; do not reset the installation or delete database records. Before administrative changes, back up the Rallly database.
 - Tymeslot Google login and the organization's Google Calendar authorization were successfully exercised by the operator. Its current Calendar integration requests full `https://www.googleapis.com/auth/calendar` scope, which includes permanent deletion of calendars. This is broader than ideal but is required by Tymeslot's present implementation. **Public appointment attendees do not authorize Google Calendar**; only organizers connecting calendars do. Record a least-privilege improvement for the upstream provider or a future integration change, not an untested scope override in Google Cloud.
 - For embedding a Tymeslot booking page on WordPress, the official `https://tymeslot.app/docs/embed` recommends inline embed and requires whitelisting the WordPress host at `Dashboard → Embed & Share → Security`. The official Tymeslot WordPress plugin is also available. A potential BookWorks-managed WordPress publication for office appointments is a separate follow-on scope, pending a concrete publication decision. Do not add booking data collection to WordPress; send it to Tymeslot.
+
+## Rallly Google sign-in and Google Meet — confirmed setup (2026-10-28)
+
+The organizer reports successful Google sign-in as `rootedpsyche@gmail.com`, Google Meet connection under **Settings → Conferencing**, and successfully editing an existing *unfinalized* poll to replace its video conference choice with **Google Meet**. This verifies OAuth connection and poll configuration, **not** meeting creation or calendar invitations upon finalization; keep the board poll open while directors respond.
+
+The same Google Cloud OAuth **Web application** used by Tymeslot is reused for Rallly. In **Google Auth Platform → Clients → Authorized redirect URIs**, preserve the three existing Tymeslot callbacks and add both Rallly callbacks:
+
+- Google login: `https://poll.rootedpsyche.org/api/auth/callback/google`
+- Google Meet: `https://poll.rootedpsyche.org/api/integrations/callback/google-meet`
+
+Enable **Google Meet REST API** and add the Google Meet scope `https://www.googleapis.com/auth/meetings.space.created` to the OAuth consent configuration. Keep `rootedpsyche@gmail.com` as a test user if the app is in Testing. Public poll respondents do **not** need Google OAuth access. Google login and magic-code authentication are both available; the operator successfully used Google sign-in.
+
+Rallly's configuration is in the upstream checkout `docker/scheduling/rallly-selfhosted/.env`, **not** the root RootedOps `.env`. Use the source-controlled commented example in the root `.env.example` and the standalone `docker/scheduling/rallly.env.example` as references; never replace the existing generated upstream `.env` because it contains database and Garage secrets. The following entries are required in the upstream local file:
+
+```dotenv
+GOOGLE_CLIENT_ID=<same-OAuth-web-client-ID-as-Tymeslot>
+GOOGLE_CLIENT_SECRET=<same-OAuth-web-client-secret-as-Tymeslot>
+GOOGLE_LOGIN_ENABLED=true
+CONFERENCING_PROVIDERS=google-meet
+```
+
+Restart and verify:
+
+```bash
+cd ~/RootedOps/docker/scheduling/rallly-selfhosted
+sudo ./rallly.sh restart
+sudo ./rallly.sh status
+sudo ./rallly.sh logs web
+```
+
+A successful restart may initially show `health: starting`; recheck status after initialization. The `ACME_EMAIL` warning is nonblocking because `PROXY_MODE=external` and host Nginx/Certbot manage HTTPS. Rallly's container may print `No .env file found, continuing without it` from its internal Next.js/Prisma process; this is **not automatically** a failure to load the host Compose .env. The stronger evidence is a healthy container, successful OAuth sign-in, and the Google Meet provider appearing and connecting in Settings. If in doubt, inspect presence of individual variables without printing their values or secrets.
+
+Do not run Docker `down -v` or delete Rallly Postgres/Garage volumes. Verify meeting URL and email/calendar invitations on an appropriately completed poll; the active board meeting poll is awaiting directors' responses. Upstream reference: https://github.com/lukevella/rallly/blob/main/apps/docs/self-hosting/conferencing.mdx
