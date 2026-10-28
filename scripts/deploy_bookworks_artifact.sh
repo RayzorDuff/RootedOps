@@ -30,10 +30,10 @@ assert receipt["publication_key"] == manifest["publication_key"]
 assert receipt["wordpress_slug"] == payload["slug"]
 assert receipt["payload_sha256"] == digest(root / "wordpress.json")
 assert receipt["media_manifest_sha256"] == digest(root / "media/manifest.json")
-assert 1 <= len(manifest["assets"]) <= 30
+assert (len(manifest["assets"]) == 0 if payload["publication_id"] == "rooted-psyche-website" and payload["profile"] in {"homepage", "reserve-office-time", "privacy-policy", "terms-of-service"} else 1 <= len(manifest["assets"]) <= 30)
 roles = [a["role"] for a in manifest["assets"]]
 assert len(roles) == len(set(roles))
-assert "cover" in roles
+assert "cover" in roles if manifest["assets"] else payload["publication_id"] == "rooted-psyche-website"
 assert all(role == "cover" or re.fullmatch(r"chapter-[0-9]{2}", role) for role in roles)
 for asset in manifest["assets"]:
     name = asset["filename"]
@@ -49,7 +49,9 @@ PY
 )"
 bash "$ROOT/scripts/deploy_bookworks_publication.sh" --payload "$RELEASE/wordpress.json" --expected-key "$KEY" --mode "$MODE"
 if [[ "$MODE" == stage ]]; then
-  bash "$ROOT/scripts/sync_bookworks_media.sh" "$RELEASE/media/manifest.json" "$RELEASE/media/assets" check
-  bash "$ROOT/scripts/sync_bookworks_media.sh" "$RELEASE/media/manifest.json" "$RELEASE/media/assets" stage
+  if python3 -c 'import json,sys; sys.exit(0 if json.load(open(sys.argv[1]))["assets"] else 1)' "$RELEASE/media/manifest.json"; then
+    bash "$ROOT/scripts/sync_bookworks_media.sh" "$RELEASE/media/manifest.json" "$RELEASE/media/assets" check
+    bash "$ROOT/scripts/sync_bookworks_media.sh" "$RELEASE/media/manifest.json" "$RELEASE/media/assets" stage
+  fi
   bash "$ROOT/scripts/deploy_bookworks_publication.sh" --payload "$RELEASE/wordpress.json" --expected-key "$KEY" --mode stage
 fi
