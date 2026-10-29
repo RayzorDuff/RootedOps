@@ -15,7 +15,7 @@ sudo bash linode_bootstrap.sh
 sudo python3 scripts/host_recovery.py validate "$PWD/.test-deployment"
 ```
 
-Bootstrap installs Docker/Compose, NGINX/Certbot, rclone, OpenSSL and Python/YAML.
+Bootstrap prompts for a hostname suffix before installing packages. Press Enter for `-test`, enter `-test2` for a second rehearsal, or enter a single `-` for an **empty suffix** (unsuffixed hostnames). Unsuffixed names do not disable test isolation, and this procedure is **not** a production deployment procedure. The chosen suffix is saved in the private deployment receipt and used for generated service URLs, live DNS validation, NGINX vhosts and TLS certificates. Create matching Cloudflare records before the DNS/publish phase.\n\nBootstrap installs Docker/Compose, NGINX/Certbot, rclone, OpenSSL and Python/YAML.
 It generates `.test-deployment/.env` and a root `.env` symlink, with private
 permissions and distinct local secrets. Existing runtime `.env` or deployment
 directories cause refusal; credentials are never replaced. The caller regains
@@ -122,7 +122,7 @@ missing backup dependency rather than accepting an empty/fresh app as restored.
 
 ## DNS and HTTPS
 
-The supplied exports contain all 13 required default A records, each DNS-only
+The supplied exports contain all 13 required **-test** A records, each DNS-only
 and pointing to **45.33.13.190**. No AAAA records were present. A new Linode needs
 these A records repointed to **its own IP** before publishing/certificates:
 
@@ -135,7 +135,7 @@ No `grav-test`, `rootedpsyche-test.danks.store`, `schedule-test.danks.store`
 or `poll-test.danks.store` record is needed by this full-stack procedure.
 
 ```bash
-python3 scripts/host_recovery.py dns --expected-ip NEW_LINODE_IP --live
+python3 scripts/host_recovery.py dns --deployment "$PWD/.test-deployment" --expected-ip NEW_LINODE_IP --live
 # Claim initial accounts via SSH tunnels first; do not expose setup wizards.
 sudo python3 scripts/host_recovery.py publish "$PWD/.test-deployment" \
   --expected-ip NEW_LINODE_IP --email YOUR_ACME_EMAIL --accounts-configured
