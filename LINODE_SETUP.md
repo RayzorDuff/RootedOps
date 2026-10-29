@@ -1,5 +1,10 @@
 # Linode setup (Linux)
 
+For a fresh **test** Linode, use [Test environment restore](doc/test-environment-restore.md).
+It installs Docker and restores only the selected commerce services. The full-stack
+commands below are for explicitly reviewed full deployments. All checked-in NGINX
+defaults now use `*-test.danks.store`; production names require explicit local configuration.
+
 This guide now assumes RootedOps is the standalone infrastructure repository. Commands below use the RootedOps repository root, where `.env` lives at the top level and the compose file lives at `docker/docker-compose.yml`.
 
 This is intentionally practical rather than exhaustive. It assumes Ubuntu 22.04 or 24.04 on a single Linode running the full RootedOps stack from this repository.
@@ -26,7 +31,6 @@ sudo usermod -aG sudo rootedops
 sudo ufw allow 22/tcp
 sudo ufw allow 80/tcp
 sudo ufw allow 443/tcp
-sudo ufw allow 8080/tcp
 sudo ufw --force enable
 ```
 
@@ -82,7 +86,7 @@ This repo includes example NGINX site configs under:
 - `nginx/listmonk.conf`
 - `nginx/grav.conf`
 - `nginx/erpnext.conf`
-- `nginx/qr.conf` — stable MushroomProcess Product/Lot QR resolver at `qr.danks.store`
+- `nginx/qr.conf` — stable MushroomProcess Product/Lot QR resolver at `qr-test.danks.store`
 
 Install the HTTP site configs like this:
 
@@ -107,12 +111,12 @@ Then request certificates:
 
 ```bash
 sudo certbot --nginx \
-  -d n8n.yourdomain.com \
-  -d nocodb.yourdomain.com \
-  -d appsmith.yourdomain.com \
-  -d documenso.yourdomain.com \
-  -d listmonk.yourdomain.com \
-  -d erp.yourdomain.com \
+  -d n8n-test.danks.store \
+  -d nocodb-test.danks.store \
+  -d appsmith-test.danks.store \
+  -d documenso-test.danks.store \
+  -d listmonk-test.danks.store \
+  -d erp-test.danks.store \
   -d www.yourdomain.com \
   -d yourdomain.com
 ```
@@ -121,10 +125,10 @@ Update `.env` values so each service knows its public URL
 
 ### MushroomProcess QR resolver
 
-After `qr.danks.store` DNS points to this host, install/enable `nginx/qr.conf` as shown above and request its certificate separately:
+After `qr-test.danks.store` DNS points to this host, install/enable `nginx/qr.conf` as shown above and request its certificate separately:
 
 ```bash
-sudo certbot --nginx -d qr.danks.store
+sudo certbot --nginx -d qr-test.danks.store
 ```
 
 Set `MP_APP_LOTS_URL` in `.env` to the exact published Appsmith **Lots** page URL, then recreate n8n so the environment variable is available to the QR workflow:
@@ -136,8 +140,8 @@ sudo docker compose --env-file ./.env -f docker/docker-compose.yml up -d n8n
 Import and publish `MushroomProcess - QR Resolver - PGSQL` from the MushroomProcess repository. The public contract is:
 
 ```text
-https://qr.danks.store/r?i=PROD-...
-https://qr.danks.store/r?i=LOT-...
+https://qr-test.danks.store/r?i=PROD-...
+https://qr-test.danks.store/r?i=LOT-...
 ```
 
 NGINX proxies only `/r` to the internal n8n production webhook. Do not print the n8n webhook URL on labels.
@@ -162,7 +166,7 @@ sudo ufw allow 19132/udp
 Point the Minecraft DNS name at the Linode, for example:
 
 ```text
-minecraft.yourdomain.com -> your Linode IPv4 address
+minecraft-test.danks.store -> your Linode IPv4 address
 ```
 
 Do not install Minecraft under nginx `sites-available` or `sites-enabled`; Minecraft Bedrock uses UDP, not HTTP. Docker publishes the UDP port directly.
@@ -173,7 +177,7 @@ LibreChat is deployed as a RootedOps Docker service and published through host
 NGINX at:
 
 ```text
-https://ai.danks.store
+https://ai-test.danks.store
 ```
 
 The current Issue #9 Phase 1 deployment includes:
@@ -190,7 +194,7 @@ is intentionally not deployed in this phase.
 Create an A record:
 
 ```text
-ai.danks.store -> <Linode IPv4 address>
+ai-test.danks.store -> <Linode IPv4 address>
 ```
 
 ### NGINX
@@ -207,7 +211,7 @@ sudo systemctl reload nginx
 Request the certificate:
 
 ```bash
-sudo certbot --nginx -d ai.danks.store
+sudo certbot --nginx -d ai-test.danks.store
 ```
 
 Certbot may add the TLS-managed directives to the enabled site. Keep the
@@ -219,7 +223,7 @@ changes.
 Set the LibreChat/OpenRouter variables in the Linode's `.env`:
 
 ```text
-LIBRECHAT_PUBLIC_URL=https://ai.danks.store
+LIBRECHAT_PUBLIC_URL=https://ai-test.danks.store
 LIBRECHAT_HTTP_PORT=3080
 LIBRECHAT_IMAGE_TAG=v0.8.7
 OPENROUTER_KEY=<server-side OpenRouter API key>
@@ -374,13 +378,13 @@ These Redis volumes can still be backed up if you want a more literal snapshot, 
 
 ## 6. Listmonk (self-hosted newsletters)
 
-Listmonk runs on localhost port `9000` and is proxied by NGINX at `listmonk.yourdomain.com`. The official Docker image is `listmonk/listmonk`, and this stack uses `LISTMONK_IMAGE_TAG` to choose the tag.
+Listmonk runs on localhost port `9000` and is proxied by NGINX at `listmonk-test.danks.store`. The official Docker image is `listmonk/listmonk`, and this stack uses `LISTMONK_IMAGE_TAG` to choose the tag.
 
 ### 6.1 Configure environment variables
 
 Set these in `.env` before first startup:
 
-- `LISTMONK_PUBLIC_URL=https://listmonk.yourdomain.com`
+- `LISTMONK_PUBLIC_URL=https://listmonk-test.danks.store`
 - `LISTMONK_ADMIN_USER`
 - `LISTMONK_ADMIN_PASSWORD`
 - `LISTMONK_DB_PASSWORD`
@@ -391,7 +395,7 @@ Then start Listmonk:
 sudo docker compose --env-file ./.env -f docker/docker-compose.yml up -d listmonk-postgres listmonk
 ```
 
-Open `https://listmonk.yourdomain.com`, log in, and complete the initial setup. In Listmonk Admin -> Settings -> Media, set the upload path to:
+Open `https://listmonk-test.danks.store`, log in, and complete the initial setup. In Listmonk Admin -> Settings -> Media, set the upload path to:
 
 ```text
 /listmonk/uploads
@@ -416,7 +420,7 @@ Documenso runs as a Docker container exposed on localhost port `3002` and proxie
 
 ### 7.1 Configure environment variables
 Set these in `.env`:
-- `DOCUMENSO_PUBLIC_URL=https://documenso.yourdomain.com`
+- `DOCUMENSO_PUBLIC_URL=https://documenso-test.danks.store`
 - `DOCUMENSO_NEXTAUTH_SECRET`
 - `DOCUMENSO_ENCRYPTION_KEY`
 - `DOCUMENSO_ENCRYPTION_SECONDARY_KEY`
@@ -517,8 +521,8 @@ This repository builds a custom ERPNext image that includes HRMS at image build 
 
 ### 8.1 Configure environment
 Set these in `.env`:
-- `ERPNEXT_PUBLIC_URL=https://erp.yourdomain.com`
-- `ERPNEXT_SITE_NAME=erp.yourdomain.com`
+- `ERPNEXT_PUBLIC_URL=https://erp-test.danks.store`
+- `ERPNEXT_SITE_NAME=erp-test.danks.store`
 - `ERPNEXT_DB_ROOT_PASSWORD`
 - `ERPNEXT_ADMIN_PASSWORD`
 - `ERPNEXT_HRMS_BRANCH=version-16`

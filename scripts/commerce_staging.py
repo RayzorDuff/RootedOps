@@ -35,6 +35,9 @@ def render(output):
                 service['volumes'][index] = str((ROOT/'docker'/src).resolve()) + mount[len(src):]
             else:
                 volumes[src] = base.get('volumes',{}).get(src)
+                # Prevent image seed files obscuring whether a restore target is fresh.
+                index = service['volumes'].index(mount)
+                service['volumes'][index] = mount + ':nocopy'
         if 'build' in service:
             service['build']['context'] = str(ROOT)
         if 'ports' in service:
@@ -53,7 +56,7 @@ def render(output):
         if any(term in k for term in ('PASSWORD','SECRET','TOKEN','ENCRYPTION_KEY')):
             env[k] = secrets.token_hex(24)
     env.update(ERPNEXT_SITE_NAME='erp-test.danks.store',ERPNEXT_PUBLIC_URL='https://erp-test.danks.store',
-        ERPNEXT_HTTP_PORT='8085',MP_BRIDGE_DB_NAME='mushroomprocess_test',MP_BRIDGE_DB_USER='mushroomprocess_test',
+        ERPNEXT_HTTP_PORT='8086',MP_BRIDGE_DB_NAME='mushroomprocess_test',MP_BRIDGE_DB_USER='mushroomprocess_test',
         N8N_HOST='n8n-test.danks.store',N8N_PROTOCOL='https',N8N_PORT='5678',
         WEBHOOK_URL='https://n8n-test.danks.store/',N8N_EDITOR_BASE_URL='https://n8n-test.danks.store/',
         N8N_SECURE_COOKIE='true',ERPNEXT_INSTALL_COMMERCE='1')
@@ -68,6 +71,7 @@ def render(output):
         path=output/name
         fd=os.open(path,os.O_WRONLY|os.O_CREAT|os.O_EXCL,0o600)
         with os.fdopen(fd,'w') as f:f.write(text)
+    (output/'TEST_ENVIRONMENT').write_text('commerce-test\n')
     print('Created isolated configuration; credentials were not printed.')
 
 if __name__ == '__main__':

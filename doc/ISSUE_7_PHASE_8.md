@@ -32,7 +32,7 @@ git pull --ff-only origin main
 sudo docker cp erpnext/apps/rootedops_payroll/rootedops_payroll/api/plaid_link.py erpnext-backend:/home/frappe/frappe-bench/apps/rootedops_payroll/rootedops_payroll/api/plaid_link.py
 sudo docker cp erpnext/apps/rootedops_payroll/rootedops_payroll/public/js/plaid_separate_item.js erpnext-backend:/home/frappe/frappe-bench/apps/rootedops_payroll/rootedops_payroll/public/js/plaid_separate_item.js
 sudo docker cp erpnext/apps/rootedops_payroll/rootedops_payroll/hooks.py erpnext-backend:/home/frappe/frappe-bench/apps/rootedops_payroll/rootedops_payroll/hooks.py
-sudo docker compose --env-file ./.env -f docker/docker-compose.yml exec erpnext-backend bench --site erp.danks.store clear-cache
+sudo docker compose --env-file ./.env -f docker/docker-compose.yml exec erpnext-backend bench --site erp-test.danks.store clear-cache
 sudo docker compose --env-file ./.env -f docker/docker-compose.yml exec erpnext-backend bench build --app rootedops_payroll
 sudo docker compose --env-file ./.env -f docker/docker-compose.yml restart erpnext-backend erpnext-frontend
 ```

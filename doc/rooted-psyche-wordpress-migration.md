@@ -55,7 +55,7 @@ Keep the first release minimal: a homepage, basic theme, working donation action
 
 - Confirm WordPress health, memory/disk use, mobile layout, uploads, and homepage text.
 - Back up the WordPress database and uploads; verify restoration procedure. Back up existing Grav runtime content and Nginx configuration.
-- Inspect **deployed** Nginx config, not only `nginx/grav.conf` (which contains placeholder domains).
+- Inspect **deployed** Nginx config, not only `nginx/grav.conf` (which defaults to grav-test.danks.store).
 - At cutover, stop Grav and publish WordPress through the same established public host and TLS endpoint. One option is changing the active proxy upstream from port 8085 to WordPress's local port 8096, followed by `sudo nginx -t && sudo systemctl reload nginx`. This is a targeted Nginx change, not a redesign.
 - Configure WordPress canonical home/site URLs for HTTPS at the real hostname, avoiding redirects to localhost. Validate frontend, admin login, permalinks, media, and Givebutter.
 - Keep Grav data and configuration archived until the rollback window is closed. Rollback means restoring the previous proxy upstream and restarting Grav; document any new content written after cutover.

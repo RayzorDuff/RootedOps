@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
+umask 077
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
@@ -48,17 +49,17 @@ cleanup() {
 }
 # Scheduling containers are paused only during the cold volume snapshots.
 # If archiving fails, resume them before removing the temporary staging directory.
-SCHEDULING_PAUSED=()
-resume_scheduling() {
+PAUSED_CONTAINERS=()
+resume_paused_containers() {
   local container
-  for container in "${SCHEDULING_PAUSED[@]}"; do
-    log "Restarting scheduling container $container"
+  for container in "${PAUSED_CONTAINERS[@]}"; do
+    log "Restarting paused container $container"
     $DOCKER_BIN start "$container" >/dev/null || true
   done
-  SCHEDULING_PAUSED=()
+  PAUSED_CONTAINERS=()
 }
 cleanup_and_resume() {
-  resume_scheduling
+  resume_paused_containers
   cleanup
 }
 trap cleanup_and_resume EXIT
@@ -141,7 +142,25 @@ backup_volume() {
 backup_mounted_volume() {
   local container="$1" destination="$2" archive_name="$3" actual_volume
   actual_volume="$(resolve_mounted_volume "$container" "$destination")"
+  # n8n SQLite and Appsmith embedded MongoDB need cold snapshots.
+  local paused=false
+  if [[ "$container" == n8n || "$container" == appsmith ]] && container_is_running "$container"; then
+    log "Stopping $container for a consistent application volume backup"
+    $DOCKER_BIN stop "$container" >/dev/null
+    PAUSED_CONTAINERS+=("$container")
+    paused=true
+  fi
   backup_volume "$actual_volume" "$archive_name"
+  if [[ "$paused" == true ]]; then
+    $DOCKER_BIN start "$container" >/dev/null
+    # Remove only the container successfully restarted; EXIT retries on failure.
+    local -a remaining=()
+    local entry
+    for entry in "${PAUSED_CONTAINERS[@]}"; do
+      [[ "$entry" == "$container" ]] || remaining+=("$entry")
+    done
+    PAUSED_CONTAINERS=("${remaining[@]}")
+  fi
 }
 
 backup_bind_path() {
@@ -250,7 +269,7 @@ backup_scheduling() {
   for container in "${running[@]}"; do
     log "Pausing scheduling container $container for consistent volume archive"
     $DOCKER_BIN stop "$container" >/dev/null
-    SCHEDULING_PAUSED+=("$container")
+    PAUSED_CONTAINERS+=("$container")
   done
   for volume in "${volumes[@]}"; do
     backup_volume "$volume" "$volume.tgz"
@@ -272,7 +291,7 @@ backup_scheduling() {
     sh -lc 'cd /source && tar -czf /backup/rallly-selfhosted-env.tgz .env'
   cp "$REPO_ROOT/docker/scheduling/tymeslot.compose.yml" "$BACKUP_DIR/meta/tymeslot.compose.yml"
   log "Scheduling volumes and credentials captured"
-  resume_scheduling
+  resume_paused_containers
 }
 
 backup_scheduling
@@ -363,6 +382,10 @@ for name, _, _ in parsed:
   done
 }
 
-prune_remote_backups "$REMOTE_PREFIX_PATH" "$KEEP_DAILY_DAYS"
+# Verify the uploaded snapshot before applying any retention policy.
+rclone check "$BACKUP_DIR/" "$REMOTE_PREFIX_PATH/$TIMESTAMP/" --one-way
+if [[ "${SKIP_BACKUP_PRUNE:-false}" != true ]]; then
+  prune_remote_backups "$REMOTE_PREFIX_PATH" "$KEEP_DAILY_DAYS"
+fi
 
 log "Backup complete: $REMOTE_PREFIX_PATH/$TIMESTAMP"

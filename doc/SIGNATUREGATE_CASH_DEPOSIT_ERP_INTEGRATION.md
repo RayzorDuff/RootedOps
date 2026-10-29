@@ -55,7 +55,7 @@ existing Journal Entry; a changed payload under the same source key is rejected.
 Before confirming the first production batch:
 
 ```bash
-bench --site erp.danks.store execute \
+bench --site erp-test.danks.store execute \
   rootedops_payroll.services.signaturegate_deposits.preview_signaturegate_cash_deposit_match \
   --kwargs '{"deposit_date":"2026-10-05","actual_amount_cents":73700}'
 ```

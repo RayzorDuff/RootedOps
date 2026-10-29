@@ -4,7 +4,7 @@ RootedOps runs the child-facing LibreChat instance separately from the adult/dev
 
 ## Architecture
 
-- Public URL: `https://kids-ai.danks.store`
+- Public URL: `https://kids-ai-test.danks.store`
 - Docker service: `librechat-kids`
 - MongoDB: `librechat-kids-mongodb`
 - Host-only port: `3081`
@@ -16,7 +16,7 @@ RootedOps runs the child-facing LibreChat instance separately from the adult/dev
 
 ## First deployment
 
-Create the DNS record for `kids-ai.danks.store` pointing to the Linode.
+Create the DNS record for `kids-ai-test.danks.store` pointing to the Linode.
 
 On the Linode:
 
@@ -57,10 +57,10 @@ sudo cp nginx/kids-ai.conf /etc/nginx/sites-available/kids-ai.conf
 sudo ln -sf /etc/nginx/sites-available/kids-ai.conf /etc/nginx/sites-enabled/kids-ai.conf
 sudo nginx -t
 sudo systemctl reload nginx
-sudo certbot --nginx -d kids-ai.danks.store
+sudo certbot --nginx -d kids-ai-test.danks.store
 ```
 
-Open `https://kids-ai.danks.store` and create the accounts. Use ordinary user accounts; do not make the children's accounts administrators.
+Open `https://kids-ai-test.danks.store` and create the accounts. Use ordinary user accounts; do not make the children's accounts administrators.
 
 After the accounts are created, immediately disable registration:
 
@@ -95,6 +95,6 @@ Test both accounts independently:
 
 1. Sign in as child 1 and verify Chat Buddy is the only available model.
 2. Sign in as child 2 and verify the same.
-3. Confirm `https://ai.danks.store` still exposes the adult/developer LibreChat configuration.
+3. Confirm `https://ai-test.danks.store` still exposes the adult/developer LibreChat configuration.
 4. Confirm registration is disabled after account creation.
 5. Ask the kids instance for a web search and a GitHub lookup; it should not have those tools available.

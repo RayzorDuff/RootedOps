@@ -5,6 +5,8 @@ Only use the disposable Linode 45.33.13.190. Production is 45.33.107.185 and
 must not be targeted. DNS names: erp-test, appsmith-test, n8n-test, shop-test
 under danks.store. All four resolve to the test Linode as of this validation.
 
+See [repeatable fresh-host restore](test-environment-restore.md) for the current operator path.
+
 ## Baseline
 
 Ubuntu 24.04, Git, Docker Engine/Compose, PostgreSQL client and Python PyYAML
@@ -27,8 +29,9 @@ docker compose --env-file .env -f compose.yml up -d mushroomprocess-bridge-postg
 The renderer selects PostgreSQL/n8n/Appsmith and ERPNext dependencies only.
 It creates a separate Compose project, fresh credentials, isolated volumes and
 loopback-only ports. No listmonk, scheduling, Minecraft, SignatureGate or
-Rooted Psyche services. Do not copy production .env or import customer exports
-into this staging host until an explicit data-handling decision.
+Rooted Psyche services. The user authorized the attached exports and backup on this test host. Never copy
+production `.env` wholesale into staging; retain only encryption keys needed to
+recover the selected application data.
 
 ## PostgreSQL
 

@@ -5,7 +5,7 @@ version:
 
 validate:
 	@bash -n linode_bootstrap.sh backup/*.sh docker/*.sh scripts/commerce_pg_roundtrip.sh
-	@python3 -m compileall -q erpnext/apps/rootedops_payroll/rootedops_payroll erpnext/apps/rootedops_commerce/rootedops_commerce erpnext/scripts integrations/commerce
+	@python3 -m compileall -q erpnext/apps/rootedops_payroll/rootedops_payroll erpnext/apps/rootedops_commerce/rootedops_commerce erpnext/scripts integrations/commerce scripts/commerce_staging.py scripts/commerce_restore.py
 
 release-check: validate
 	@python3 scripts/validate_release.py
