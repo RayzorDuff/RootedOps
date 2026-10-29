@@ -22,6 +22,9 @@ frappe_asset_links={
     'assets/frappe': '/home/frappe/frappe-bench/apps/frappe/frappe/public',
     'assets/erpnext': '/home/frappe/frappe-bench/apps/erpnext/erpnext/public',
 } if archive_name=='erpnext_sites.tgz' else {}
+frappe_app_links={
+    'frappe/frappe/public/node_modules': '/home/frappe/frappe-bench/apps/frappe/node_modules',
+} if archive_name=='erpnext_apps.tgz' else {}
 with tarfile.open(sys.argv[1],'r:gz') as archive:
     members=archive.getmembers()
     if sys.argv[2]!='allow-empty' and not any(m.isfile() and m.size>0 for m in members):
@@ -35,7 +38,7 @@ with tarfile.open(sys.argv[1],'r:gz') as archive:
         if member.issym() or member.islnk():
             target=posixpath.normpath(posixpath.join(posixpath.dirname(name) if member.issym() else '',member.linkname))
             if target.startswith('/') or target=='..' or target.startswith('../'):
-                if not (member.issym() and frappe_asset_links.get(name)==member.linkname):
+                if not (member.issym() and (frappe_asset_links.get(name)==member.linkname or frappe_app_links.get(name)==member.linkname)):
                     raise SystemExit('Unsafe archive link: '+member.name+' -> '+member.linkname)
 PY
 }
