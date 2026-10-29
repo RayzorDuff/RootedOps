@@ -7,6 +7,9 @@ from rootedops_commerce.api import catalog
 class TestCatalog(IntegrationTestCase):
     def setUp(self):
         super().setUp()
+        if not frappe.db.exists('Item Group', 'All Item Groups'):
+            frappe.get_doc({'doctype':'Item Group','item_group_name':'All Item Groups',
+                            'is_group':1}).insert()
         if not frappe.db.exists('Item Group', '_Test Commerce Group'):
             frappe.get_doc({'doctype':'Item Group','item_group_name':'_Test Commerce Group',
                             'parent_item_group':'All Item Groups','is_group':0}).insert()

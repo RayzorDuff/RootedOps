@@ -138,3 +138,18 @@ that deployment separately before production installation.
 
 PostgreSQL dump/restore verification succeeded to a separate
 `mushroomprocess_restorecheck` database. No production data was imported.
+
+## Backup restore findings from supplied application archives
+
+The supplied Appsmith and n8n tarballs contained only a root directory. They
+cannot restore application state. The old backup script used unprefixed volume
+names; Docker can create empty volumes for names that do not exist, while Compose
+uses project-prefixed volumes. Backup/restore now resolve actual named volumes
+from each container's mount destination and refuse missing sources. Restore
+preflights every archive before any volume mutation, rejects empty application
+archives and unsafe paths/links, and uses ON_ERROR_STOP for PostgreSQL. Empty
+Redis cache/queue state is an explicitly allowed disposable exception.
+
+Application-volume archives must be regenerated from the actual mounted sources;
+no application-data restore is claimed for the empty supplied tarballs. Do not
+run the full restore script against production as a validation shortcut.

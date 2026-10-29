@@ -112,3 +112,26 @@ The output stores returned target IDs for reviewed mapping writeback. No automat
 production schedule or historical order processing is installed. Refresh snapshots
 immediately before apply: this initial manual connector has no reservation/version
 locking and is unsuitable for live checkout until that order-lifecycle work lands.
+
+## Ecwid CSV exports
+
+`ecwid_csv.py --products <products.csv> --orders <orders.csv> --store-id <id>
+--output private/source.json --plan-output private/plan.json` supports Ecwid's
+semicolon-delimited UTF-8 CSVs, including quoted multiline HTML. It preserves
+leading-zero SKUs and every original field, groups exported order lines by order
+number, and rejects conflicting order-level fields. CSV order numbers and
+email-derived customer identities use explicit namespaces distinct from API IDs.
+
+The CSV cannot prove variation completeness, supply missing gallery originals,
+confirm store currency, or prove the selected order export covers all history.
+Those limitations remain in the manifest. Store price text is preserved but no
+Item Price is created without a reviewed currency/price list.
+
+On the disposable ERP site, the bench-only helper
+`rootedops_commerce.staging.import_plan` imports simple products as draft content
+with non-stock Items and disabled source mappings, plus immutable history
+archives. It refuses other site names and unresolved source errors. It commits
+only after the entire plan succeeds; retries resolve existing identities. It
+creates a test migration Item Group/UOM without assuming the ERP setup wizard
+already ran. Variant imports need reviewed attributes and are explicitly refused
+by this simple-product CSV helper.

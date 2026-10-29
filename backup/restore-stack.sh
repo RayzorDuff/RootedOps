@@ -3,6 +3,8 @@ set -Eeuo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+# shellcheck source=volume-tools.sh
+source "$SCRIPT_DIR/volume-tools.sh"
 COMPOSE_FILE="$REPO_ROOT/docker/docker-compose.yml"
 ENV_FILE="$REPO_ROOT/.env"
 
@@ -42,13 +44,24 @@ restore_volume() {
     log "Skipping missing archive $archive"
     return 0
   fi
+  validate_managed_volume_archive "$archive"
+  # Targets must already exist and be selected from actual container mounts.
+  $DOCKER_BIN volume inspect "$volume_name" >/dev/null
   log "Restoring volume $volume_name from $archive_name"
-  $DOCKER_BIN volume create "$volume_name" >/dev/null
   $DOCKER_BIN run --rm \
     -v "$volume_name:/volume" \
     -v "$BACKUP_DIR/volumes:/backup:ro" \
     alpine:3.20 \
     sh -lc "rm -rf /volume/* /volume/.[!.]* /volume/..?* 2>/dev/null || true; cd /volume && tar -xzf /backup/$archive_name"
+}
+
+restore_mounted_volume() {
+  local container="$1" destination="$2" archive_name="$3" actual_volume
+  local archive="$BACKUP_DIR/volumes/$archive_name"
+  [[ -f "$archive" ]] || { log "Skipping missing archive $archive"; return 0; }
+  validate_managed_volume_archive "$archive"
+  actual_volume="$(resolve_mounted_volume "$container" "$destination")"
+  restore_volume "$actual_volume" "$archive_name"
 }
 
 restore_bind_archive() {
@@ -71,7 +84,7 @@ restore_postgres_dump() {
     return 0
   fi
   log "Restoring Postgres dump $dump_file into $container/$db"
-  gunzip -c "$dump_path" | $DOCKER_BIN exec -i -e PGPASSWORD="${5:-}" "$container" psql -U "$user" -d "$db"
+  gunzip -c "$dump_path" | $DOCKER_BIN exec -i -e PGPASSWORD="${5:-}" "$container" psql -v ON_ERROR_STOP=1 -U "$user" -d "$db"
 }
 
 log "Validating checksums if present"
@@ -79,16 +92,22 @@ if [[ -f "$BACKUP_DIR/SHA256SUMS" ]]; then
   (cd "$BACKUP_DIR" && sha256sum -c SHA256SUMS)
 fi
 
+# Validate all archives before the first mutation, including empty/malicious tars.
+for archive in "$BACKUP_DIR"/volumes/*.tgz; do
+  [[ -f "$archive" ]] || continue
+  validate_managed_volume_archive "$archive"
+done
+
 log "Restoring non-database volumes"
-restore_volume nocodb_data nocodb_data.tgz
-restore_volume n8n_data n8n_data.tgz
-restore_volume appsmith_stacks appsmith_stacks.tgz
-restore_volume erpnext_sites erpnext_sites.tgz
-restore_volume erpnext_apps erpnext_apps.tgz
-restore_volume erpnext_logs erpnext_logs.tgz
-restore_volume docker_rootedpsyche_wordpress_html rootedpsyche-wordpress-html.tgz
-restore_volume erpnext_redis_cache_data erpnext_redis_cache_data.tgz
-restore_volume erpnext_redis_queue_data erpnext_redis_queue_data.tgz
+restore_mounted_volume nocodb /usr/app/data nocodb_data.tgz
+restore_mounted_volume n8n /home/node/.n8n n8n_data.tgz
+restore_mounted_volume appsmith /appsmith-stacks appsmith_stacks.tgz
+restore_mounted_volume erpnext-backend /home/frappe/frappe-bench/sites erpnext_sites.tgz
+restore_mounted_volume erpnext-backend /home/frappe/frappe-bench/apps erpnext_apps.tgz
+restore_mounted_volume erpnext-backend /home/frappe/frappe-bench/logs erpnext_logs.tgz
+restore_mounted_volume docker-rootedpsyche-wordpress-1 /var/www/html rootedpsyche-wordpress-html.tgz
+restore_mounted_volume erpnext-redis-cache /data erpnext_redis_cache_data.tgz
+restore_mounted_volume erpnext-redis-queue /data erpnext_redis_queue_data.tgz
 
 
 # Scheduling restore is destructive. Run only against a maintenance-window host

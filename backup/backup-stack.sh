@@ -3,6 +3,8 @@ set -Eeuo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+# shellcheck source=volume-tools.sh
+source "$SCRIPT_DIR/volume-tools.sh"
 COMPOSE_FILE="$REPO_ROOT/docker/docker-compose.yml"
 ENV_FILE="$REPO_ROOT/.env"
 
@@ -124,6 +126,8 @@ mariadb_dump_all() {
 
 backup_volume() {
   local volume_name="$1" archive_name="$2"
+  # Refuse missing sources: docker run -v would silently create an empty volume.
+  $DOCKER_BIN volume inspect "$volume_name" >/dev/null
   log "Archiving volume $volume_name"
   mkdir -p "$BACKUP_DIR/volumes"
   $DOCKER_BIN run --rm \
@@ -131,6 +135,13 @@ backup_volume() {
     -v "$BACKUP_DIR/volumes:/backup" \
     alpine:3.20 \
     sh -lc "cd /volume && tar -czf /backup/$archive_name --numeric-owner ."
+  validate_managed_volume_archive "$BACKUP_DIR/volumes/$archive_name"
+}
+
+backup_mounted_volume() {
+  local container="$1" destination="$2" archive_name="$3" actual_volume
+  actual_volume="$(resolve_mounted_volume "$container" "$destination")"
+  backup_volume "$actual_volume" "$archive_name"
 }
 
 backup_bind_path() {
@@ -187,18 +198,18 @@ mariadb_dump_all erpnext-db "$ERPNEXT_DB_ROOT_PASSWORD" "$BACKUP_DIR/db/erpnext-
 mariadb_dump_all docker-rootedpsyche-wordpress-db-1 "$ROOTEDPSYCHE_WP_DB_ROOT_PASSWORD" "$BACKUP_DIR/db/rootedpsyche-wordpress-all-databases.sql.gz"
 
 # Non-database Docker volumes needed for a practical restore.
-backup_volume nocodb_data nocodb_data.tgz
-backup_volume n8n_data n8n_data.tgz
-backup_volume appsmith_stacks appsmith_stacks.tgz
-backup_volume erpnext_sites erpnext_sites.tgz
-backup_volume erpnext_apps erpnext_apps.tgz
-backup_volume erpnext_logs erpnext_logs.tgz
+backup_mounted_volume nocodb /usr/app/data nocodb_data.tgz
+backup_mounted_volume n8n /home/node/.n8n n8n_data.tgz
+backup_mounted_volume appsmith /appsmith-stacks appsmith_stacks.tgz
+backup_mounted_volume erpnext-backend /home/frappe/frappe-bench/sites erpnext_sites.tgz
+backup_mounted_volume erpnext-backend /home/frappe/frappe-bench/apps erpnext_apps.tgz
+backup_mounted_volume erpnext-backend /home/frappe/frappe-bench/logs erpnext_logs.tgz
 # The full WordPress HTML volume includes uploads, plugins, themes, and MU plugins.
-backup_volume docker_rootedpsyche_wordpress_html rootedpsyche-wordpress-html.tgz
+backup_mounted_volume docker-rootedpsyche-wordpress-1 /var/www/html rootedpsyche-wordpress-html.tgz
 
 # Usually disposable, but keeping them may help preserve in-flight state.
-backup_volume erpnext_redis_cache_data erpnext_redis_cache_data.tgz
-backup_volume erpnext_redis_queue_data erpnext_redis_queue_data.tgz
+backup_mounted_volume erpnext-redis-cache /data erpnext_redis_cache_data.tgz
+backup_mounted_volume erpnext-redis-queue /data erpnext_redis_queue_data.tgz
 
 
 # Dedicated Compose projects created during the scheduling deployment:

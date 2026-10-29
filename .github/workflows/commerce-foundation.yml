@@ -1,9 +1,9 @@
 name: Commerce foundation
 on:
   push:
-    paths: ['erpnext/apps/rootedops_commerce/**', 'integrations/commerce/**', 'scripts/commerce_staging.py', 'tests/test_commerce_foundation.py', 'docker/**', '.github/workflows/commerce-foundation.yml']
+    paths: ['erpnext/apps/rootedops_commerce/**', 'integrations/commerce/**', 'scripts/commerce_staging.py', 'tests/test_commerce*.py', 'backup/**', 'docker/**', '.github/workflows/commerce-foundation.yml']
   pull_request:
-    paths: ['erpnext/apps/rootedops_commerce/**', 'integrations/commerce/**', 'scripts/commerce_staging.py', 'tests/test_commerce_foundation.py', 'docker/**', '.github/workflows/commerce-foundation.yml']
+    paths: ['erpnext/apps/rootedops_commerce/**', 'integrations/commerce/**', 'scripts/commerce_staging.py', 'tests/test_commerce*.py', 'backup/**', 'docker/**', '.github/workflows/commerce-foundation.yml']
 permissions:
   contents: read
 jobs:
