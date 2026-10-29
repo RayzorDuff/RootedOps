@@ -46,6 +46,9 @@ def normalize_woo(raw, signature, secrets, site, mappings, gateways):
         raise ValueError('Unknown order status requires review')
     # Woo's GMT field has no offset; do not accept local timestamps.
     modified = datetime.strptime(order['date_modified_gmt'], '%Y-%m-%dT%H:%M:%S').replace(tzinfo=timezone.utc)
+    currency = order['currency']
+    if not isinstance(currency, str) or len(currency) != 3 or not currency.isalpha() or currency != currency.upper():
+        raise ValueError('Explicit ISO currency required')
     processor = gateways[order['payment_method']]
     if processor != 'clover':
         raise ValueError('Only reviewed Clover gateway supported in this milestone')

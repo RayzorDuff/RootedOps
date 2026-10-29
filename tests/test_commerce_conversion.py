@@ -130,6 +130,11 @@ class WebhookTests(unittest.TestCase):
             with self.assertRaises(ValueError):self.normalize(source)
         source=self.fixture();source['line_items'][0]['sku']='other'
         with self.assertRaises(ValueError):self.normalize(source)
+    def test_currency_must_be_explicit_uppercase_iso_shape(self):
+        for value in ('usd', 'US', '', None, 123):
+            source=self.fixture();source['currency']=value
+            with self.assertRaises(ValueError):self.normalize(source)
+
     def test_refunds_are_auditable_not_automatic_restock(self):
         source=self.fixture();source.update(status='refunded',refunds=[{'id':3,'total':'-15.00'}])
         normalized=self.normalize(source)
