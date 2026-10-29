@@ -1,0 +1,66 @@
+import importlib.util
+from pathlib import Path
+import sys
+import tempfile
+import unittest
+
+ROOT=Path(__file__).resolve().parents[1]
+sys.path.insert(0,str(ROOT/'scripts'))
+import host_recovery as recovery
+
+class HostRecoveryTests(unittest.TestCase):
+ def test_distinct_generated_secrets_and_crypto_shapes(self):
+    import base64
+    a,b=recovery.environment(),recovery.environment()
+    passwords=[v for k,v in a.items() if k.endswith('_DB_PASSWORD')]
+    self.assertEqual(len(passwords),len(set(passwords)))
+    self.assertNotEqual(a['N8N_ENCRYPTION_KEY'],b['N8N_ENCRYPTION_KEY'])
+    self.assertEqual(len(bytes.fromhex(a['LIBRECHAT_CREDS_IV'])),16)
+    self.assertEqual(len(base64.b64decode(a['TYMESLOT_DATA_ENCRYPTION_KEY'])),32)
+    for key in ('ECWID_SECRET_TOKEN','CLOVER_ACCESS_TOKEN','OPENROUTER_KEY','ERPNEXT_API_SECRET'):
+        self.assertEqual(a[key],'')
+ def test_private_write_refuses_overwrite(self):
+    with tempfile.TemporaryDirectory() as directory:
+        path=Path(directory)/'private/.env';recovery.private_write(path,'secret')
+        self.assertEqual(path.stat().st_mode&0o777,0o600)
+        with self.assertRaises(FileExistsError):recovery.private_write(path,'replacement')
+        self.assertEqual(path.read_text(),'secret')
+ def test_render_isolates_and_resolves_build_and_mount_paths(self):
+    source=Path('/arbitrary/home/RootedOps/docker')
+    config={'services':{'app':{'container_name':'production','build':{'context':'..'},'environment':{'FLAG':False},'ports':['8080:80'],'volumes':['../data:/data:rw','state:/state']}},'volumes':{'state':None}}
+    result=recovery.transform(config,source,'test')
+    app=result['services']['app']
+    self.assertNotIn('container_name',app)
+    self.assertEqual(app['ports'],['127.0.0.1:8080:80'])
+    self.assertEqual(app['build']['context'],'/arbitrary/home/RootedOps')
+    self.assertTrue(app['volumes'][0].startswith('/arbitrary/home/RootedOps/data:'))
+    self.assertEqual(app['environment']['FLAG'],'false')
+    self.assertTrue(result['networks']['default']['internal'])
+    self.assertEqual(config['services']['app']['container_name'],'production')
+ def test_all_declared_hosts_have_matching_vhosts(self):
+    import re
+    for name,host in recovery.HOSTS.items():
+        path=ROOT/'nginx'/(name+'.conf')
+        self.assertTrue(path.is_file(),str(path))
+        self.assertIn(host,re.findall(r'server_name\s+([^;]+);',path.read_text())[0].split())
+ def test_source_recovery_retains_required_tree_and_grav_retirement(self):
+    import yaml
+    for path in ('linode_bootstrap.sh','backup/backup-stack.sh','erpnext/apps/rootedops_commerce/pyproject.toml','.github/workflows/commerce-foundation.yml'):
+        self.assertTrue((ROOT/path).is_file(),path)
+    self.assertNotIn('grav',yaml.safe_load((ROOT/'docker/docker-compose.yml').read_text())['services'])
+    self.assertFalse((ROOT/'nginx/grav.conf').exists())
+
+class FullRestoreGuards(unittest.TestCase):
+ def test_existing_host_is_refused_before_any_restore_mutation(self):
+    from unittest.mock import patch
+    import full_restore
+    with tempfile.TemporaryDirectory() as directory:
+        root=Path(directory);env=root/'test';backup=root/'backup';env.mkdir();backup.mkdir()
+        (env/'TEST_ENVIRONMENT').write_text('rootedops-full-test\n')
+        (backup/'SHA256SUMS').write_text('')
+        recovery=full_restore.Recovery(env,backup)
+        with patch.object(full_restore.subprocess,'run') as run, patch.object(full_restore.subprocess,'check_output',return_value='existing-container\n'):
+            with self.assertRaisesRegex(ValueError,'new host'):
+                recovery.run(None)
+            self.assertFalse((env/'RESTORE_STARTED').exists())
+            self.assertTrue(all(call.args[0][0]=='sha256sum' for call in run.call_args_list))

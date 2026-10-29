@@ -3,6 +3,8 @@ ARG ERPNEXT_HRMS_BRANCH=version-16
 ARG ERPNEXT_ESS_BRANCH=version-16
 
 FROM frappe/erpnext:${ERPNEXT_IMAGE_TAG}
+ARG ERPNEXT_HRMS_BRANCH=version-16
+ARG ERPNEXT_ESS_BRANCH=version-16
 
 USER root
 RUN apt-get update && apt-get install -y git && rm -rf /var/lib/apt/lists/*

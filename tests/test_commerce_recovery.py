@@ -67,4 +67,4 @@ class RecoveryTests(unittest.TestCase):
             names = re.findall(r'server_name\s+([^;]+);', path.read_text())
             self.assertTrue(names, path.name)
             for name in ' '.join(names).split():
-                self.assertRegex(name, r'^[a-z0-9-]+-test\.danks\.store$', path.name)
+                self.assertRegex(name, r'^[a-z0-9-]+-test\.(danks\.store|rootedpsyche\.org)$', path.name)

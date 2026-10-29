@@ -1,0 +1,207 @@
+#!/usr/bin/env python3
+"""Fresh-host full-stack restore. Internal test networks only; no production route."""
+import argparse
+import gzip
+import json
+import os
+from pathlib import Path
+import re
+import shutil
+import subprocess
+import tarfile
+import time
+import yaml
+from host_recovery import ROOT,projects,command
+from commerce_restore import read_env,copy_counts
+
+# Archive names are stable even though destination Compose project names differ.
+VOLUMES=[('core','nocodb','/usr/app/data','nocodb_data.tgz'),
+ ('core','n8n','/home/node/.n8n','n8n_data.tgz'),
+ ('core','appsmith','/appsmith-stacks','appsmith_stacks.tgz'),
+ *[('core','erpnext-backend','/home/frappe/frappe-bench/'+kind,'erpnext_'+kind+'.tgz') for kind in ('sites','apps','logs')],
+ ('core','erpnext-redis-cache','/data','erpnext_redis_cache_data.tgz'),
+ ('core','erpnext-redis-queue','/data','erpnext_redis_queue_data.tgz'),
+ ('rootedpsyche','rootedpsyche-wordpress','/var/www/html','rootedpsyche-wordpress-html.tgz'),
+ ('dank','dank-wordpress','/var/www/html','dank-wordpress-html.tgz'),
+ ('tymeslot','tymeslot','/app/data','rootedops-scheduling_tymeslot_data.tgz'),
+ ('tymeslot','tymeslot','/var/lib/postgresql/data','rootedops-scheduling_tymeslot_pg.tgz'),
+ ('rallly','db',None,'rallly-selfhosted_db-data.tgz'),
+ ('rallly','garage','/var/lib/garage/meta','rallly-selfhosted_garage-meta.tgz'),
+ ('rallly','garage','/var/lib/garage/data','rallly-selfhosted_garage-data.tgz')]
+for kind in ('','-kids'):
+ for service,target,archive in [('librechat'+kind+'-mongodb','/data/db','mongodb'),
+   ('librechat'+kind,'/app/data','data'),('librechat'+kind,'/app/uploads','uploads'),
+   ('librechat'+kind,'/app/api/logs','logs')]:
+  VOLUMES.append(('core',service,target,'librechat'+kind+'-'+archive+'.tgz'))
+PG=[('signaturegate-postgres','SIG'),('mushroomprocess-bridge-postgres','MP_BRIDGE'),
+ ('listmonk-postgres','LISTMONK'),('nocodb-meta-postgres','NC'),('documenso-postgres','DOCUMENSO')]
+LOCAL_KEYS=('N8N_ENCRYPTION_KEY','APPSMITH_ENCRYPTION_PASSWORD','APPSMITH_ENCRYPTION_SALT',
+ 'TYMESLOT_DATA_ENCRYPTION_KEY','TYMESLOT_SECRET_KEY_BASE','TYMESLOT_GOOGLE_STATE_SECRET',
+ 'LIBRECHAT_CREDS_KEY','LIBRECHAT_CREDS_IV','LIBRECHAT_KIDS_CREDS_KEY','LIBRECHAT_KIDS_CREDS_IV',
+ 'DOCUMENSO_ENCRYPTION_KEY','DOCUMENSO_ENCRYPTION_SECONDARY_KEY','DOCUMENSO_SIGNING_PASSPHRASE','NC_AUTH_JWT_SECRET')
+
+
+def write_env(path,values):
+    temporary=path.with_suffix('.new')
+    fd=os.open(temporary,os.O_WRONLY|os.O_CREAT|os.O_EXCL,0o600)
+    with os.fdopen(fd,'w') as f:
+        for k,v in values.items():
+            # Compose dotenv supports single-quoted literal values; reject multiline records.
+            if '\n' in v or '\r' in v:raise ValueError('Multiline secret requires manual configuration')
+            f.write(k+"='"+v.replace("'","\\'")+"'\n")
+    temporary.replace(path)
+
+
+class Recovery:
+ def __init__(self,output,backup):
+    self.output,self.backup=output.resolve(),backup.resolve()
+    self.commands={name:command(self.output/'.env',self.output/(name+'.yml'),[]) for name in ('core','rootedpsyche','dank','tymeslot')}
+    self.commands['rallly']=command(self.output/'rallly/.env',self.output/'rallly/compose.yml',['--profile','bundled-db','--profile','bundled-storage'])
+ def dc(self,project,*args,**kw):return subprocess.run(self.commands[project]+list(args),check=True,**kw)
+ def preflight(self):
+    if (self.output/'TEST_ENVIRONMENT').read_text().strip()!='rootedops-full-test':raise ValueError('Explicit full-test environment required')
+    if not (self.backup/'SHA256SUMS').is_file():raise ValueError('Full restore requires SHA256SUMS')
+    subprocess.run(['sha256sum','--check','--quiet','SHA256SUMS'],cwd=self.backup,check=True)
+    if subprocess.check_output(['docker','ps','-aq'],text=True).strip():
+        raise ValueError('Full recovery requires a new host without existing containers')
+    for _,path,_ in projects(self.output):
+        config=yaml.safe_load(path.read_text())
+        if config['networks']['default'].get('internal') is not True:raise ValueError('Outbound isolation required')
+        if any(s.get('container_name') for s in config['services'].values()):raise ValueError('Explicit container names forbidden')
+        if any(v for v in config.get('volumes',{}).values()):raise ValueError('External/named shared volumes forbidden')
+        if any(not str(p).startswith('127.0.0.1:') for s in config['services'].values() for p in s.get('ports',[])):raise ValueError('Loopback ports required')
+        project=config['name']
+        for kind in ('container','volume'):
+            cmd=['docker','ps','-aq','--filter','label=com.docker.compose.project='+project] if kind=='container' else ['docker','volume','ls','-q','--filter','label=com.docker.compose.project='+project]
+            if subprocess.check_output(cmd,text=True).strip():raise ValueError('Existing test project; refusing destructive reuse')
+    if not (self.output/'IMAGE_COMPATIBILITY_REVIEWED').is_file():raise ValueError('Review backup app/image versions first; create IMAGE_COMPATIBILITY_REVIEWED only after compatibility is confirmed')
+    if not (self.backup/'meta/.env').is_file():raise ValueError('Source local encryption keys are required in meta/.env')
+    for path in (self.backup/'volumes').glob('*.tgz'):
+        subprocess.run(['bash','-c','source "$1"; validate_managed_volume_archive "$2"','preflight',str(ROOT/'backup/volume-tools.sh'),str(path)],check=True)
+    known={v[3] for v in VOLUMES}
+    extra={p.name for p in (self.backup/'volumes').glob('*.tgz')}-known
+    if extra:raise ValueError('Unmapped archives require explicit recovery mapping: '+', '.join(sorted(extra)))
+    known_db={service+'.sql.gz' for service,_ in PG}|{'erpnext-all-databases.sql.gz','rootedpsyche-wordpress-all-databases.sql.gz','dank-wordpress-all-databases.sql.gz'}
+    extra_db={p.name for p in (self.backup/'db').glob('*.gz')}-known_db
+    if extra_db:raise ValueError('Unmapped database dumps: '+', '.join(sorted(extra_db)))
+    source=read_env(self.backup/'meta/.env')
+    if (self.backup/'volumes/n8n_data.tgz').exists() and not source.get('N8N_ENCRYPTION_KEY'):
+        raise ValueError('Missing original n8n encryption key')
+    scheduling=[p.name for p in (self.backup/'volumes').glob('*.tgz') if p.name.startswith(('rootedops-scheduling_','rallly-selfhosted_'))]
+    if scheduling and len(scheduling)!=5:raise ValueError('Incomplete scheduling backup')
+    if scheduling and not (self.backup/'bind_mounts/rallly-selfhosted-env.tgz').is_file():raise ValueError('Missing Rallly credentials')
+    for path in (self.backup/'db').glob('*.gz'):
+
+        with gzip.open(path,'rb') as stream:
+            while stream.read(1024*1024):pass
+    # Validate bind archives too, before *any* mutation.
+    for path in (self.backup/'bind_mounts').glob('*.tgz'):
+        subprocess.run(['bash','-c','source "$1"; validate_volume_archive "$2"','preflight',str(ROOT/'backup/volume-tools.sh'),str(path)],check=True)
+ def volume(self,project,service,destination,archive):
+    self.dc(project,'create','--no-deps',service)
+    cid=self.dc(project,'ps','-a','-q',service,capture_output=True,text=True).stdout.strip()
+    mounts=json.loads(subprocess.check_output(['docker','inspect','-f','{{json .Mounts}}',cid],text=True))
+    matches=[m for m in mounts if m['Type']=='volume' and (m['Destination']==destination if destination else m['Destination'].startswith('/var/lib/postgresql'))]
+    if len(matches)!=1:raise ValueError('Ambiguous target volume')
+    subprocess.run(['docker','run','--rm','-v',matches[0]['Name']+':/target','-v',str(self.backup/'volumes')+':/backup:ro','alpine:3.20','sh','-ec',
+     'find /target -mindepth 1 -maxdepth 1 -exec rm -rf {} +; tar -xzf "/backup/$1" -C /target','restore',archive],check=True)
+ def sql(self,project,file,args):
+    with gzip.open(self.backup/'db'/file,'rb') as f:
+        proc=subprocess.Popen(self.commands[project]+args,stdin=subprocess.PIPE)
+        try:
+            while block:=f.read(1024*1024):proc.stdin.write(block)
+            proc.stdin.close()
+            if proc.wait():raise RuntimeError('SQL restore failed')
+        finally:
+            if proc.poll() is None:proc.terminate();proc.wait()
+ def ready(self,project,service):
+    for _ in range(120):
+        cid=self.dc(project,'ps','-q',service,capture_output=True,text=True).stdout.strip()
+        if cid and subprocess.check_output(['docker','inspect','-f','{{.State.Health.Status}}',cid],text=True).strip()=='healthy':return
+        time.sleep(2)
+    raise RuntimeError('Readiness timed out: '+service)
+ def run(self,source_site):
+    self.preflight()
+    with (self.output/'RESTORE_STARTED').open('x') as f:f.write('Inspect partial state on failure; never auto-retry.\n')
+    env=read_env(self.output/'.env');source=read_env(self.backup/'meta/.env')
+    env.update({k:source[k] for k in LOCAL_KEYS if source.get(k)})
+    # Preserve local database passwords required by restored service configuration.
+    env.update({k:source[k] for k in env if k.endswith(('_DB_PASSWORD','_DB_ROOT_PASSWORD')) and source.get(k)})
+    write_env(self.output/'.env',env)
+    # Raw Rallly clusters must retain their PostgreSQL major and encryption/storage keys.
+    rallly_archive=self.backup/'volumes/rallly-selfhosted_db-data.tgz'
+    if rallly_archive.exists():
+        with tarfile.open(rallly_archive) as archive:
+            version=[m for m in archive if m.name.lstrip('./')=='PG_VERSION']
+            if len(version)!=1:raise ValueError('Cannot determine Rallly cluster version')
+            major=archive.extractfile(version[0]).read().decode().strip()
+        if not major.isdigit():raise ValueError('Invalid PostgreSQL major')
+        r_env=read_env(self.output/'rallly/.env')
+        with tarfile.open(self.backup/'bind_mounts/rallly-selfhosted-env.tgz') as archive:
+            member=next(m for m in archive if m.name.lstrip('./')=='.env')
+            text=archive.extractfile(member).read().decode()
+        temp=self.output/'rallly/source.env';temp.write_text(text);temp.chmod(0o600)
+        old=read_env(temp)
+        r_env.update({k:old[k] for k in ('SECRET_PASSWORD','POSTGRES_PASSWORD','S3_ACCESS_KEY_ID','S3_SECRET_ACCESS_KEY','GARAGE_RPC_SECRET')})
+        r_env.update(POSTGRES_VERSION=major,POSTGRES_DATA_MOUNT='/var/lib/postgresql' if int(major)>=18 else '/var/lib/postgresql/data')
+        write_env(self.output/'rallly/.env',r_env);temp.unlink()
+    restored=[];verified={}
+    for project,service,destination,archive in VOLUMES:
+        if (self.backup/'volumes'/archive).is_file():
+            self.volume(project,service,destination,archive);restored.append(archive)
+    for service,prefix in PG:
+        file=service+'.sql.gz'
+        if not (self.backup/'db'/file).is_file():continue
+        self.dc('core','up','-d',service);self.ready('core',service)
+        self.sql('core',file,['exec','-T',service,'psql','-v','ON_ERROR_STOP=1','-U',env[prefix+'_DB_USER'],'-d',env[prefix+'_DB_NAME']])
+        expected=copy_counts(self.backup/'db'/file)
+        for table,count in expected.items():
+            actual=self.dc('core','exec','-T',service,'psql','-v','ON_ERROR_STOP=1','-U',env[prefix+'_DB_USER'],'-d',env[prefix+'_DB_NAME'],'-Atc',f'SELECT count(*) FROM public."{table}"',capture_output=True,text=True).stdout.strip()
+            if int(actual)!=count:raise ValueError('Restored PostgreSQL COPY count mismatch')
+        verified[file]=len(expected);restored.append(file)
+    for project,service,file,password,database in [
+      ('rootedpsyche','rootedpsyche-wordpress-db','rootedpsyche-wordpress-all-databases.sql.gz','ROOTEDPSYCHE_WP_DB_ROOT_PASSWORD','wordpress'),
+      ('dank','dank-wordpress-db','dank-wordpress-all-databases.sql.gz','DANK_WP_DB_ROOT_PASSWORD','dank_wordpress')]:
+        if not (self.backup/'db'/file).is_file():continue
+        self.dc(project,'up','-d',service);self.ready(project,service)
+        self.sql(project,file,['exec','-T','-e','MYSQL_PWD='+env[password],service,'mariadb','-uroot','--one-database',database]);restored.append(file)
+    # ERPNext system users are never restored. Preserve only the site's encryption key/DB identity.
+    erp=self.backup/'db/erpnext-all-databases.sql.gz'
+    if erp.exists():
+        if not source_site or not re.fullmatch(r'[a-zA-Z0-9.-]+',source_site):raise ValueError('--source-site required')
+        script="import json,pathlib,sys;p=pathlib.Path('sites')/sys.argv[1]/'site_config.json';print(json.dumps(json.loads(p.read_text())))"
+        cfg=json.loads(self.dc('core','run','--rm','--no-deps','--entrypoint','python','erpnext-backend','-c',script,source_site,capture_output=True,text=True).stdout)
+        db=cfg['db_name'];password=cfg['db_password']
+        if not re.fullmatch(r'[A-Za-z0-9_]+',db):raise ValueError('Unexpected ERP database identity')
+        self.dc('core','up','-d','erpnext-db');self.ready('core','erpnext-db')
+        sql="SET sql_mode='NO_BACKSLASH_ESCAPES'; CREATE DATABASE `"+db+"`; CREATE USER '"+db+"'@'%' IDENTIFIED BY '"+password.replace("'","''")+"'; GRANT ALL ON `"+db+"`.* TO '"+db+"'@'%';"
+        self.dc('core','exec','-T','-e','MYSQL_PWD='+env['ERPNEXT_DB_ROOT_PASSWORD'],'erpnext-db','mariadb','-uroot',input=sql.encode())
+        self.sql('core',erp.name,['exec','-T','-e','MYSQL_PWD='+env['ERPNEXT_DB_ROOT_PASSWORD'],'erpnext-db','mariadb','-uroot','--one-database',db])
+        script="import json,pathlib,sys;s=pathlib.Path('sites');p=s/sys.argv[1];q=s/'erp-test.danks.store';p.rename(q) if p!=q else None;f=q/'site_config.json';c=json.loads(f.read_text());c.update(db_host='erpnext-db',db_user=c['db_name'],host_name='https://erp-test.danks.store',maintenance_mode=1,pause_scheduler=1);f.write_text(json.dumps(c));f.chmod(0o600)"
+        self.dc('core','run','--rm','--no-deps','--entrypoint','python','erpnext-backend','-c',script,source_site)
+        restored.append(erp.name)
+    # Preserve all bind archives privately, never activate backed-up production NGINX.
+    quarantine=self.output/'restored-bind-mounts';quarantine.mkdir(mode=0o700)
+    for path in (self.backup/'bind_mounts').glob('*.tgz'):
+        destination=quarantine/path.stem;destination.mkdir(mode=0o700)
+        subprocess.run(['tar','-xzf',str(path),'-C',str(destination)],check=True)
+        restored.append(path.name)
+        if path.name=='documenso-certs.tgz':
+            cert=destination/'certs/cert.p12'
+            if not cert.is_file():raise ValueError('Missing Documenso signing certificate')
+            shutil.copyfile(cert,self.output/'certs/cert.p12');(self.output/'certs/cert.p12').chmod(0o644)
+        if path.name=='listmonk.tgz':
+            uploads=destination/'listmonk/uploads'
+            if uploads.is_dir():
+                config=yaml.safe_load((self.output/'core.yml').read_text())
+                config['services']['listmonk']['volumes']=[str(uploads)+':/listmonk/uploads:rw']
+                (self.output/'core.yml').write_text(yaml.safe_dump(config,sort_keys=False))
+    report={'restored':restored,'postgres_copy_tables_verified':verified,'apps_started':False,'external_egress':False,'migrations_run':False,
+      'acceptance':'Pending endpoint remapping, health/data checks and operator review. Do not start schedulers.'}
+    (self.output/'restore-receipt.json').write_text(json.dumps(report,indent=2))
+    print('Full archive recovery completed into isolated projects. Applications remain stopped for endpoint and version review.')
+
+
+if __name__=='__main__':
+ p=argparse.ArgumentParser(description=__doc__);p.add_argument('environment',type=Path);p.add_argument('backup',type=Path);p.add_argument('--source-site')
+ a=p.parse_args();Recovery(a.environment,a.backup).run(a.source_site)

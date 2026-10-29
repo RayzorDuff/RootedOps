@@ -11,3 +11,5 @@ __pycache__/
 # Commerce exports contain customer/order data; never commit.
 /integrations/commerce/private/
 /integrations/commerce/validation/node_modules/
+
+/.test-deployment/

@@ -10,7 +10,7 @@ services:
       - "127.0.0.1:4000:4000"
     environment:
       DEPLOYMENT_TYPE: docker
-      PHX_HOST: ${TYMESLOT_PUBLIC_HOST:-schedule-test.danks.store}
+      PHX_HOST: ${TYMESLOT_PUBLIC_HOST:-schedule-test.rootedpsyche.org}
       SECRET_KEY_BASE: ${TYMESLOT_SECRET_KEY_BASE:?Set TYMESLOT_SECRET_KEY_BASE}
       DATA_ENCRYPTION_KEY: ${TYMESLOT_DATA_ENCRYPTION_KEY:?Set TYMESLOT_DATA_ENCRYPTION_KEY}
       EMAIL_ADAPTER: smtp

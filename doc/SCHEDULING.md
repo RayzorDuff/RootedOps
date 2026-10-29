@@ -1,6 +1,6 @@
 # Rooted Psyche scheduling — Issue #17
 
-Public endpoints: Rallly https://poll-test.danks.store; Tymeslot https://schedule-test.danks.store. DNS records have been added by the operator. The external host Nginx/Certbot setup is still required. Deploy directly from RootedOps `main`; no feature branch.
+Public endpoints: Rallly https://poll-test.rootedpsyche.org; Tymeslot https://schedule-test.rootedpsyche.org. DNS records have been added by the operator. The external host Nginx/Certbot setup is still required. Deploy directly from RootedOps `main`; no feature branch.
 
 ## SMTP: reuse the Listmonk Gmail pattern
 
@@ -46,9 +46,9 @@ Reference: https://tymeslot.app/docs/google-oauth and https://support.google.com
 4. Under **Data Access**, configure required scopes as Tymeslot documents (Calendar requires `https://www.googleapis.com/auth/calendar`; Meet scope is requested by Tymeslot when needed). Do not guess extra broad permissions. Google's interface may defer scope consent until actual connection; use the product's documented scopes.
 5. Under **Audience → Test users**, add `rootedpsyche@gmail.com` (and any other administrator who must authorize during testing). In Testing, OAuth access/refresh tokens with Calendar scopes generally expire after **7 days**; evaluate production publishing and Google's verification requirements before relying on uninterrupted synchronization.
 6. Under **Clients**, create an **OAuth client ID → Web application**. The following **three exact authorized redirect URIs** are required for Tymeslot's separate flows:
-   - `https://schedule-test.danks.store/auth/google/callback` (optional Google login)
-   - `https://schedule-test.danks.store/auth/google/calendar/callback` (Calendar)
-   - `https://schedule-test.danks.store/auth/google/video/callback` (Meet)
+   - `https://schedule-test.rootedpsyche.org/auth/google/callback` (optional Google login)
+   - `https://schedule-test.rootedpsyche.org/auth/google/calendar/callback` (Calendar)
+   - `https://schedule-test.rootedpsyche.org/auth/google/video/callback` (Meet)
 7. Copy client ID and client secret into the untracked RootedOps `.env`, alongside the generated `TYMESLOT_GOOGLE_STATE_SECRET`. Restart Tymeslot after updates. HTTPS/Certbot must be working for Google OAuth redirects.
 8. In Tymeslot, connect the Google Calendar account, explicitly select calendars for conflict checking and where bookings are written, and enable Google Meet on the event type. Test a busy slot being blocked and a successful event/Meet booking. Google account authentication and calendar authorization are separate operations.
 
@@ -68,7 +68,7 @@ Do not paste resolved `docker compose config` (without `--quiet`) or container e
 
 ## First administrator and Google sign-in (Tymeslot)
 
-The **first registered user** in a new Tymeslot database is automatically administrator; there is no default username/password. Use the intended Rooted Psyche administrator account (`rootedpsyche@gmail.com`) to register, preferably using Google Sign-In after OAuth is configured. After registration open `https://schedule-test.danks.store/admin` and disable public registration. If another user registered first, use the documented Tymeslot release admin promotion command rather than resetting the database.
+The **first registered user** in a new Tymeslot database is automatically administrator; there is no default username/password. Use the intended Rooted Psyche administrator account (`rootedpsyche@gmail.com`) to register, preferably using Google Sign-In after OAuth is configured. After registration open `https://schedule-test.rootedpsyche.org/admin` and disable public registration. If another user registered first, use the documented Tymeslot release admin promotion command rather than resetting the database.
 
 To enable the Google sign-in button set `TYMESLOT_ENABLE_GOOGLE_AUTH=true` in RootedOps root `.env` and rerun:
 
@@ -109,7 +109,7 @@ cd docker/scheduling/rallly-selfhosted
 Configure its locally generated `.env` with:
 
 ```dotenv
-DOMAIN=poll-test.danks.store
+DOMAIN=poll-test.rootedpsyche.org
 PROXY_MODE=external
 WEB_PORT=127.0.0.1:3003
 SMTP_HOST=smtp.gmail.com
@@ -121,7 +121,7 @@ SUPPORT_EMAIL=rootedpsyche@gmail.com
 NOREPLY_EMAIL=rootedpsyche@gmail.com
 ```
 
-With external proxy mode, Rallly's bundled Traefik will not claim host ports 80/443. Rallly derives `NEXT_PUBLIC_BASE_URL=https://poll-test.danks.store` from DOMAIN. Preserve upstream-generated secret/storage credentials; do not commit the nested checkout or its `.env`. Pin/check its upstream revision. Start from the directory with `./rallly.sh start`, then check `./rallly.sh status` and logs.
+With external proxy mode, Rallly's bundled Traefik will not claim host ports 80/443. Rallly derives `NEXT_PUBLIC_BASE_URL=https://poll-test.rootedpsyche.org` from DOMAIN. Preserve upstream-generated secret/storage credentials; do not commit the nested checkout or its `.env`. Pin/check its upstream revision. Start from the directory with `./rallly.sh start`, then check `./rallly.sh status` and logs.
 
 ## Host Nginx and Certbot (not yet installed)
 
@@ -134,7 +134,7 @@ sudo cp nginx/tymeslot.conf /etc/nginx/sites-available/tymeslot.conf
 sudo ln -sfn /etc/nginx/sites-available/rallly.conf /etc/nginx/sites-enabled/rallly.conf
 sudo ln -sfn /etc/nginx/sites-available/tymeslot.conf /etc/nginx/sites-enabled/tymeslot.conf
 sudo nginx -t && sudo systemctl reload nginx
-sudo certbot --nginx -d poll-test.danks.store -d schedule-test.danks.store
+sudo certbot --nginx -d poll-test.rootedpsyche.org -d schedule-test.rootedpsyche.org
 ```
 
 Run Nginx checks before requesting certificates, and confirm DNS points to the Linode. Then test both public endpoints and TLS renewal.
@@ -157,8 +157,8 @@ The organizer reports successful Google sign-in as `rootedpsyche@gmail.com`, Goo
 
 The same Google Cloud OAuth **Web application** used by Tymeslot is reused for Rallly. In **Google Auth Platform → Clients → Authorized redirect URIs**, preserve the three existing Tymeslot callbacks and add both Rallly callbacks:
 
-- Google login: `https://poll-test.danks.store/api/auth/callback/google`
-- Google Meet: `https://poll-test.danks.store/api/integrations/callback/google-meet`
+- Google login: `https://poll-test.rootedpsyche.org/api/auth/callback/google`
+- Google Meet: `https://poll-test.rootedpsyche.org/api/integrations/callback/google-meet`
 
 Enable **Google Meet REST API** and add the Google Meet scope `https://www.googleapis.com/auth/meetings.space.created` to the OAuth consent configuration. Keep `rootedpsyche@gmail.com` as a test user if the app is in Testing. Public poll respondents do **not** need Google OAuth access. Google login and magic-code authentication are both available; the operator successfully used Google sign-in.
 
