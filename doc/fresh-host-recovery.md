@@ -15,7 +15,7 @@ sudo bash linode_bootstrap.sh
 sudo python3 scripts/host_recovery.py validate "$PWD/.test-deployment"
 ```
 
-Bootstrap prompts for a hostname suffix before installing packages. Press Enter for `-test`, enter `-test2` for a second rehearsal, or enter a single `-` for an **empty suffix** (unsuffixed hostnames). Unsuffixed names do not disable test isolation, and this procedure is **not** a production deployment procedure. The chosen suffix is saved in the private deployment receipt and used for generated service URLs, live DNS validation, NGINX vhosts and TLS certificates. Create matching Cloudflare records before the DNS/publish phase.\n\nBootstrap installs Docker/Compose, NGINX/Certbot, rclone, OpenSSL and Python/YAML.
+Bootstrap prompts for a hostname suffix before installing packages. Accept the default prompt for `-test`, or answer `n` to enter `-test2` for a second rehearsal or leave the next prompt blank for an **empty suffix** (unsuffixed hostnames). Unsuffixed names do not disable test isolation, and this procedure is **not** a production deployment procedure. The chosen suffix is saved in the private deployment receipt and used for generated service URLs, live DNS validation, NGINX vhosts and TLS certificates. Create matching Cloudflare records before the DNS/publish phase.\n\nBootstrap installs Docker/Compose, NGINX/Certbot, rclone, OpenSSL and Python/YAML.
 It generates `.test-deployment/.env` and a root `.env` symlink, with private
 permissions and distinct local secrets. Existing runtime `.env` or deployment
 directories cause refusal; credentials are never replaced. The caller regains
