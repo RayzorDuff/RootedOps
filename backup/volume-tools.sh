@@ -24,6 +24,7 @@ frappe_asset_links={
 } if archive_name=='erpnext_sites.tgz' else {}
 frappe_app_links={
     'frappe/frappe/public/node_modules': '/home/frappe/frappe-bench/apps/frappe/node_modules',
+    'erpnext/erpnext/public/node_modules': '/home/frappe/frappe-bench/apps/erpnext/node_modules',
 } if archive_name=='erpnext_apps.tgz' else {}
 with tarfile.open(sys.argv[1],'r:gz') as archive:
     members=archive.getmembers()
