@@ -13,10 +13,13 @@ WORKDIR /home/frappe/frappe-bench
 COPY erpnext/apps/rootedops_payroll /home/frappe/frappe-bench/apps/rootedops_payroll
 RUN chown -R frappe:frappe /home/frappe/frappe-bench/apps/rootedops_payroll
 
+COPY erpnext/apps/rootedops_commerce /home/frappe/frappe-bench/apps/rootedops_commerce
+RUN chown -R frappe:frappe /home/frappe/frappe-bench/apps/rootedops_commerce
+
 USER frappe
 
 # Refresh app repos that are not bundled the way you want
 RUN rm -rf apps/hrms apps/employee_self_service && \
     git clone --depth 1 --branch "${ERPNEXT_HRMS_BRANCH:-version-16}" https://github.com/frappe/hrms.git apps/hrms && \
     git clone --depth 1 --branch "${ERPNEXT_ESS_BRANCH:-version-16}" https://github.com/nesscale-com/employee_self_service.git apps/employee_self_service && \
-    ./env/bin/pip install --no-cache-dir -e apps/hrms -e apps/employee_self_service -e apps/rootedops_payroll
+    ./env/bin/pip install --no-cache-dir -e apps/hrms -e apps/employee_self_service -e apps/rootedops_payroll -e apps/rootedops_commerce

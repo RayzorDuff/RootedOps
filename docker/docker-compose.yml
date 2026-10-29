@@ -456,6 +456,9 @@ services:
       else
         echo 'ERPNext apps volume already initialized.'
       fi
+      if [ ! -d /out-apps/rootedops_commerce ]; then
+        cp -a /home/frappe/frappe-bench/apps/rootedops_commerce /out-apps/
+      fi
     volumes:
       - erpnext_apps:/out-apps
     restart: "no"
@@ -480,6 +483,7 @@ services:
       hrms
       employee_self_service
       rootedops_payroll
+      rootedops_commerce
       EOF
       bench set-config -g db_host ${ERPNEXT_DB_HOST}
       bench set-config -g db_port ${ERPNEXT_DB_PORT}
@@ -621,6 +625,7 @@ services:
       - bash
       - /bootstrap/erpnext-bootstrap.sh
     environment:
+      ERPNEXT_INSTALL_COMMERCE: ${ERPNEXT_INSTALL_COMMERCE:-0}
       ERPNEXT_DB_HOST: ${ERPNEXT_DB_HOST}
       ERPNEXT_DB_PORT: ${ERPNEXT_DB_PORT}
       ERPNEXT_DB_ROOT_PASSWORD: ${ERPNEXT_DB_ROOT_PASSWORD}
