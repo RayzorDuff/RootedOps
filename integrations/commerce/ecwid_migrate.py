@@ -101,9 +101,13 @@ def plan(data):
             if not sku:
                 errors.append('Missing SKU: ' + key)
                 continue
-            if sku in skus:
+            if sku.casefold() in skus:
                 errors.append('Duplicate SKU: ' + sku)
-            skus.add(sku)
+            skus.add(sku.casefold())
+            if len(sku) > 140:
+                errors.append('SKU exceeds ERP Item Code length: ' + key)
+            if len(str(row.get('name') or sku)) > 140 or len(str(row.get('seoTitle') or '')) > 140:
+                errors.append('Title exceeds ERP Data field length; review: ' + key)
             images = []
             if row.get('imageUrl'):
                 images.append(row['imageUrl'])

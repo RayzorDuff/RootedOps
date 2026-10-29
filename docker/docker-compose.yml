@@ -422,7 +422,7 @@ services:
     volumes:
       - erpnext_db_data:/var/lib/mysql
     healthcheck:
-      test: ["CMD-SHELL", "mysqladmin ping -h localhost --password=${ERPNEXT_DB_ROOT_PASSWORD}"]
+      test: ["CMD-SHELL", "healthcheck.sh --connect --innodb_initialized"]
       interval: 10s
       timeout: 5s
       retries: 20

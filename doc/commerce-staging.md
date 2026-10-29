@@ -121,3 +121,11 @@ The fresh ERP image build exposed another existing bring-up assumption:
 `chown frappe:frappe` fails because the current upstream image has a frappe user
 without a same-name group. The Dockerfile now assigns ownership to the existing
 user without requiring a nonexistent group. Both local apps receive that fix.
+
+For PostgreSQL backup/restore verification, run
+`scripts/commerce_pg_roundtrip.sh /opt/commerce-test`. It refuses another project
+or source DB name, dumps the schema/data and restores to a newly created
+`mushroomprocess_restorecheck` DB. It never overwrites or drops an existing DB.
+The original source remains untouched. Repeating the command intentionally
+fails if the restore target already exists; review/remove only that disposable
+target separately before repeating.

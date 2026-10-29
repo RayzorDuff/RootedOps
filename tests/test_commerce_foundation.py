@@ -151,3 +151,12 @@ class SnapshotConnectorTests(unittest.TestCase):
         self.assertEqual(record['woocommerce']['status'],'draft')
         catalog['content']['publication_status']='Draft'
         with self.assertRaises(ValueError):sync.prepare(row,catalog,mapping)
+
+class ReconciliationBoundaryTests(unittest.TestCase):
+    def test_case_colliding_skus_require_review(self):
+        source=CommerceTests().source();source['products'].append({'id':99,'sku':'blue'})
+        self.assertIn('Duplicate SKU: blue',migration.plan(source)['errors'])
+
+    def test_overlong_canonical_fields_require_review(self):
+        source=CommerceTests().source();source['products'][0]['name']='x'*141
+        self.assertTrue(migration.plan(source)['errors'])
