@@ -9,6 +9,8 @@ import base64
 import copy
 import hashlib
 import json
+import re
+from html.parser import HTMLParser
 from pathlib import Path
 import sys
 
@@ -19,6 +21,33 @@ from commerce_restore import read_env
 from ecwid_migrate import api, private_write
 from channel import upsert_draft
 from sync import prepare
+
+
+def content_text(value):
+    """Compare visible copy despite WordPress paragraph/whitespace formatting."""
+    class Text(HTMLParser):
+        def __init__(self):super().__init__(convert_charrefs=True);self.parts=[]
+        def handle_data(self,data):self.parts.append(data)
+        def handle_starttag(self,tag,attrs):
+            if tag in {'p','div','br','li','tr','td','h1','h2','h3','blockquote'}:self.parts.append(' ')
+        def handle_endtag(self,tag):self.handle_starttag(tag,[])
+    parser=Text();parser.feed(value or '')
+    return re.sub(r'\s+',' ',''.join(parser.parts)).strip()
+
+
+def verify_product(product,record,quantity):
+    expected=record['woocommerce']
+    if product.get('status')!='draft' or product.get('stock_quantity')!=quantity:
+        raise ValueError('Draft status or authoritative quantity mismatch')
+    if product.get('sku')!=expected['sku'] or product.get('name')!=expected['name']:
+        raise ValueError('Product identity or name mismatch')
+    for field in ('description','short_description'):
+        if content_text(product.get(field))!=content_text(expected.get(field)):
+            raise ValueError('Commercial content mismatch: '+field)
+    actual={m['key']:m['value'] for m in product.get('meta_data',[])}
+    for entry in expected['meta_data']:
+        if actual.get(entry['key'])!=entry['value']:
+            raise ValueError('Source/ERP/SEO metadata mismatch')
 
 
 def run(environment):
@@ -51,11 +80,7 @@ def run(environment):
         product=upsert_draft(shop,authorization,record)
         repeated=upsert_draft(shop,authorization,record)
         assert product['id']==repeated['id']
-        assert repeated['status']=='draft'
-        assert repeated['stock_quantity']==int(row['desired_quantity'])
-        assert repeated['name']==record['woocommerce']['name']
-        if record['woocommerce']['description'].strip():
-            assert repeated['description'].strip()
+        verify_product(repeated,record,int(row['desired_quantity']))
         results.append({'ecommerce_id':row['ecommerce_id'],'item':code,'product_id':product['id'],
                         'quantity':repeated['stock_quantity']})
         if len(results)==1:
@@ -76,7 +101,7 @@ def run(environment):
     assert hashlib.sha256((private/'native-inventory.json').read_bytes()).hexdigest()==source_hash
     private_write(private/'live-sync-products.json',results)
     report={'draft_products_verified':len(results),'idempotent_retries':len(results),
-            'unowned_target_refused':True,'mp_quantity_reapplied':True,
+            'description_and_seo_metadata_verified':True,'unowned_target_refused':True,'mp_quantity_reapplied':True,
             'canonical_erp_content_changed':False,'mp_snapshot_changed':False,
             'approval_fixture_only':True,'remote_images_transferred':False,'checkout_tested':False}
     private_write(private/'live-sync-report.json',report)

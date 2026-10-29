@@ -164,16 +164,34 @@ schema/constraints load, and migration 051 produces inventory candidates that
 join exactly to exported product SKUs. These results do not substitute for a
 native PostgreSQL 16 staging restore or live WooCommerce API synchronization.
 
-Bulk Lish paste copies failed integrity checks and were not restored. A temporary
-ciphertext-only receiver was stopped. Provisioning staging HTTPS with Certbot
-was initially rejected by automatic approval review as outside restore authorization.
-The user has since explicitly approved Certbot installation/certificates on the test
-host. The Linode browser session expired before execution; renewed sign-in is now
-the blocker. No certificate/account is claimed provisioned.
+## Latest native and live verification — 2026-10-29
 
-The ciphertext-only receiver supports optional --certfile / --keyfile paths,
-accepts only a preapproved ciphertext digest, has no download route, and closes
-after a successful upload or its bounded lifetime. Do not deploy that endpoint
-or provision certificates without the required explicit authorization. Keep the
-AES key out of its request/page and transfer it only through the authenticated
-server-console channel. No private source exports belong in GitHub.
+The user approved test-host Certbot installation. Valid certificates now cover
+shop-test, erp-test, appsmith-test and n8n-test.danks.store; NGINX installation
+and a simulated renewal succeeded. Earlier failed console paste copies were not
+restored. The accepted transfer used authenticated AES-GCM ciphertext over HTTPS,
+with an exact checksum, one-use endpoint and a private console key prompt.
+
+The supplied dump restored on native PostgreSQL 16.15 into a separate test DB:
+all 92 COPY table counts match, migration 051 applies and 24 inventory candidates
+match the exported catalog. ERP staging imported 132 products and 50 immutable
+source archives, without stock, Item Price or financial-document changes.
+The database's false unhealthy state was the old running container's missing
+`mysqladmin` executable; replacing that probe with the official `healthcheck.sh`
+restored healthy status without replacing database volumes.
+
+A live WooCommerce REST rehearsal verified 24 draft products, 24 idempotent
+retries, refusal of an unowned SKU and reapplication of the MP stock quantity after
+a storefront-side change. This used private real ERP/MP snapshots and an explicit
+in-memory approval/identity fixture; canonical ERP content remains Draft and no
+persistent production mapping is claimed. Remote images and checkout were not
+tested. The stricter follow-up verifier compares description text and source/ERP/SEO
+metadata, rather than accepting any nonempty description.
+
+Replacement Appsmith/n8n archives are nonempty. n8n SQLite plus WAL passed integrity
+checking: 84 workflows, including 20 active in the source. Test copies disable all
+workflows and run without external networking. Complete application restore and
+cleanup outcomes are tracked in #20; they are distinct from the operator's full
+clean-host acceptance under #22. Never infer full restoration from an archive
+listing or a container's running state alone. No source credentials or private
+catalog/customer/order exports belong in GitHub.
