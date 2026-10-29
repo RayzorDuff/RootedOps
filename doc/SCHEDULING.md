@@ -1,6 +1,8 @@
 # Rooted Psyche scheduling — Issue #17
 
-Public endpoints: Rallly https://poll-test.rootedpsyche.org; Tymeslot https://schedule-test.rootedpsyche.org. DNS records have been added by the operator. The external host Nginx/Certbot setup is still required. Deploy directly from RootedOps `main`; no feature branch.
+Production endpoints (operator configured with Nginx/Certbot): **Rallly** `https://poll.rootedpsyche.org` and **Tymeslot** `https://schedule.rootedpsyche.org`. The checked-in Compose/Nginx examples retain **test** defaults (`poll-test.rootedpsyche.org`, `schedule-test.rootedpsyche.org`) and do not automatically represent the production host settings. Review actual production Nginx and OAuth redirect URI settings before deployment. Deploy from the appropriate reviewed RootedOps commit. RootedOps issue #17 tracks scheduling operations.
+
+**Operational status (October 2026):** Tymeslot and Rallly have been brought online, with Google login/Calendar and Google Meet integration exercised by the operator. Google OAuth verification and final appointment-type testing are separate acceptance work. The shared RootedOps backup completed a production upload on 2026-10-28, but an **isolated restore test is still required**. Subsequent sections include historical setup steps and test-host examples; treat them as a runbook, not a claim that production remains unconfigured.
 
 ## SMTP: reuse the Listmonk Gmail pattern
 
