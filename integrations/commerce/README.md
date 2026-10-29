@@ -135,3 +135,9 @@ only after the entire plan succeeds; retries resolve existing identities. It
 creates a test migration Item Group/UOM without assuming the ERP setup wizard
 already ran. Variant imports need reviewed attributes and are explicitly refused
 by this simple-product CSV helper.
+
+Repository-only app 0.2.0 work adds reviewed variant/price/tax/category payloads,
+verified media uploads, a WordPress/Yoast SEO adapter, operational Customer/draft
+historical Sales Order conversion and authenticated Woo/Clover contracts. See
+[`doc/commerce-offline-development.md`](../../doc/commerce-offline-development.md)
+for synthetic CLI examples, explicit limitations and later deployment acceptance.

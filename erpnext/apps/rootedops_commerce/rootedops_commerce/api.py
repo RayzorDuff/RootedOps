@@ -43,15 +43,30 @@ def import_product(payload):
     if erp_data.get("item_code") != code:
         frappe.throw("Item identity mismatch")
     # Importers may not use this endpoint to change stock, balances or valuation.
-    allowed = {"item_code", "item_name", "item_group", "stock_uom", "has_variants", "variant_of", "attributes"}
+    allowed = {"item_code", "item_name", "item_group", "stock_uom", "has_variants", "variant_of", "attributes", "taxes"}
     if set(erp_data) - allowed:
         frappe.throw("Unsupported Item import fields")
+    for tax in erp_data.get("taxes", []):
+        if set(tax) != {"item_tax_template"}:
+            frappe.throw("Only reviewed Item Tax Templates allowed")
+        frappe.get_doc("Item Tax Template", tax["item_tax_template"]).check_permission("read")
     if not frappe.db.exists("Item", code):
         if not erp_data.get("item_group") or not erp_data.get("stock_uom"):
             frappe.throw("Reviewed item_group and stock_uom are required")
         frappe.get_doc(dict(erp_data, doctype="Item", is_stock_item=0)).insert()
     else:
-        frappe.get_doc("Item", code).check_permission("read")
+        existing_item = frappe.get_doc("Item", code)
+        existing_item.check_permission("read")
+        for field in ("item_group", "stock_uom", "variant_of", "has_variants"):
+            if field in erp_data and (existing_item.get(field) or 0) != (erp_data[field] or 0):
+                frappe.throw("Existing ERP Item identity/configuration drift")
+        for table, fields in (("attributes", ("attribute", "attribute_value")),
+                              ("taxes", ("item_tax_template",))):
+            if table in erp_data:
+                expected = sorted(tuple(row.get(f) or "" for f in fields) for row in erp_data[table])
+                actual = sorted(tuple(row.get(f) or "" for f in fields) for row in existing_item.get(table))
+                if actual != expected:
+                    frappe.throw("Existing ERP Item attribute/tax drift")
     if frappe.db.exists("Commercial Product Content", code):
         existing = frappe.get_doc("Commercial Product Content", code)
         existing.check_permission("read")
@@ -98,3 +113,18 @@ def import_product(payload):
         if not matches:
             frappe.get_doc(dict(filters, doctype="Item Price", item_price_rate=str(rate))).insert()
     return {"item":code, "content":code, "mapping":key, "status":"imported_or_existing"}
+
+
+@frappe.whitelist(methods=["POST"])
+def import_reviewed_catalog(payload):
+    """Atomic reviewed batch; attributes, UOM, groups, templates/lists must exist."""
+    if not frappe.conf.get("commerce_catalog_import_enabled"):
+        frappe.throw("Catalog batch import requires explicit site configuration")
+    data = frappe.parse_json(payload)
+    if not data.get("source_sha256") or not data.get("review_sha256"):
+        frappe.throw("Bound source and review hashes required")
+    result = []
+    for record in data["records"]:
+        # import_product enforces roles, permissions, allowed fields and drift.
+        result.append(import_product({k: record[k] for k in ("item", "content", "mapping", "price")}))
+    return {"records": result, "stock_changed": False, "financial_documents_created": False}

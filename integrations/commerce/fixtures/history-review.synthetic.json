@@ -1,0 +1,29 @@
+{
+  "source_sha256": "5ee31222ab83a4aa1de339486cf082dbf87eeff810adb99c699c888ded6eb829",
+  "currency": "USD",
+  "company": "Synthetic Company",
+  "conversion_rate": 1,
+  "customer_group": "Individual",
+  "territory": "United States",
+  "selling_price_list": "Synthetic USD",
+  "delivery_date": "2026-10-01",
+  "items": {
+    "001": "ERP-001"
+  },
+  "orders": {
+    "ORDER-1": {
+      "lines": {
+        "3": {
+          "net_total": "10.00"
+        }
+      },
+      "charges": [
+        {
+          "amount": "2.00",
+          "erp_account": "Synthetic Shipping",
+          "description": "Shipping"
+        }
+      ]
+    }
+  }
+}

@@ -10,12 +10,12 @@ from urllib.parse import urlencode
 
 def draft_payload(record, parent_id=None, attributes=None):
     body = dict(record['woocommerce'])
-    if record['item'].get('parent_sku'):
+    if (record.get('parent_sku') or record['item'].get('parent_sku')):
         if not parent_id or not attributes:
             raise ValueError('Reviewed parent ID and WooCommerce variant attributes required')
         # Variations inherit name/description/gallery from the parent. The full
         # source remains in ERP and the plan, rather than dropping it silently.
-        body = {k:v for k,v in body.items() if k in ('sku','description','meta_data','manage_stock','stock_quantity','status')}
+        body = {k:v for k,v in body.items() if k in ('sku','description','meta_data','manage_stock','stock_quantity','status','regular_price','tax_class')}
         body['attributes'] = attributes
         if record['woocommerce'].get('images'):
             body['image'] = record['woocommerce']['images'][0]
@@ -34,7 +34,7 @@ def upsert_draft(base_url, authorization, record, parent_id=None, attributes=Non
         raise ValueError('Adapter restricted to shop-test.danks.store')
     body = draft_payload(record, parent_id, attributes)
     root = base_url.rstrip('/') + '/wp-json/wc/v3/'
-    resource = f'products/{int(parent_id)}/variations' if record['item'].get('parent_sku') else 'products'
+    resource = f'products/{int(parent_id)}/variations' if (record.get('parent_sku') or record['item'].get('parent_sku')) else 'products'
     matches = request(root + resource + '?' + urlencode({'sku':body['sku'],'per_page':100}), authorization)
     matches = [r for r in matches if r.get('sku') == body['sku']]
     if len(matches) > 1:

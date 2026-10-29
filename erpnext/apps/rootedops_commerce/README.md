@@ -12,3 +12,8 @@ export/delete rights further through Role Permission Manager where appropriate.
 
 The app does not make ERP stock the operational authority and does not process
 payments or replay historical orders. Its own version is independent of Payroll.
+
+App 0.2.0 adds opt-in reviewed catalog batches and historical Customer/draft Sales
+Order imports. See `doc/commerce-offline-development.md` at repository root for
+site flags, source identity guarantees and staging acceptance. No invoice/payment
+or fulfillment replay is enabled.

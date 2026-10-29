@@ -1,0 +1,62 @@
+{
+  "doctype": "DocType",
+  "name": "Commerce Migration Identity",
+  "module": "RootedOps Commerce",
+  "engine": "InnoDB",
+  "autoname": "field:source_key",
+  "field_order": [
+    "source_key",
+    "payload_hash",
+    "source_payload",
+    "target_doctype",
+    "target_name"
+  ],
+  "fields": [
+    {
+      "fieldname": "source_key",
+      "label": "Source Key",
+      "fieldtype": "Data",
+      "reqd": 1,
+      "unique": 1
+    },
+    {
+      "fieldname": "payload_hash",
+      "label": "Payload Hash",
+      "fieldtype": "Data",
+      "reqd": 1
+    },
+    {
+      "fieldname": "target_doctype",
+      "label": "Target Doctype",
+      "fieldtype": "Link",
+      "reqd": 1,
+      "options": "DocType"
+    },
+    {
+      "fieldname": "target_name",
+      "label": "Target Name",
+      "fieldtype": "Dynamic Link",
+      "reqd": 1,
+      "options": "target_doctype"
+    },
+    {
+      "fieldname": "source_payload",
+      "label": "Immutable Source and Review",
+      "fieldtype": "Code",
+      "options": "JSON",
+      "reqd": 1
+    }
+  ],
+  "permissions": [
+    {
+      "role": "System Manager",
+      "read": 1,
+      "create": 1
+    },
+    {
+      "role": "Sales Manager",
+      "read": 1,
+      "create": 1
+    }
+  ]
+}
