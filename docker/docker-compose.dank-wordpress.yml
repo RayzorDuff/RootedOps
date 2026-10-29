@@ -1,5 +1,5 @@
 # Opt-in; separate credentials, DB and volumes from Rooted Psyche.
-name: dank-store
+name: dank-store-test
 services:
   dank-wordpress-db:
     image: mariadb:11.4
@@ -34,6 +34,19 @@ services:
         }
     ports:
       - '127.0.0.1:${DANK_WP_TEST_PORT:-8097}:80'
+    volumes:
+      - dank_wordpress_html:/var/www/html
+  dank-wordpress-cli:
+    image: wordpress:cli-php8.3
+    profiles: [tools]
+    user: '33:33'
+    entrypoint: [wp]
+    working_dir: /var/www/html
+    environment:
+      WORDPRESS_DB_HOST: dank-wordpress-db:3306
+      WORDPRESS_DB_NAME: dank_wordpress
+      WORDPRESS_DB_USER: dank_wordpress
+      WORDPRESS_DB_PASSWORD: ${DANK_WP_DB_PASSWORD:?Set DANK_WP_DB_PASSWORD}
     volumes:
       - dank_wordpress_html:/var/www/html
 volumes:
