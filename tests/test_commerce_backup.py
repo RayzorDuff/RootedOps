@@ -64,13 +64,13 @@ class BackupTests(unittest.TestCase):
 
     def test_frappe_apps_node_modules_link_is_exactly_scoped(self):
         with tempfile.TemporaryDirectory() as d:
-            def check(filename, target):
+            def check(filename, target, link_name='frappe/frappe/public/node_modules'):
                 path = Path(d) / filename
                 with tarfile.open(path, 'w:gz') as archive:
                     data = tarfile.TarInfo('./frappe/package.json')
                     data.size = 2
                     archive.addfile(data, io.BytesIO(b'{}'))
-                    link = tarfile.TarInfo('./frappe/frappe/public/node_modules')
+                    link = tarfile.TarInfo('./' + link_name)
                     link.type = tarfile.SYMTYPE
                     link.linkname = target
                     archive.addfile(link)
@@ -78,10 +78,15 @@ class BackupTests(unittest.TestCase):
             expected = '/home/frappe/frappe-bench/apps/frappe/node_modules'
             result = check('erpnext_apps.tgz', expected)
             self.assertEqual(result.returncode, 0, result.stderr)
+            result = check('erpnext_apps.tgz', '/home/frappe/frappe-bench/apps/erpnext/node_modules', 'erpnext/erpnext/public/node_modules')
+            self.assertEqual(result.returncode, 0, result.stderr)
+            # Relative links that stay inside the archive are permitted.
+            result = check('erpnext_apps.tgz', '../../outside')
+            self.assertEqual(result.returncode, 0, result.stderr)
             for filename, target in [
                 ('other.tgz', expected),
                 ('erpnext_apps.tgz', '/etc/passwd'),
-                ('erpnext_apps.tgz', '../../outside'),
+                ('erpnext_apps.tgz', '../../../../outside'),
                 ('erpnext_apps.tgz', '/home/frappe/frappe-bench/apps/erpnext/node_modules'),
             ]:
                 result = check(filename, target)
