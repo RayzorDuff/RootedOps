@@ -17,7 +17,7 @@ services:
       timeout: 5s
       retries: 12
   dank-wordpress:
-    image: wordpress:6.8.3-php8.3-apache
+    image: wordpress:7.1.4-php8.3-apache
     restart: unless-stopped
     depends_on:
       dank-wordpress-db:

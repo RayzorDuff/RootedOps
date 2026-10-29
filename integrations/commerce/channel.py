@@ -1,4 +1,4 @@
-"""Draft-only WooCommerce projection adapter; no order/payment/stock side effects.
+"""Draft-only WooCommerce projection adapter; no order/payment or source-inventory writes.
 
 All target IDs are resolved via exact SKU plus durable source metadata. No
 updates are made to preexisting unowned products. Variants require reviewed
