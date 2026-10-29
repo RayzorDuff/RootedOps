@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from datetime import date, datetime
 from decimal import Decimal, ROUND_HALF_UP
 import re
+import unicodedata
 
 RECORD_LENGTH = 94
 BLOCKING_FACTOR = 10
@@ -40,8 +41,23 @@ def _field(value: object, length: int, *, align: str = "left", fill: str = " ") 
     return s.ljust(length, fill) if align == "left" else s.rjust(length, fill)
 
 
+def _text_field(value: object, length: int) -> str:
+    """Normalize ACH display text to printable ASCII before width truncation.
+
+    Decomposed accents are removed (José -> JOSE); characters that cannot
+    be represented in ASCII fail closed rather than silently changing names.
+    """
+    normalized = unicodedata.normalize("NFKD", str(value or "").upper())
+    normalized = "".join(ch for ch in normalized if not unicodedata.combining(ch))
+    if any(ord(ch) < 32 or ord(ch) > 126 for ch in normalized):
+        raise ValueError("NACHA text contains characters that cannot be represented in printable ASCII")
+    return _field(normalized, length)
+
+
 def _record(parts: list[str]) -> str:
     s = "".join(parts)
+    if not s.isascii() or not s.isprintable():
+        raise ValueError("NACHA record must contain printable ASCII characters")
     if len(s) != RECORD_LENGTH:
         raise ValueError(f"NACHA record is {len(s)} characters; expected 94")
     return s
@@ -94,10 +110,10 @@ def build_file_header(profile: NACHAProfile, creation_date: str, creation_time: 
         _field(orig, 10, align="right", fill=" "),
         _field(creation_date, 6, align="right", fill="0"),
         _field(creation_time, 4, align="right", fill="0"),
-        _field(profile.file_id_modifier, 1), "094", "10", "1",
-        _field(profile.destination_name.upper(), 23),
-        _field(profile.origin_name.upper(), 23),
-        _field(profile.reference_code, 8),
+        _text_field(profile.file_id_modifier, 1), "094", "10", "1",
+        _text_field(profile.destination_name, 23),
+        _text_field(profile.origin_name, 23),
+        _text_field(profile.reference_code, 8),
     ])
 
 
@@ -112,13 +128,13 @@ def _service_class(profile: NACHAProfile) -> str:
 
 def build_batch_header(profile: NACHAProfile, company_descriptive_date: str = "") -> str:
     service = _service_class(profile)
-    company_name = profile.company_name.upper()[:16]
+    company_name = profile.company_name
     company_id = _field(_digits(profile.company_id), 10, align="right", fill=" ")
     odfi = _digits(profile.odfi_identification)
     if len(odfi) != 8:
         raise ValueError("ODFI Identification must be 8 digits")
     return _record([
-        "5", service, _field(company_name, 16), "".ljust(20), company_id,
+        "5", service, _text_field(company_name, 16), "".ljust(20), company_id,
         _field(SEC_CODE_PPD, 3), _field(ENTRY_DESCRIPTION_PAYROLL, 10),
         _field(company_descriptive_date, 6), _field(profile.effective_entry_date, 6),
         "   ", "1", _field(odfi, 8, align="right", fill="0"),
@@ -147,8 +163,8 @@ def _build_entry(*, account_name: str, routing_number: str, account_number: str,
     return _record([
         "6", transaction, routing[:8], routing[8], _field(account, 17),
         _field(cents, 10, align="right", fill="0"),
-        _field(individual_id, 15),
-        _field(account_name.upper(), 22),
+        _text_field(individual_id, 15),
+        _text_field(account_name, 22),
         "00", "0", _field(trace, 15),
     ])
 
@@ -258,6 +274,8 @@ def validate_nacha(text: str) -> dict[str, int | str]:
     lines = text.splitlines()
     if not lines or len(lines) % BLOCKING_FACTOR:
         raise ValueError("NACHA file must contain complete blocks of 10 records")
+    if any(not line.isascii() or not line.isprintable() for line in lines):
+        raise ValueError("NACHA records must contain printable ASCII characters")
     if any(len(line) != RECORD_LENGTH for line in lines):
         raise ValueError("Every NACHA record must be exactly 94 characters")
     real = [line for line in lines if line != "9" * RECORD_LENGTH]
@@ -271,6 +289,8 @@ def validate_nacha(text: str) -> dict[str, int | str]:
         raise ValueError("Expected exactly one batch header, batch control, and file control record")
 
     bh, bc, fc = batch_headers[0], batch_controls[0], file_controls[0]
+    if bh[53:63] != "PAYROLL   ":
+        raise ValueError("PPD payroll batch Company Entry Description must begin with PAYROLL")
     service = bh[1:4]
     if service not in {SERVICE_CLASS_CREDITS_ONLY, SERVICE_CLASS_MIXED} or bc[1:4] != service:
         raise ValueError("Unsupported or mismatched NACHA service class")
