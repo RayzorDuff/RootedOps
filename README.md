@@ -21,7 +21,7 @@ RootedOps currently manages:
 - Listmonk for self-hosted newsletters and mailing-list management
 - ERPNext + HRMS for accounting, payroll, purchasing, sales, and HR operations
 - Grav for lightweight public/static site hosting
-- Stable MushroomProcess QR routing at `qr.danks.store` via NGINX → n8n
+- Stable MushroomProcess QR routing at `qr-test.danks.store` via NGINX → n8n
 - NGINX reverse-proxy templates for HTTP services
 - Backup and restore scripts, including Google Drive/rclone retention pruning
 - Optional Minecraft Bedrock server hosting as a sidecar/family service
@@ -138,7 +138,7 @@ development dependency and is not required by LibreChat.
 The public service is:
 
 ```text
-https://ai.danks.store
+https://ai-test.danks.store
 ```
 
 LibreChat is intentionally bound to localhost on the Docker host and is exposed
@@ -246,3 +246,6 @@ Rationale: MushroomProcess and SignatureGate are GPL; choosing GPLv3 here keeps 
 QR Product routing also passes `MP_APP_PRODUCTS_URL` and `MP_REGULATED_BUSINESS_URL` into n8n; see `LINODE_SETUP.md`.
 
 SignatureGate paper upload provider setup and the n8n-only recreation command are in [doc/SIGNATUREGATE_PAPER_STORAGE.md](doc/SIGNATUREGATE_PAPER_STORAGE.md). Workflow and database source remain in SignatureGate; existing Header Auth credentials are preserved.
+
+Fresh test-host recovery: [bootstrap and selected restore](doc/test-environment-restore.md).
+Production backup fixes and operator commands: [backup handoff](doc/production-backup-handoff.md).

@@ -1,8 +1,11 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
+umask 077
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+# shellcheck source=volume-tools.sh
+source "$SCRIPT_DIR/volume-tools.sh"
 COMPOSE_FILE="$REPO_ROOT/docker/docker-compose.yml"
 ENV_FILE="$REPO_ROOT/.env"
 
@@ -46,17 +49,17 @@ cleanup() {
 }
 # Scheduling containers are paused only during the cold volume snapshots.
 # If archiving fails, resume them before removing the temporary staging directory.
-SCHEDULING_PAUSED=()
-resume_scheduling() {
+PAUSED_CONTAINERS=()
+resume_paused_containers() {
   local container
-  for container in "${SCHEDULING_PAUSED[@]}"; do
-    log "Restarting scheduling container $container"
+  for container in "${PAUSED_CONTAINERS[@]}"; do
+    log "Restarting paused container $container"
     $DOCKER_BIN start "$container" >/dev/null || true
   done
-  SCHEDULING_PAUSED=()
+  PAUSED_CONTAINERS=()
 }
 cleanup_and_resume() {
-  resume_scheduling
+  resume_paused_containers
   cleanup
 }
 trap cleanup_and_resume EXIT
@@ -103,6 +106,8 @@ git -C "$REPO_ROOT" rev-parse HEAD > "$BACKUP_DIR/meta/git_commit.txt" 2>/dev/nu
 $DOCKER_BIN version > "$BACKUP_DIR/meta/docker-version.txt"
 $DOCKER_BIN volume ls > "$BACKUP_DIR/meta/docker-volumes.txt"
 $DOCKER_BIN ps -a > "$BACKUP_DIR/meta/docker-ps.txt"
+$DOCKER_BIN image ls --digests --no-trunc > "$BACKUP_DIR/meta/docker-images.txt"
+$DOCKER_BIN exec erpnext-backend bench version > "$BACKUP_DIR/meta/frappe-app-versions.txt"
 cp "$COMPOSE_FILE" "$BACKUP_DIR/meta/docker-compose.yml"
 cp "$ENV_FILE" "$BACKUP_DIR/meta/.env"
 
@@ -124,6 +129,8 @@ mariadb_dump_all() {
 
 backup_volume() {
   local volume_name="$1" archive_name="$2"
+  # Refuse missing sources: docker run -v would silently create an empty volume.
+  $DOCKER_BIN volume inspect "$volume_name" >/dev/null
   log "Archiving volume $volume_name"
   mkdir -p "$BACKUP_DIR/volumes"
   $DOCKER_BIN run --rm \
@@ -131,6 +138,31 @@ backup_volume() {
     -v "$BACKUP_DIR/volumes:/backup" \
     alpine:3.20 \
     sh -lc "cd /volume && tar -czf /backup/$archive_name --numeric-owner ."
+  validate_managed_volume_archive "$BACKUP_DIR/volumes/$archive_name"
+}
+
+backup_mounted_volume() {
+  local container="$1" destination="$2" archive_name="$3" actual_volume
+  actual_volume="$(resolve_mounted_volume "$container" "$destination")"
+  # n8n SQLite and Appsmith embedded MongoDB need cold snapshots.
+  local paused=false
+  if [[ "$container" == n8n || "$container" == appsmith ]] && container_is_running "$container"; then
+    log "Stopping $container for a consistent application volume backup"
+    $DOCKER_BIN stop "$container" >/dev/null
+    PAUSED_CONTAINERS+=("$container")
+    paused=true
+  fi
+  backup_volume "$actual_volume" "$archive_name"
+  if [[ "$paused" == true ]]; then
+    $DOCKER_BIN start "$container" >/dev/null
+    # Remove only the container successfully restarted; EXIT retries on failure.
+    local -a remaining=()
+    local entry
+    for entry in "${PAUSED_CONTAINERS[@]}"; do
+      [[ "$entry" == "$container" ]] || remaining+=("$entry")
+    done
+    PAUSED_CONTAINERS=("${remaining[@]}")
+  fi
 }
 
 backup_bind_path() {
@@ -187,18 +219,18 @@ mariadb_dump_all erpnext-db "$ERPNEXT_DB_ROOT_PASSWORD" "$BACKUP_DIR/db/erpnext-
 mariadb_dump_all docker-rootedpsyche-wordpress-db-1 "$ROOTEDPSYCHE_WP_DB_ROOT_PASSWORD" "$BACKUP_DIR/db/rootedpsyche-wordpress-all-databases.sql.gz"
 
 # Non-database Docker volumes needed for a practical restore.
-backup_volume nocodb_data nocodb_data.tgz
-backup_volume n8n_data n8n_data.tgz
-backup_volume appsmith_stacks appsmith_stacks.tgz
-backup_volume erpnext_sites erpnext_sites.tgz
-backup_volume erpnext_apps erpnext_apps.tgz
-backup_volume erpnext_logs erpnext_logs.tgz
+backup_mounted_volume nocodb /usr/app/data nocodb_data.tgz
+backup_mounted_volume n8n /home/node/.n8n n8n_data.tgz
+backup_mounted_volume appsmith /appsmith-stacks appsmith_stacks.tgz
+backup_mounted_volume erpnext-backend /home/frappe/frappe-bench/sites erpnext_sites.tgz
+backup_mounted_volume erpnext-backend /home/frappe/frappe-bench/apps erpnext_apps.tgz
+backup_mounted_volume erpnext-backend /home/frappe/frappe-bench/logs erpnext_logs.tgz
 # The full WordPress HTML volume includes uploads, plugins, themes, and MU plugins.
-backup_volume docker_rootedpsyche_wordpress_html rootedpsyche-wordpress-html.tgz
+backup_mounted_volume docker-rootedpsyche-wordpress-1 /var/www/html rootedpsyche-wordpress-html.tgz
 
 # Usually disposable, but keeping them may help preserve in-flight state.
-backup_volume erpnext_redis_cache_data erpnext_redis_cache_data.tgz
-backup_volume erpnext_redis_queue_data erpnext_redis_queue_data.tgz
+backup_mounted_volume erpnext-redis-cache /data erpnext_redis_cache_data.tgz
+backup_mounted_volume erpnext-redis-queue /data erpnext_redis_queue_data.tgz
 
 
 # Dedicated Compose projects created during the scheduling deployment:
@@ -239,7 +271,7 @@ backup_scheduling() {
   for container in "${running[@]}"; do
     log "Pausing scheduling container $container for consistent volume archive"
     $DOCKER_BIN stop "$container" >/dev/null
-    SCHEDULING_PAUSED+=("$container")
+    PAUSED_CONTAINERS+=("$container")
   done
   for volume in "${volumes[@]}"; do
     backup_volume "$volume" "$volume.tgz"
@@ -261,7 +293,7 @@ backup_scheduling() {
     sh -lc 'cd /source && tar -czf /backup/rallly-selfhosted-env.tgz .env'
   cp "$REPO_ROOT/docker/scheduling/tymeslot.compose.yml" "$BACKUP_DIR/meta/tymeslot.compose.yml"
   log "Scheduling volumes and credentials captured"
-  resume_scheduling
+  resume_paused_containers
 }
 
 backup_scheduling
@@ -352,6 +384,10 @@ for name, _, _ in parsed:
   done
 }
 
-prune_remote_backups "$REMOTE_PREFIX_PATH" "$KEEP_DAILY_DAYS"
+# Verify the uploaded snapshot before applying any retention policy.
+rclone check "$BACKUP_DIR/" "$REMOTE_PREFIX_PATH/$TIMESTAMP/" --one-way
+if [[ "${SKIP_BACKUP_PRUNE:-false}" != true ]]; then
+  prune_remote_backups "$REMOTE_PREFIX_PATH" "$KEEP_DAILY_DAYS"
+fi
 
 log "Backup complete: $REMOTE_PREFIX_PATH/$TIMESTAMP"

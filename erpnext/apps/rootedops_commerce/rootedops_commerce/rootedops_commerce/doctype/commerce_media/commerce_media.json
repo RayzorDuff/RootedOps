@@ -1,0 +1,32 @@
+{
+  "name": "Commerce Media",
+  "doctype": "DocType",
+  "module": "RootedOps Commerce",
+  "engine": "InnoDB",
+  "track_changes": 1,
+  "field_order": [
+    "image",
+    "alt_text",
+    "source_url"
+  ],
+  "fields": [
+    {
+      "fieldname": "image",
+      "label": "Image",
+      "fieldtype": "Attach Image",
+      "reqd": 1
+    },
+    {
+      "fieldname": "alt_text",
+      "label": "Alt Text",
+      "fieldtype": "Data"
+    },
+    {
+      "fieldname": "source_url",
+      "label": "Source Url",
+      "fieldtype": "Small Text"
+    }
+  ],
+  "permissions": [],
+  "istable": 1
+}

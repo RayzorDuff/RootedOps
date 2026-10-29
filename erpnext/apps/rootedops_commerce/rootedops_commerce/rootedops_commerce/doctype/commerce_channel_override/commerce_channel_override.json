@@ -1,0 +1,45 @@
+{
+  "name": "Commerce Channel Override",
+  "doctype": "DocType",
+  "module": "RootedOps Commerce",
+  "engine": "InnoDB",
+  "track_changes": 1,
+  "field_order": [
+    "provider",
+    "site_key",
+    "title",
+    "short_description",
+    "full_description"
+  ],
+  "fields": [
+    {
+      "fieldname": "provider",
+      "label": "Provider",
+      "fieldtype": "Data",
+      "reqd": 1
+    },
+    {
+      "fieldname": "site_key",
+      "label": "Site Key",
+      "fieldtype": "Data",
+      "reqd": 1
+    },
+    {
+      "fieldname": "title",
+      "label": "Title",
+      "fieldtype": "Data"
+    },
+    {
+      "fieldname": "short_description",
+      "label": "Short Description",
+      "fieldtype": "Small Text"
+    },
+    {
+      "fieldname": "full_description",
+      "label": "Full Description",
+      "fieldtype": "Text Editor"
+    }
+  ],
+  "permissions": [],
+  "istable": 1
+}

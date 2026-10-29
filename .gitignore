@@ -8,3 +8,6 @@ docker/scheduling/rallly-selfhosted/
 .DS_Store
 __pycache__/
 *.pyc
+# Commerce exports contain customer/order data; never commit.
+/integrations/commerce/private/
+/integrations/commerce/validation/node_modules/

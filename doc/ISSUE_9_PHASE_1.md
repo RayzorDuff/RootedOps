@@ -87,7 +87,7 @@ insufficient RAM/disk headroom.
 
 ## NGINX activation
 
-After DNS is configured for `ai.danks.store`:
+After DNS is configured for `ai-test.danks.store`:
 
 ```bash
 sudo cp nginx/librechat.conf /etc/nginx/sites-available/librechat.conf
@@ -99,7 +99,7 @@ sudo systemctl reload nginx
 Then obtain the certificate with Certbot:
 
 ```bash
-sudo certbot --nginx -d ai.danks.store
+sudo certbot --nginx -d ai-test.danks.store
 ```
 
 ## First-account security

@@ -70,6 +70,7 @@ erpnext
 hrms
 employee_self_service
 rootedops_payroll
+rootedops_commerce
 EOF
 
 if [ ! -f "sites/${ERPNEXT_SITE_NAME}/site_config.json" ]; then
@@ -122,6 +123,11 @@ bench --site "${ERPNEXT_SITE_NAME}" install-app rootedops_payroll || true
 echo "Verifying RootedOps Payroll install..."
 bench --site "${ERPNEXT_SITE_NAME}" list-apps | grep -q "rootedops_payroll" && echo "RootedOps Payroll installed." \
   || { echo "RootedOps Payroll install did not complete cleanly."; exit 1; }
+
+if [ "${ERPNEXT_INSTALL_COMMERCE:-0}" = "1" ]; then
+  bench --site "${ERPNEXT_SITE_NAME}" list-apps | grep -q '^rootedops_commerce ' || \
+    bench --site "${ERPNEXT_SITE_NAME}" install-app rootedops_commerce
+fi
 
 echo "Verifying installed apps..."
 bench --site "${ERPNEXT_SITE_NAME}" list-apps
