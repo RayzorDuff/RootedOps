@@ -153,3 +153,24 @@ Redis cache/queue state is an explicitly allowed disposable exception.
 Application-volume archives must be regenerated from the actual mounted sources;
 no application-data restore is claimed for the empty supplied tarballs. Do not
 run the full restore script against production as a validation shortcut.
+
+The supplied Ecwid semicolon CSVs reconcile privately using the new CSV adapter.
+The supplied PostgreSQL dump also restores fully in the supplemental PGlite
+PostgreSQL 18 harness: every COPY table matches source row counts, remaining
+schema/constraints load, and migration 051 produces inventory candidates that
+join exactly to exported product SKUs. These results do not substitute for a
+native PostgreSQL 16 staging restore or live WooCommerce API synchronization.
+
+Bulk Lish paste copies failed integrity checks and were not restored. A temporary
+ciphertext-only receiver was stopped. Provisioning staging HTTPS with Certbot
+was rejected by automatic approval review as outside restore authorization; no
+certificate/account was provisioned. Native restore and live sync require an
+approved secure transfer route (for example explicit approval of test-host TLS,
+or an operator placing the original files privately on the test host).
+
+The ciphertext-only receiver supports optional --certfile / --keyfile paths,
+accepts only a preapproved ciphertext digest, has no download route, and closes
+after a successful upload or its bounded lifetime. Do not deploy that endpoint
+or provision certificates without the required explicit authorization. Keep the
+AES key out of its request/page and transfer it only through the authenticated
+server-console channel. No private source exports belong in GitHub.

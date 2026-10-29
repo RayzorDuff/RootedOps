@@ -13,6 +13,7 @@ import os
 from pathlib import Path
 import re
 import time
+import ssl
 
 
 def receive_payload(body,content_type,expected_digest):
@@ -28,7 +29,9 @@ def receive_payload(body,content_type,expected_digest):
 
 def main():
     p=argparse.ArgumentParser(description=__doc__);p.add_argument('--sha256',required=True);p.add_argument('--output',type=Path,required=True);p.add_argument('--port',type=int,default=8080)
+    p.add_argument('--certfile');p.add_argument('--keyfile')
     a=p.parse_args()
+    if bool(a.certfile)!=bool(a.keyfile):p.error('Both TLS certificate and key paths are required')
     if not re.fullmatch('[a-f0-9]{64}',a.sha256):p.error('Invalid expected digest')
     a.output.parent.mkdir(parents=True,exist_ok=True,mode=0o700)
     class Handler(BaseHTTPRequestHandler):
@@ -52,6 +55,10 @@ def main():
             body=b'Ciphertext received and checksum verified.'
             self.send_response(200);self.send_header('Content-Type','text/plain');self.send_header('Content-Length',str(len(body)));self.end_headers();self.wfile.write(body)
     server=HTTPServer(('0.0.0.0',a.port),Handler)
+    if a.certfile:
+        context=ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+        context.load_cert_chain(a.certfile,a.keyfile)
+        server.socket=context.wrap_socket(server.socket,server_side=True)
     server.timeout=900
     print('Ciphertext-only receiver ready',flush=True)
     deadline=time.monotonic()+900
