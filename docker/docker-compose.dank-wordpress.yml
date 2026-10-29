@@ -1,0 +1,54 @@
+# Opt-in; separate credentials, DB and volumes from Rooted Psyche.
+name: dank-store-test
+services:
+  dank-wordpress-db:
+    image: mariadb:11.4
+    restart: unless-stopped
+    environment:
+      MARIADB_DATABASE: dank_wordpress
+      MARIADB_USER: dank_wordpress
+      MARIADB_PASSWORD: ${DANK_WP_DB_PASSWORD:?Set DANK_WP_DB_PASSWORD}
+      MARIADB_ROOT_PASSWORD: ${DANK_WP_DB_ROOT_PASSWORD:?Set DANK_WP_DB_ROOT_PASSWORD}
+    volumes:
+      - dank_wordpress_db:/var/lib/mysql
+    healthcheck:
+      test: [CMD-SHELL, 'healthcheck.sh --connect --innodb_initialized']
+      interval: 15s
+      timeout: 5s
+      retries: 12
+  dank-wordpress:
+    image: wordpress:7.1.4-php8.3-apache
+    restart: unless-stopped
+    depends_on:
+      dank-wordpress-db:
+        condition: service_healthy
+    environment:
+      WORDPRESS_DB_HOST: dank-wordpress-db:3306
+      WORDPRESS_DB_NAME: dank_wordpress
+      WORDPRESS_DB_USER: dank_wordpress
+      WORDPRESS_DB_PASSWORD: ${DANK_WP_DB_PASSWORD:?Set DANK_WP_DB_PASSWORD}
+      WORDPRESS_CONFIG_EXTRA: |
+        define('DISALLOW_FILE_EDIT', true);
+        if (isset($$_SERVER['HTTP_X_FORWARDED_PROTO']) && $$_SERVER['HTTP_X_FORWARDED_PROTO'] === 'https') {
+          $$_SERVER['HTTPS'] = 'on';
+        }
+    ports:
+      - '127.0.0.1:${DANK_WP_TEST_PORT:-8097}:80'
+    volumes:
+      - dank_wordpress_html:/var/www/html
+  dank-wordpress-cli:
+    image: wordpress:cli-php8.3
+    profiles: [tools]
+    user: '33:33'
+    entrypoint: [wp]
+    working_dir: /var/www/html
+    environment:
+      WORDPRESS_DB_HOST: dank-wordpress-db:3306
+      WORDPRESS_DB_NAME: dank_wordpress
+      WORDPRESS_DB_USER: dank_wordpress
+      WORDPRESS_DB_PASSWORD: ${DANK_WP_DB_PASSWORD:?Set DANK_WP_DB_PASSWORD}
+    volumes:
+      - dank_wordpress_html:/var/www/html
+volumes:
+  dank_wordpress_db:
+  dank_wordpress_html:

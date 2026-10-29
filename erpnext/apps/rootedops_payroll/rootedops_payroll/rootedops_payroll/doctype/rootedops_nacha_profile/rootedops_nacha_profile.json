@@ -1,0 +1,212 @@
+{
+ "actions": [],
+ "allow_rename": 1,
+ "autoname": "field:profile_name",
+ "creation": "2026-09-25 00:00:00.000000",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "profile_name",
+  "enabled",
+  "certification_status",
+  "configuration_status",
+  "company_section",
+  "company",
+  "funding_bank_account",
+  "bank_name",
+  "company_column",
+  "nacha_company_name",
+  "nacha_company_id",
+  "sec_code",
+  "company_entry_description",
+  "origination_section",
+  "immediate_destination",
+  "immediate_origin",
+  "immediate_destination_name",
+  "immediate_origin_name",
+  "origination_column",
+  "originating_dfi_identification",
+  "balance_mode",
+  "reference_code",
+  "file_name_pattern"
+ ],
+ "fields": [
+  {
+   "fieldname": "profile_name",
+   "fieldtype": "Data",
+   "label": "Profile Name",
+   "reqd": 1,
+   "unique": 1
+  },
+  {
+   "default": "0",
+   "description": "Enable only after all bank origination values have been confirmed.",
+   "fieldname": "enabled",
+   "fieldtype": "Check",
+   "label": "Enabled"
+  },
+  {
+   "default": "Configuration Incomplete",
+   "fieldname": "certification_status",
+   "fieldtype": "Select",
+   "label": "Certification Status",
+   "options": "Configuration Incomplete\nReady for Bank Test\nBank Validated\nProduction",
+   "reqd": 1
+  },
+  {
+   "fieldname": "configuration_status",
+   "fieldtype": "Data",
+   "label": "Configuration Status",
+   "read_only": 1
+  },
+  {
+   "fieldname": "company_section",
+   "fieldtype": "Section Break",
+   "label": "Company / Funding"
+  },
+  {
+   "fieldname": "company",
+   "fieldtype": "Link",
+   "label": "Company",
+   "options": "Company",
+   "reqd": 1
+  },
+  {
+   "description": "ERPNext Bank Account that funds payroll ACH. Account credentials are not duplicated here.",
+   "fieldname": "funding_bank_account",
+   "fieldtype": "Link",
+   "label": "Funding Bank Account",
+   "options": "Bank Account"
+  },
+  {
+   "fieldname": "bank_name",
+   "fieldtype": "Data",
+   "label": "Bank Name"
+  },
+  {
+   "fieldname": "company_column",
+   "fieldtype": "Column Break"
+  },
+  {
+   "description": "Derived from ERPNext Company name, uppercased and projected to the NACHA 16-character Batch Header field.",
+   "fieldname": "nacha_company_name",
+   "fieldtype": "Data",
+   "label": "NACHA Company Name",
+   "read_only": 1
+  },
+  {
+   "description": "Derived as 1 + the nine EIN digits from ERPNext Company Tax ID.",
+   "fieldname": "nacha_company_id",
+   "fieldtype": "Data",
+   "label": "NACHA Company ID",
+   "read_only": 1
+  },
+  {
+   "default": "PPD",
+   "fieldname": "sec_code",
+   "fieldtype": "Data",
+   "label": "SEC Code",
+   "read_only": 1
+  },
+  {
+   "default": "PAYROLL",
+   "fieldname": "company_entry_description",
+   "fieldtype": "Data",
+   "label": "Company Entry Description",
+   "read_only": 1
+  },
+  {
+   "fieldname": "origination_section",
+   "fieldtype": "Section Break",
+   "label": "NACHA Origination Parameters"
+  },
+  {
+   "description": "Bank-supplied 9-digit immediate destination/routing identifier.",
+   "fieldname": "immediate_destination",
+   "fieldtype": "Data",
+   "label": "Immediate Destination"
+  },
+  {
+   "description": "Bank-supplied immediate origin value; maximum 10 characters.",
+   "fieldname": "immediate_origin",
+   "fieldtype": "Data",
+   "label": "Immediate Origin"
+  },
+  {
+   "fieldname": "immediate_destination_name",
+   "fieldtype": "Data",
+   "label": "Immediate Destination Name",
+   "length": 23
+  },
+  {
+   "fieldname": "immediate_origin_name",
+   "fieldtype": "Data",
+   "label": "Immediate Origin Name",
+   "length": 23
+  },
+  {
+   "fieldname": "origination_column",
+   "fieldtype": "Column Break"
+  },
+  {
+   "description": "Bank-supplied 8-digit ODFI routing prefix used in batch controls and trace numbers.",
+   "fieldname": "originating_dfi_identification",
+   "fieldtype": "Data",
+   "label": "Originating DFI Identification"
+  },
+  {
+   "default": "Unconfirmed",
+   "description": "Must be confirmed with the bank before the profile may be enabled or marked ready for testing.",
+   "fieldname": "balance_mode",
+   "fieldtype": "Select",
+   "label": "Balance Mode",
+   "options": "Unconfirmed\nUnbalanced\nBalanced",
+   "reqd": 1
+  },
+  {
+   "description": "Optional bank-supplied File Header reference code; maximum 8 characters.",
+   "fieldname": "reference_code",
+   "fieldtype": "Data",
+   "label": "Reference Code",
+   "length": 8
+  },
+  {
+   "description": "Optional bank-specific output filename pattern. File generation is implemented in a later phase.",
+   "fieldname": "file_name_pattern",
+   "fieldtype": "Data",
+   "label": "File Name Pattern"
+  }
+ ],
+ "index_web_pages_for_search": 1,
+ "links": [],
+ "modified": "2026-09-25 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "RootedOps Payroll",
+ "name": "RootedOps NACHA Profile",
+ "naming_rule": "By fieldname",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Accounts Manager",
+   "write": 1
+  }
+ ],
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": []
+}

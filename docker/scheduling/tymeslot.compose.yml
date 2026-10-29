@@ -1,0 +1,32 @@
+# RootedOps scheduling: optional independent Tymeslot stack.
+# Run from repository root:
+# docker compose --env-file .env -p rootedops-scheduling -f docker/scheduling/tymeslot.compose.yml up -d
+services:
+  tymeslot:
+    image: luka1thb/tymeslot:${TYMESLOT_IMAGE_TAG:?Set pinned TYMESLOT_IMAGE_TAG}
+    container_name: rootedops-tymeslot
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:4000:4000"
+    environment:
+      DEPLOYMENT_TYPE: docker
+      PHX_HOST: ${TYMESLOT_PUBLIC_HOST:-schedule-test.danks.store}
+      SECRET_KEY_BASE: ${TYMESLOT_SECRET_KEY_BASE:?Set TYMESLOT_SECRET_KEY_BASE}
+      DATA_ENCRYPTION_KEY: ${TYMESLOT_DATA_ENCRYPTION_KEY:?Set TYMESLOT_DATA_ENCRYPTION_KEY}
+      EMAIL_ADAPTER: smtp
+      EMAIL_FROM_NAME: Rooted Psyche
+      EMAIL_FROM_ADDRESS: ${SCHEDULING_SMTP_USER:?Set sender account}
+      SMTP_HOST: smtp.gmail.com
+      SMTP_PORT: "587"
+      SMTP_USERNAME: ${SCHEDULING_SMTP_USER:?Set SCHEDULING_SMTP_USER}
+      SMTP_PASSWORD: ${SCHEDULING_SMTP_PASSWORD:?Set app password}
+      GOOGLE_CLIENT_ID: ${TYMESLOT_GOOGLE_CLIENT_ID:-}
+      GOOGLE_CLIENT_SECRET: ${TYMESLOT_GOOGLE_CLIENT_SECRET:-}
+      GOOGLE_STATE_SECRET: ${TYMESLOT_GOOGLE_STATE_SECRET:-}
+      ENABLE_GOOGLE_AUTH: ${TYMESLOT_ENABLE_GOOGLE_AUTH:-false}
+    volumes:
+      - tymeslot_data:/app/data
+      - tymeslot_pg:/var/lib/postgresql/data
+volumes:
+  tymeslot_data:
+  tymeslot_pg:

@@ -1,0 +1,39 @@
+Account Name,Parent Account,Account Number,Parent Account Number,Is Group,Account Type,Root Type,Account Currency
+Assets,,,,1,,Asset,USD
+Current Assets,Assets,,,1,,Asset,USD
+Dank Mushrooms Checking,Current Assets,,,0,Bank,Asset,USD
+Dank Mushrooms Savings,Current Assets,,,0,Bank,Asset,USD
+Dank Mushrooms Withholding,Current Assets,,,0,Bank,Asset,USD
+Accounts Receivable,Current Assets,,,0,Receivable,Asset,USD
+Inventory Asset,Current Assets,,,0,Stock,Asset,USD
+Fixed Assets,Assets,,,1,,Asset,USD
+Cultivation Equipment,Fixed Assets,,,0,Fixed Asset,Asset,USD
+Market Equipment,Fixed Assets,,,0,Fixed Asset,Asset,USD
+Processing Equipment,Fixed Assets,,,0,Fixed Asset,Asset,USD
+Accumulated Depreciation,Fixed Assets,,,0,,Asset,USD
+Liabilities,,,,1,,Liability,USD
+Current Liabilities,Liabilities,,,1,,Liability,USD
+Accounts Payable,Current Liabilities,,,0,Payable,Liability,USD
+Payroll Withholding Payable,Current Liabilities,,,0,Current Liability,Liability,USD
+Payroll Tax Payable,Current Liabilities,,,0,Current Liability,Liability,USD
+Sales Tax Payable,Current Liabilities,,,0,Current Liability,Liability,USD
+Equity,,,,1,,Equity,USD
+Owner Equity,Equity,,,0,Equity,Equity,USD
+Retained Earnings,Equity,,,0,Equity,Equity,USD
+Income,,,,1,,Income,USD
+Website Sales,Income,,,0,Income Account,Income,USD
+Farmers Market Sales,Income,,,0,Income Account,Income,USD
+Donation Income,Income,,,0,Income Account,Income,USD
+Other Income,Income,,,0,Income Account,Income,USD
+Expenses,,,,1,,Expense,USD
+Cost of Goods Sold,Expenses,,,0,Cost of Goods Sold,Expense,USD
+Payroll Expense,Expenses,,,0,Expense Account,Expense,USD
+Payroll Tax Expense,Expenses,,,0,Expense Account,Expense,USD
+Advertising & Media,Expenses,,,0,Expense Account,Expense,USD
+Farmers Market Fees,Expenses,,,0,Expense Account,Expense,USD
+Supplies & Consumables,Expenses,,,0,Expense Account,Expense,USD
+Website Expense,Expenses,,,0,Expense Account,Expense,USD
+Donation Expense,Expenses,,,0,Expense Account,Expense,USD
+Depreciation Expense,Expenses,,,0,Depreciation,Expense,USD
+Rent Expense,Expenses,,,0,Expense Account,Expense,USD
+Utilities Expense,Expenses,,,0,Expense Account,Expense,USD

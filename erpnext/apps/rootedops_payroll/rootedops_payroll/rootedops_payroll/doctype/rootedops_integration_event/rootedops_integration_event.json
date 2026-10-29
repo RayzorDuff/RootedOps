@@ -1,0 +1,49 @@
+{
+ "actions": [],
+ "allow_rename": 0,
+ "autoname": "field:source_key",
+ "creation": "2026-10-10 00:00:00.000000",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "source_key",
+  "source_system",
+  "source_type",
+  "source_id",
+  "status",
+  "request_fingerprint",
+  "attempt_count",
+  "last_attempt_at",
+  "completed_at",
+  "erp_doctype",
+  "erp_name",
+  "last_error",
+  "metadata_json"
+ ],
+ "fields": [
+  {"fieldname":"source_key","fieldtype":"Data","label":"Source Key","reqd":1,"unique":1},
+  {"fieldname":"source_system","fieldtype":"Data","label":"Source System","reqd":1},
+  {"fieldname":"source_type","fieldtype":"Data","label":"Source Type","reqd":1},
+  {"fieldname":"source_id","fieldtype":"Data","label":"Source ID","reqd":1},
+  {"default":"Processing","fieldname":"status","fieldtype":"Select","label":"Status","options":"Processing\nSucceeded\nFailed","reqd":1},
+  {"fieldname":"request_fingerprint","fieldtype":"Data","label":"Request Fingerprint","reqd":1,"read_only":1},
+  {"default":"0","fieldname":"attempt_count","fieldtype":"Int","label":"Attempt Count","read_only":1},
+  {"fieldname":"last_attempt_at","fieldtype":"Datetime","label":"Last Attempt At","read_only":1},
+  {"fieldname":"completed_at","fieldtype":"Datetime","label":"Completed At","read_only":1},
+  {"fieldname":"erp_doctype","fieldtype":"Link","label":"ERP DocType","options":"DocType","read_only":1},
+  {"fieldname":"erp_name","fieldtype":"Dynamic Link","label":"ERP Document","options":"erp_doctype","read_only":1},
+  {"fieldname":"last_error","fieldtype":"Small Text","label":"Last Error","read_only":1},
+  {"fieldname":"metadata_json","fieldtype":"Code","label":"Metadata JSON","options":"JSON","read_only":1}
+ ],
+ "index_web_pages_for_search": 0,
+ "istable": 0,
+ "module": "RootedOps Payroll",
+ "name": "RootedOps Integration Event",
+ "permissions": [
+  {"role":"System Manager","create":1,"read":1,"write":1,"delete":0,"print":1,"email":0,"export":1},
+  {"role":"Accounts Manager","read":1,"export":1}
+ ],
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": []
+}

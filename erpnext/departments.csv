@@ -1,0 +1,8 @@
+ID,Department,Company,Parent Department,Is Group,Disabled,Old Parent,Payroll Cost Center,Leave Block List,ID (Shift Request Approver),Approver (Shift Request Approver),ID (Leave Approver),Approver (Leave Approver),ID (Expense Approver),Approver (Expense Approver)
+,Operations,"Dank Mushrooms, LLC",,0,0,,Dank Mushrooms Payroll - DML,,,,,,,
+,Cultivation,"Dank Mushrooms, LLC",,0,0,,Dank Mushrooms Payroll - DML,,,,,,,
+,Markets & Sales,"Dank Mushrooms, LLC",,0,0,,Dank Mushrooms Payroll - DML,,,,,,,
+,Administration,"Dank Mushrooms, LLC",,0,0,,Dank Mushrooms Payroll - DML,,,,,,,
+,Programs,Rooted Psyche,,0,0,,,,,,,,,
+,Facilitation,Rooted Psyche,,0,0,,,,,,,,,
+,Administration,Rooted Psyche,,0,0,,,,,,,,,

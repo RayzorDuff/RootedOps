@@ -1,0 +1,43 @@
+# Opt-in WordPress migration stack. Run alongside the existing Grav site until cutover.
+# docker compose --env-file .env -f docker/docker-compose.wordpress.yml up -d
+services:
+  rootedpsyche-wordpress-db:
+    image: mariadb:11.4
+    restart: unless-stopped
+    environment:
+      MARIADB_DATABASE: wordpress
+      MARIADB_USER: wordpress
+      MARIADB_PASSWORD: ${ROOTEDPSYCHE_WP_DB_PASSWORD:?Set ROOTEDPSYCHE_WP_DB_PASSWORD in .env}
+      MARIADB_ROOT_PASSWORD: ${ROOTEDPSYCHE_WP_DB_ROOT_PASSWORD:?Set ROOTEDPSYCHE_WP_DB_ROOT_PASSWORD in .env}
+    volumes:
+      - rootedpsyche_wordpress_db:/var/lib/mysql
+    healthcheck:
+      test: ["CMD-SHELL", "healthcheck.sh --connect --innodb_initialized"]
+      interval: 15s
+      timeout: 5s
+      retries: 12
+
+  rootedpsyche-wordpress:
+    image: wordpress:6.8.3-php8.3-apache
+    restart: unless-stopped
+    depends_on:
+      rootedpsyche-wordpress-db:
+        condition: service_healthy
+    environment:
+      WORDPRESS_DB_HOST: rootedpsyche-wordpress-db:3306
+      WORDPRESS_DB_USER: wordpress
+      WORDPRESS_DB_PASSWORD: ${ROOTEDPSYCHE_WP_DB_PASSWORD:?Set ROOTEDPSYCHE_WP_DB_PASSWORD in .env}
+      WORDPRESS_DB_NAME: wordpress
+      # Honor the TLS terminator when reverse proxied; leave canonical URL to WP admin.
+      WORDPRESS_CONFIG_EXTRA: |
+        if (isset($$_SERVER['HTTP_X_FORWARDED_PROTO']) && strpos($$_SERVER['HTTP_X_FORWARDED_PROTO'], 'https') !== false) {
+          $$_SERVER['HTTPS'] = 'on';
+        }
+    ports:
+      - "127.0.0.1:${ROOTEDPSYCHE_WP_TEST_PORT:-8096}:80"
+    volumes:
+      - rootedpsyche_wordpress_html:/var/www/html
+
+volumes:
+  rootedpsyche_wordpress_db:
+  rootedpsyche_wordpress_html:

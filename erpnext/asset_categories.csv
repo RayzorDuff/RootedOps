@@ -1,0 +1,6 @@
+Asset Category Name,Enable Capital Work in Progress Accounting,Non Depreciable Category,ID (Finance Books),Depreciate based on daily pro-rata (Finance Books),Depreciate based on shifts (Finance Books),Depreciation Method (Finance Books),Depreciation Posting Date (Finance Books),Finance Book (Finance Books),Frequency of Depreciation (Months) (Finance Books),Increase In Asset Life (Months) (Finance Books),Rate of Depreciation (%) (Finance Books),Salvage Value (Finance Books),Salvage Value Percentage (Finance Books),Total Number of Booked Depreciations  (Finance Books),Total Number of Depreciations (Finance Books),Value After Depreciation (Finance Books),ID (Accounts),Company (Accounts),Fixed Asset Account (Accounts),Accumulated Depreciation Account (Accounts),Capital Work In Progress Account (Accounts),Depreciation Expense Account (Accounts)
+Cultivation Equipment,,,,,,Straight Line,,,1,,,,,,60,,,,,,,
+Market Equipment,,,,,,Straight Line,,,1,,,,,,36,,,,,,,
+Processing Equipment,,,,,,Straight Line,,,1,,,,,,60,,,,,,,
+Office & Tech,,,,,,Straight Line,,,1,,,,,,36,,,,,,,
+Leasehold / Site Improvements,,,,,,Straight Line,,,1,,,,,,60,,,,,,,
