@@ -16,13 +16,27 @@ import yaml
 
 ROOT=Path(__file__).resolve().parents[1]
 RALLLY_REV='26927f4703b8b72f7df2947756e6a04ea9360f9b'
-HOSTS={'erpnext':'erp-test.danks.store','appsmith':'appsmith-test.danks.store',
+# The templates remain -test; generated hostnames come from the deployment suffix.
+DEFAULT_HOSTS={'erpnext':'erp-test.danks.store','appsmith':'appsmith-test.danks.store',
  'n8n':'n8n-test.danks.store','nocodb':'nocodb-test.danks.store',
  'documenso':'documenso-test.danks.store','listmonk':'listmonk-test.danks.store',
  'librechat':'ai-test.danks.store','kids-ai':'kids-ai-test.danks.store',
  'qr':'qr-test.danks.store','dank-wordpress':'shop-test.danks.store',
  'rootedpsyche-wordpress':'www-test.rootedpsyche.org',
  'tymeslot':'schedule-test.rootedpsyche.org','rallly':'poll-test.rootedpsyche.org'}
+HOSTS=DEFAULT_HOSTS.copy()
+
+
+def hosts_for_suffix(suffix):
+    if suffix and not re.fullmatch(r'-[a-z0-9]+(?:-[a-z0-9]+)*',suffix):
+        raise ValueError('Hostname suffix must be empty or begin with - followed by lowercase letters/digits')
+    return {name:host.replace('-test.',suffix+'.',1) for name,host in DEFAULT_HOSTS.items()}
+
+
+def deployment_hosts(output):
+    receipt=json.loads((output/'receipt.json').read_text())
+    return hosts_for_suffix(receipt.get('hostname_suffix','-test'))
+
 EXTERNAL=('ECWID_','CLOVER_','AIRTABLE_','REPORT_','GIVEBUTTER_','ERPNEXT_API_',
  'DOCUMENSO_API_TOKEN','NOCODB_API_TOKEN','LISTMONK_API_TOKEN','OPENROUTER_KEY','GITHUB_MCP_TOKEN',
  'TYMESLOT_GOOGLE_','SIGNATUREGATE_PAPER_DRIVE_FOLDER_ID')
@@ -103,7 +117,9 @@ def transform(config,source, project):
     return config
 
 
-def prepare(output,rallly_path=None):
+def prepare(output,rallly_path=None,hostname_suffix="-test"):
+    global HOSTS
+    HOSTS=hosts_for_suffix(hostname_suffix)
     output=output.resolve()
     if output.exists():raise ValueError('Destination exists; never overwrite test credentials')
     if (ROOT/'.env').exists():raise ValueError('Use a clean checkout without a runtime .env')
@@ -159,7 +175,7 @@ def prepare(output,rallly_path=None):
     config['services']['mailpit']={'image':'axllent/mailpit:v1.27','restart':'unless-stopped'}
     private_write(rallly/'compose.yml',yaml.safe_dump(config,sort_keys=False))
     receipt={'schema_version':1,'source_commit':subprocess.check_output(['git','-C',str(ROOT),'rev-parse','HEAD'],text=True).strip(),
-       'mode':'isolated-full-test','hosts':HOSTS,'rallly_revision':RALLLY_REV,'minecraft':'disabled',
+       'mode':'isolated-full-test','hostname_suffix':hostname_suffix,'hosts':HOSTS,'rallly_revision':RALLLY_REV,'minecraft':'disabled',
        'outbound':'internal Docker networks; no production SMTP/OAuth/payment credentials',
        'acceptance':'pending operator clean-host startup, restore and reboot validation'}
     private_write(output/'receipt.json',json.dumps(receipt,indent=2)+'\n')
@@ -227,14 +243,14 @@ def start(output):
     print('Startup commands completed. Verify application setup, health and reboot receipt before acceptance.')
 
 
-def dns(expected,exports,live=False):
+def dns(expected,exports,live=False,hosts=None):
     ipaddress.ip_address(expected)
     addresses={}
     for path in exports:
         for line in path.read_text().splitlines():
             m=re.match(r'^(\S+)\s+\d+\s+IN\s+(A|AAAA)\s+(\S+)',line)
             if m:addresses.setdefault(m[1].rstrip('.'),[]).append(m[3])
-    report={host:{'export_addresses':addresses.get(host,[]),'matches_expected':addresses.get(host)==[expected]} for host in HOSTS.values()}
+    report={host:{'export_addresses':addresses.get(host,[]),'matches_expected':addresses.get(host)==[expected]} for host in (hosts or HOSTS).values()}
     if live:
         for host,row in report.items():
             try:current=sorted({a[4][0] for a in socket.getaddrinfo(host,None,type=socket.SOCK_STREAM)})
@@ -260,8 +276,9 @@ def status(output):
 
 def publish(output,expected,email,confirmed):
     if not confirmed:raise ValueError('Configure initial accounts through SSH tunnels before publishing')
-    if not dns(expected,[],live=True):raise ValueError('All live A/AAAA records must match the new test host before TLS')
-    for name in HOSTS:
+    hosts=deployment_hosts(output)
+    if not dns(expected,[],live=True,hosts=hosts):raise ValueError('All live A/AAAA records must match the new test host before TLS')
+    for name in hosts:
         source=ROOT/'nginx'/(name+'.conf')
         if name=='dank-wordpress':source=ROOT/'nginx/dank-wordpress.conf'
         if name=='librechat':source=ROOT/'nginx/librechat.conf'
@@ -270,15 +287,18 @@ def publish(output,expected,email,confirmed):
         destination=Path('/etc/nginx/sites-available')/source.name
         if destination.exists():raise ValueError('Do not overwrite installed vhosts: '+str(destination))
     import shutil
-    for name in HOSTS:
+    for name in hosts:
         source=ROOT/'nginx'/(name+'.conf')
         destination=Path('/etc/nginx/sites-available')/source.name
-        shutil.copyfile(source,destination)
+        rendered=source.read_text()
+        for key,default_host in DEFAULT_HOSTS.items():
+            rendered=rendered.replace(default_host,hosts[key])
+        destination.write_text(rendered)
         (Path('/etc/nginx/sites-enabled')/source.name).symlink_to(destination)
     subprocess.run(['nginx','-t'],check=True)
     subprocess.run(['systemctl','reload','nginx'],check=True)
     args=['certbot','--nginx','--non-interactive','--agree-tos','--email',email,'--redirect']
-    for host in HOSTS.values():args+=['-d',host]
+    for host in hosts.values():args+=['-d',host]
     subprocess.run(args,check=True)
     subprocess.run(['certbot','renew','--dry-run'],check=True)
 
@@ -287,9 +307,11 @@ if __name__=='__main__':
     p=argparse.ArgumentParser(description=__doc__);s=p.add_subparsers(dest='action',required=True)
     for action in ('prepare','validate','start','status'):
         q=s.add_parser(action);q.add_argument('output',type=Path)
-    q=s.add_parser('dns');q.add_argument('--expected-ip',required=True);q.add_argument('exports',nargs='*',type=Path);q.add_argument('--live',action='store_true')
+    q=s.add_parser('dns');q.add_argument('--deployment',type=Path,default=ROOT/'.test-deployment');q.add_argument('--expected-ip',required=True);q.add_argument('exports',nargs='*',type=Path);q.add_argument('--live',action='store_true')
     q=s.add_parser('publish');q.add_argument('output',type=Path);q.add_argument('--expected-ip',required=True);q.add_argument('--email',required=True);q.add_argument('--accounts-configured',action='store_true')
+    s.choices['prepare'].add_argument('--hostname-suffix',default='-test')
     a=p.parse_args()
-    if a.action=='dns':raise SystemExit(0 if dns(a.expected_ip,a.exports,a.live) else 1)
+    if a.action=='dns':raise SystemExit(0 if dns(a.expected_ip,a.exports,a.live,hosts=deployment_hosts(a.deployment.resolve())) else 1)
     if a.action=='publish':publish(a.output.resolve(),a.expected_ip,a.email,a.accounts_configured)
+    elif a.action=='prepare':prepare(a.output.resolve(),hostname_suffix=a.hostname_suffix)
     else:globals()[a.action](a.output.resolve())
