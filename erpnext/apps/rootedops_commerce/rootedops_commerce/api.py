@@ -85,6 +85,10 @@ def import_product(payload):
                 raise ValueError
         except (InvalidOperation, ValueError, KeyError):
             frappe.throw("Invalid reviewed price")
+        price_list_doc = frappe.get_doc("Price List", price["price_list"])
+        price_list_doc.check_permission("read")
+        if not price_list_doc.selling or not price_list_doc.enabled or price_list_doc.currency != price["currency"]:
+            frappe.throw("Reviewed selling price list/currency mismatch")
         filters = {"item_code":code, "price_list":price["price_list"],
                    "currency":price["currency"], "uom":erp_data["stock_uom"]}
         matches = frappe.get_list("Item Price", filters=filters,

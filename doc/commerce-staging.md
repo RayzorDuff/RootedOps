@@ -93,3 +93,20 @@ python3 -m unittest discover -s tests -v
 Local unit tests do not replace `bench run-tests`, real PostgreSQL regression
 or checkout tests. Record each layer separately in #20; never describe an
 unexecuted staging or payment flow as verified.
+
+## First execution findings
+
+Docker/Compose installed successfully from Ubuntu repositories. Minimal rendered
+Compose validates and the PostgreSQL service starts without unrelated services.
+The documented numeric SQL replay successfully applies 001 through 030, but 031
+rejects the fresh generated `vc_lots` signature. Its production-only fingerprint
+guard cannot accept the repository's own clean baseline. Do not bypass it blindly:
+the paired MushroomProcess branch allowlists the exact baseline signatures,
+retaining rejection of unknown view definitions. Rerun both legacy
+navigation and commerce snapshot regressions before continuing.
+
+The broad RootedOps unittest suite also has a pre-existing static assertion in
+`test_bookworks_native_release_contract.py` expecting the retired text
+`Already published; use reviewed update workflow`. The current main-branch PHP
+supports approved published revisions. Commerce tests are independent of this
+known unrelated assertion; PHP syntax checking is skipped if PHP is unavailable.
