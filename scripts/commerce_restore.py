@@ -40,6 +40,8 @@ def preflight(environment, backup, components, source_site):
     config = yaml.safe_load((environment/'compose.yml').read_text())
     if config.get('name') != 'commerce-test':
         raise ValueError('Unexpected Compose project')
+    if any(options for options in config.get('volumes', {}).values()):
+        raise ValueError('External or custom-named restore volumes are forbidden')
     for service in config['services'].values():
         if service.get('container_name') or any(not str(p).startswith('127.0.0.1:') for p in service.get('ports', [])):
             raise ValueError('Destination must use isolated containers and loopback ports')
@@ -124,8 +126,10 @@ class Restore:
     def run(self, components, source_site):
         # Refuse previously used projects before stopping anything.
         existing = self.dc('ps', '-a', '-q', capture_output=True, text=True).stdout.strip()
-        if existing:
-            raise ValueError('Restore requires a fresh project with no existing containers')
+        volumes = subprocess.run(['docker', 'volume', 'ls', '-q', '--filter', 'name=^commerce-test_'],
+                                 capture_output=True, text=True, check=True).stdout.strip()
+        if existing or volumes:
+            raise ValueError('Restore requires a fresh project with no existing containers or volumes')
         marker = self.environment/'RESTORE_STARTED'
         with marker.open('x') as stream:
             stream.write('Do not retry automatically; inspect partial restore on failure.\n')

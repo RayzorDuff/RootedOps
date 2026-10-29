@@ -30,6 +30,10 @@ class RecoveryTests(unittest.TestCase):
             self.assertNotIn('minecraft-bedwars', config['services'])
             self.assertNotIn('listmonk', config['services'])
             self.assertEqual(values['ERPNEXT_HTTP_PORT'], '8086')
+            for service in config['services'].values():
+                for mount in service.get('volumes', []):
+                    if isinstance(mount, dict):
+                        self.assertTrue(mount['volume']['nocopy'])
             config['services']['n8n']['ports'] = ['5678:5678']
             (env/'compose.yml').write_text(yaml.safe_dump(config))
             with self.assertRaisesRegex(ValueError, 'loopback'):

@@ -37,7 +37,9 @@ def render(output):
                 volumes[src] = base.get('volumes',{}).get(src)
                 # Prevent image seed files obscuring whether a restore target is fresh.
                 index = service['volumes'].index(mount)
-                service['volumes'][index] = mount + ':nocopy'
+                parts = mount.split(':')
+                service['volumes'][index] = {'type':'volume', 'source':src, 'target':parts[1],
+                    'read_only': len(parts)>2 and 'ro' in parts[2].split(','), 'volume':{'nocopy':True}}
         if 'build' in service:
             service['build']['context'] = str(ROOT)
         if 'ports' in service:
