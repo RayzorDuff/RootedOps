@@ -1,0 +1,60 @@
+{
+  "name": "Commerce Source Archive",
+  "doctype": "DocType",
+  "module": "RootedOps Commerce",
+  "engine": "InnoDB",
+  "track_changes": 1,
+  "field_order": [
+    "source_key",
+    "record_type",
+    "payload",
+    "payload_hash"
+  ],
+  "fields": [
+    {
+      "fieldname": "source_key",
+      "label": "Source Key",
+      "fieldtype": "Data",
+      "reqd": 1,
+      "unique": 1
+    },
+    {
+      "fieldname": "record_type",
+      "label": "Record Type",
+      "fieldtype": "Select",
+      "options": "customer\norder\ncategory\nprofile",
+      "reqd": 1
+    },
+    {
+      "fieldname": "payload",
+      "label": "Payload",
+      "fieldtype": "Code",
+      "options": "JSON",
+      "reqd": 1
+    },
+    {
+      "fieldname": "payload_hash",
+      "label": "Payload Hash",
+      "fieldtype": "Data",
+      "read_only": 1
+    }
+  ],
+  "permissions": [
+    {
+      "role": "System Manager",
+      "read": 1,
+      "write": 1,
+      "create": 1,
+      "delete": 1,
+      "export": 1
+    },
+    {
+      "role": "Sales Manager",
+      "read": 1,
+      "write": 1,
+      "create": 1,
+      "export": 1
+    }
+  ],
+  "autoname": "field:source_key"
+}

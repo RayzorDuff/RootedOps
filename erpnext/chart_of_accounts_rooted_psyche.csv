@@ -1,0 +1,25 @@
+Account Name,Parent Account,Account Number,Parent Account Number,Is Group,Account Type,Root Type,Account Currency
+Assets,,,,1,,Asset,USD
+Current Assets,Assets,,,1,,Asset,USD
+Rooted Psyche Bank,Current Assets,,,0,Bank,Asset,USD
+Accounts Receivable,Current Assets,,,0,Receivable,Asset,USD
+Liabilities,,,,1,,Liability,USD
+Current Liabilities,Liabilities,,,1,,Liability,USD
+Accounts Payable,Current Liabilities,,,0,Payable,Liability,USD
+Payroll Withholding Payable,Current Liabilities,,,0,Current Liability,Liability,USD
+Payroll Tax Payable,Current Liabilities,,,0,Current Liability,Liability,USD
+Equity,,,,1,,Equity,USD
+Unrestricted Net Assets,Equity,,,0,Equity,Equity,USD
+Temporarily Restricted Net Assets,Equity,,,0,Equity,Equity,USD
+Income,,,,1,,Income,USD
+Donation Income,Income,,,0,Income Account,Income,USD
+Grant Income,Income,,,0,Income Account,Income,USD
+Expenses,,,,1,,Expense,USD
+Lease Expense - Dank Mushrooms,Expenses,,,0,Expense Account,Expense,USD
+Cultivation Services Expense,Expenses,,,0,Expense Account,Expense,USD
+Property Lease Expense,Expenses,,,0,Expense Account,Expense,USD
+Contract Services,Expenses,,,0,Expense Account,Expense,USD
+Program Supplies,Expenses,,,0,Expense Account,Expense,USD
+Payroll Expense,Expenses,,,0,Expense Account,Expense,USD
+Payroll Tax Expense,Expenses,,,0,Expense Account,Expense,USD
+Bank Fees,Expenses,,,0,Expense Account,Expense,USD

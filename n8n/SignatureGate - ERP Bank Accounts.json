@@ -1,0 +1,141 @@
+{
+  "name": "SignatureGate - ERP Bank Accounts",
+  "nodes": [
+    {
+      "parameters": {
+        "path": "signaturegate/erp/bank-accounts",
+        "authentication": "headerAuth",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "4ea75482-0845-4977-88da-4d8ed5cfc1f0",
+      "name": "ERP Bank Accounts",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        -32,
+        -64
+      ],
+      "webhookId": "0e3dcb75-5a31-47ca-b981-102cd4b11001",
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "VmTcpckgm6vvMihf",
+          "name": "Appsmith-SignatureGate"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "url": "={{ ($env.ERPNEXT_INTERNAL_URL || $env.ERPNEXT_PUBLIC_URL) + '/api/method/rootedops_payroll.api.integration.list_signaturegate_cash_deposit_bank_accounts_api' }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=token {{ $env.ERPNEXT_API_KEY }}:{{ $env.ERPNEXT_API_SECRET }}"
+            },
+            {
+              "name": "Host",
+              "value": "={{ $env.ERPNEXT_SITE_NAME }}"
+            }
+          ]
+        },
+        "options": {
+          "response": {
+            "response": {
+              "fullResponse": true
+            }
+          }
+        }
+      },
+      "id": "fee564dd-ee5e-44a1-888a-72c379ecb44f",
+      "name": "HTTP - List ERP Bank Accounts",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.3,
+      "position": [
+        256,
+        -64
+      ],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000,
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "jsCode": "const body = $json.body ?? $json;\nconst result = body?.message ?? body;\nconst statusCode = $json.statusCode ?? null;\nconst failed = !!$json.error || (statusCode !== null && Number(statusCode) >= 400);\nif (failed || result?.ok !== true) {\n  return [{ json: { ok: false, accounts: [], error: String($json.error?.message || result?.error || body?.exception || body?.message || 'Unable to load ERPNext bank accounts.') } }];\n}\nreturn [{ json: result }];"
+      },
+      "id": "f57f723d-1d28-4aef-8102-6dc587af2e28",
+      "name": "Normalize Bank Accounts",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        528,
+        -64
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ $json }}",
+        "options": {}
+      },
+      "id": "28ff3bb6-27ea-4ea0-9a1b-7dee84f61cdf",
+      "name": "Return Bank Accounts",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.4,
+      "position": [
+        816,
+        -64
+      ]
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "ERP Bank Accounts": {
+      "main": [
+        [
+          {
+            "node": "HTTP - List ERP Bank Accounts",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP - List ERP Bank Accounts": {
+      "main": [
+        [
+          {
+            "node": "Normalize Bank Accounts",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Normalize Bank Accounts": {
+      "main": [
+        [
+          {
+            "node": "Return Bank Accounts",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate"
+  },
+  "versionId": "8e3b0a04-7875-461e-9c04-a2ec736fc74f",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "80f6db60a29056f4b0d55bd1ef6e213f497428949062f982c496e7b46a37f624"
+  },
+  "id": "RmQPZZokNYbzsyUb",
+  "tags": []
+}

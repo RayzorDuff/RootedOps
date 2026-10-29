@@ -1,0 +1,217 @@
+{
+  "name": "Bank CSV Upload to ERPNext API (Webhook)",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "bank-import-erpnext-api",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "b9fcfd7f-0e96-4ada-9e1a-1c76bc4df4b4",
+      "name": "Upload Bank CSV",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        0,
+        0
+      ],
+      "webhookId": "2c6c5544-75be-4b88-a611-1c0dadd30439"
+    },
+    {
+      "parameters": {
+        "jsCode": "const sourceItem = $input.first();\nconst binary = sourceItem.binary || {};\nconst binaryKeys = Object.keys(binary);\n\nif (!binaryKeys.length) {\n  throw new Error('No uploaded file was found. Upload the CSV in the multipart form-data field named \"file\".');\n}\n\nconst binaryPropertyName = binaryKeys.includes('file') ? 'file' : binaryKeys[0];\nconst fileMeta = binary[binaryPropertyName] || {};\nconst fileName = fileMeta.fileName || 'statement.csv';\nconst mimeType = fileMeta.mimeType || 'text/csv';\nconst fileBuffer = await this.helpers.getBinaryDataBuffer(0, binaryPropertyName);\nconst fileContent = fileBuffer.toString('utf8').replace(/^\\uFEFF/, '');\n\nconst body = sourceItem.json?.body || {};\nconst json = sourceItem.json || {};\nconst bank = body.bank || json.bank || '';\nconst currency = body.currency || json.currency || 'USD';\nconst erpnextBankAccount = body.erpnextBankAccount || json.erpnextBankAccount || '';\nconst company = body.company || json.company || '';\n\nreturn [{\n  json: {\n    bank,\n    currency,\n    erpnextBankAccount,\n    company,\n    fileName,\n    mimeType,\n    binaryPropertyName,\n    fileContent,\n  }\n}];"
+      },
+      "id": "978cca4c-7b0e-42c1-bc4c-69aef43cda8d",
+      "name": "Read Uploaded CSV",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        272,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "function parseCsvLine(line, delimiter = ',') {\n  const out = [];\n  let cur = '';\n  let inQuotes = false;\n\n  for (let i = 0; i < line.length; i++) {\n    const ch = line[i];\n    const next = line[i + 1];\n\n    if (ch === '\"') {\n      if (inQuotes && next === '\"') {\n        cur += '\"';\n        i++;\n      } else {\n        inQuotes = !inQuotes;\n      }\n    } else if (ch === delimiter && !inQuotes) {\n      out.push(cur);\n      cur = '';\n    } else {\n      cur += ch;\n    }\n  }\n\n  out.push(cur);\n  return out;\n}\n\nfunction detectDelimiter(text) {\n  const firstLines = text.split(/\\r?\\n/).slice(0, 10).join('\\n');\n  const commaCount = (firstLines.match(/,/g) || []).length;\n  const tabCount = (firstLines.match(/\\t/g) || []).length;\n  const semicolonCount = (firstLines.match(/;/g) || []).length;\n\n  if (tabCount > commaCount && tabCount > semicolonCount) return '\\t';\n  if (semicolonCount > commaCount) return ';';\n  return ',';\n}\n\nfunction normalizeHeader(h) {\n  return String(h || '')\n    .trim()\n    .toLowerCase()\n    .replace(/^\\uFEFF/, '')\n    .replace(/[^a-z0-9]+/g, '_')\n    .replace(/^_+|_+$/g, '');\n}\n\nfunction cleanValue(v) {\n  if (v === undefined || v === null) return '';\n  return String(v).trim();\n}\n\nfunction normalizeForKey(v) {\n  return cleanValue(v)\n    .toUpperCase()\n    .replace(/\\s+/g, ' ')\n    .trim();\n}\n\nfunction parseAmount(v) {\n  const s = cleanValue(v)\n    .replace(/[$,]/g, '')\n    .replace(/\\((.*?)\\)/, '-$1');\n\n  if (!s) return 0;\n  const n = Number(s);\n  return Number.isFinite(n) ? n : 0;\n}\n\nfunction parseDate(v) {\n  const s = cleanValue(v);\n  if (!s) return '';\n\n  if (/^\\d{4}-\\d{2}-\\d{2}$/.test(s)) return s;\n\n  const m = s.match(/^(\\d{1,2})\\/(\\d{1,2})\\/(\\d{4})$/);\n  if (m) {\n    const mm = m[1].padStart(2, '0');\n    const dd = m[2].padStart(2, '0');\n    const yyyy = m[3];\n    return `${yyyy}-${mm}-${dd}`;\n  }\n\n  const d = new Date(s);\n  if (!isNaN(d.getTime())) {\n    return d.toISOString().slice(0, 10);\n  }\n\n  return s;\n}\n\nfunction firstPresent(obj, keys) {\n  for (const k of keys) {\n    if (obj[k] !== undefined && obj[k] !== null && String(obj[k]).trim() !== '') {\n      return obj[k];\n    }\n  }\n  return '';\n}\n\nfunction cyrb53(str, seed = 0) {\n  let h1 = 0xdeadbeef ^ seed;\n  let h2 = 0x41c6ce57 ^ seed;\n  for (let i = 0, ch; i < str.length; i++) {\n    ch = str.charCodeAt(i);\n    h1 = Math.imul(h1 ^ ch, 2654435761);\n    h2 = Math.imul(h2 ^ ch, 1597334677);\n  }\n  h1 = Math.imul(h1 ^ (h1 >>> 16), 2246822507) ^ Math.imul(h2 ^ (h2 >>> 13), 3266489909);\n  h2 = Math.imul(h2 ^ (h2 >>> 16), 2246822507) ^ Math.imul(h1 ^ (h1 >>> 13), 3266489909);\n  return 4294967296 * (2097151 & h2) + (h1 >>> 0);\n}\n\nfunction makeSyntheticId(parts, prefix = 'TXN') {\n  const canonical = parts.map(normalizeForKey).join('|');\n  const hash = cyrb53(canonical).toString(16).toUpperCase();\n  return `${prefix}-${hash}`;\n}\n\nconst input = items[0].json;\nconst rawText = input.fileContent || '';\n\nif (!rawText || !String(rawText).trim()) {\n  throw new Error('No file content was provided to the normalization step.');\n}\n\nconst text = String(rawText).replace(/\\r\\n/g, '\\n').replace(/\\r/g, '\\n');\nconst delimiter = detectDelimiter(text);\nconst lines = text.split('\\n').filter(line => line.trim() !== '');\n\nif (!lines.length) {\n  throw new Error('Uploaded file appears to be empty.');\n}\n\nlet headerIndex = -1;\nlet headers = [];\n\nfor (let i = 0; i < Math.min(lines.length, 20); i++) {\n  const cols = parseCsvLine(lines[i], delimiter).map(normalizeHeader);\n  const hasDate =\n    cols.includes('processed_date') ||\n    cols.includes('posting_date') ||\n    cols.includes('effective_date') ||\n    cols.includes('date');\n\n  const hasDesc =\n    cols.includes('description') ||\n    cols.includes('memo') ||\n    cols.includes('extended_description');\n\n  const hasAmount =\n    cols.includes('amount') ||\n    cols.includes('debit') ||\n    cols.includes('credit');\n\n  if (hasDate && hasDesc && hasAmount) {\n    headerIndex = i;\n    headers = cols;\n    break;\n  }\n}\n\nif (headerIndex === -1) {\n  throw new Error(\n    'Could not find a usable header row. First lines were: ' +\n      lines.slice(0, 5).join(' | ')\n  );\n}\n\nconst currency = cleanValue(input.currency || 'USD');\nconst bankName = cleanValue(input.bank || '');\nconst erpnextBankAccount = cleanValue(input.erpnextBankAccount || '');\nconst company = cleanValue(input.company || '');\nconst output = [];\n\nfor (let i = headerIndex + 1; i < lines.length; i++) {\n  const rawCols = parseCsvLine(lines[i], delimiter);\n  if (!rawCols.some(v => cleanValue(v) !== '')) continue;\n\n  const row = {};\n  for (let c = 0; c < headers.length; c++) {\n    row[headers[c]] = cleanValue(rawCols[c] || '');\n  }\n\n  const dateRaw = firstPresent(row, ['processed_date', 'posting_date', 'effective_date', 'date']);\n  const descriptionRaw = firstPresent(row, ['description', 'memo', 'extended_description']);\n  const checkNumber = firstPresent(row, ['check_number']);\n  const bankTransactionId = firstPresent(row, ['transaction_id']);\n  const referenceNumber = firstPresent(row, ['reference_number']);\n  const transactionType = firstPresent(row, ['transaction_type', 'type', 'credit_or_debit']);\n  let debit = 0;\n  let credit = 0;\n\n  if (row.amount && row.credit_or_debit) {\n    const amt = Math.abs(parseAmount(row.amount));\n    const direction = cleanValue(row.credit_or_debit).toLowerCase();\n\n    if (direction.includes('debit')) {\n      debit = amt;\n    } else if (direction.includes('credit')) {\n      credit = amt;\n    }\n  } else if (row.debit || row.credit) {\n    debit = Math.abs(parseAmount(row.debit));\n    credit = Math.abs(parseAmount(row.credit));\n  } else if (row.amount) {\n    const amt = parseAmount(row.amount);\n    if (amt < 0) {\n      debit = Math.abs(amt);\n    } else if (amt > 0) {\n      credit = amt;\n    }\n  }\n\n  const parsedDate = parseDate(dateRaw);\n  const description = descriptionRaw || referenceNumber || bankTransactionId || checkNumber || '';\n\n  if (!parsedDate || !description || (!debit && !credit)) {\n    continue;\n  }\n\n  const directionLabel = debit ? 'Debit' : 'Credit';\n  const amountForKey = debit ? debit.toFixed(2) : credit.toFixed(2);\n  const syntheticPrefix = bankName && bankName.toLowerCase().includes('high plains') ? 'HPB' : 'TXN';\n  const syntheticId = makeSyntheticId([\n    erpnextBankAccount || bankName,\n    parsedDate,\n    directionLabel,\n    amountForKey,\n    description,\n    checkNumber,\n  ], syntheticPrefix);\n\n  const finalTransactionId = bankTransactionId || referenceNumber || syntheticId;\n  const finalReferenceNumber = referenceNumber || bankTransactionId || syntheticId;\n\n  output.push({\n    json: {\n      bank: bankName,\n      sourceFile: input.fileName || 'statement.csv',\n      date: parsedDate,\n      bank_account: erpnextBankAccount,\n      company,\n      deposit: credit || 0,\n      withdrawal: debit || 0,\n      currency,\n      description,\n      reference_number: finalReferenceNumber,\n      transaction_id: finalTransactionId,\n      transaction_type: transactionType || directionLabel,\n    }\n  });\n}\n\nif (!output.length) {\n  throw new Error(\n    `No usable transaction rows were found. Header row detected at line ${headerIndex + 1} using delimiter \"${delimiter}\". Parsed headers: ${headers.join(', ')}`\n  );\n}\n\nreturn output;"
+      },
+      "id": "d6684d4c-3284-4e03-8cc9-6b888d0976de",
+      "name": "Normalize For ERPNext API",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        528,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ $json }}",
+        "options": {}
+      },
+      "id": "6f75515e-8479-4bd8-a556-b068826ebd6e",
+      "name": "Return Import Result",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.4,
+      "position": [
+        1040,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.ERPNEXT_PUBLIC_URL }}/api/resource/Bank Transaction",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=token {{ $env.ERPNEXT_API_KEY }}:{{ $env.ERPNEXT_API_SECRET }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "date",
+              "value": "={{ $json.date }}"
+            },
+            {
+              "name": "bank_account",
+              "value": "={{ $json.bank_account }}"
+            },
+            {
+              "name": "deposit",
+              "value": "={{ Number($json.deposit || 0) }}"
+            },
+            {
+              "name": "withdrawal",
+              "value": "={{ Number($json.withdrawal || 0) }}"
+            },
+            {
+              "name": "currency",
+              "value": "={{ $json.currency }}"
+            },
+            {
+              "name": "description",
+              "value": "={{ $json.description }}"
+            },
+            {
+              "name": "reference_number",
+              "value": "={{ $json.reference_number }}"
+            },
+            {
+              "name": "transaction_id",
+              "value": "={{ $json.transaction_id }}"
+            },
+            {
+              "name": "transaction_type",
+              "value": "={{ $json.transaction_type }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.3,
+      "position": [
+        736,
+        -48
+      ],
+      "id": "19e6571f-7ec0-4a96-8a60-223f5cba73f0",
+      "name": "HTTP Request",
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "let created = 0;\nlet duplicates = 0;\nlet errors = 0;\nconst lines = [];\n\nfunction extractTxIdFromText(text) {\n  if (!text) return \"\";\n  const patterns = [\n    /Duplicate entry '([^']+)' for key 'transaction_id'/i,\n    /transaction_id['\"]?\\s*[:=]\\s*['\"]([^'\"]+)['\"]/i,\n    /\"transaction_id\":\"([^\"]+)\"/i,\n  ];\n\n  for (const re of patterns) {\n    const m = text.match(re);\n    if (m) return m[1];\n  }\n  return \"\";\n}\n\nfor (const item of items) {\n  const j = item.json || {};\n  const createdDoc = j.data || null;\n  const errorObj = j.error || null;\n\n  const errorText = [\n    errorObj?.message,\n    errorObj?.description,\n    j.message,\n    j.errorMessage,\n    JSON.stringify(errorObj || {}),\n  ]\n    .filter(Boolean)\n    .join(\" | \");\n\n  const lowerError = errorText.toLowerCase();\n\n  const date =\n    createdDoc?.date ||\n    j.source_date ||\n    j.date ||\n    j[\"Date\"] ||\n    \"(unknown)\";\n\n  const txId =\n    createdDoc?.transaction_id ||\n    j.source_transaction_id ||\n    j.transaction_id ||\n    j[\"Transaction ID\"] ||\n    extractTxIdFromText(errorText) ||\n    \"(unknown)\";\n\n  if (createdDoc && createdDoc.name) {\n    created++;\n    lines.push(`• CREATED - ${date} - ${txId} - ${createdDoc.name}`);\n  } else if (\n    lowerError.includes(\"duplicate entry\") ||\n    lowerError.includes(\"transaction id must be unique\") ||\n    lowerError.includes(\"uniquevalidationerror\")\n  ) {\n    duplicates++;\n    lines.push(`• DUPLICATE - ${date} - ${txId}`);\n  } else {\n    errors++;\n    lines.push(`• ERROR - ${date} - ${txId} - ${errorText || JSON.stringify(j)}`);\n  }\n}\n\nreturn [\n  {\n    json: {\n      created,\n      duplicates,\n      errors,\n      total: items.length,\n      preview: lines.slice(0, 20),\n    },\n  },\n];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        896,
+        -128
+      ],
+      "id": "c6c85509-258f-4ebc-97c1-0f0beebd392b",
+      "name": "Code in JavaScript"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Upload Bank CSV": {
+      "main": [
+        [
+          {
+            "node": "Read Uploaded CSV",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read Uploaded CSV": {
+      "main": [
+        [
+          {
+            "node": "Normalize For ERPNext API",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Normalize For ERPNext API": {
+      "main": [
+        [
+          {
+            "node": "HTTP Request",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP Request": {
+      "main": [
+        [
+          {
+            "node": "Code in JavaScript",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Code in JavaScript",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code in JavaScript": {
+      "main": [
+        [
+          {
+            "node": "Return Import Result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "availableInMCP": false
+  },
+  "versionId": "4dda37fd-fae3-4409-9ce1-c3e48e00fd72",
+  "meta": {
+    "instanceId": "80f6db60a29056f4b0d55bd1ef6e213f497428949062f982c496e7b46a37f624"
+  },
+  "id": "BczEfbmzoNNfek8k",
+  "tags": []
+}

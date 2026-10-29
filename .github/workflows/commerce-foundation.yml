@@ -1,0 +1,27 @@
+name: Commerce foundation
+on:
+  push:
+    paths: ['erpnext/apps/rootedops_commerce/**', 'integrations/commerce/**', 'scripts/commerce*', 'linode_bootstrap.sh', 'nginx/**', 'tests/test_commerce*.py', 'backup/**', 'docker/**', '.github/workflows/commerce-foundation.yml']
+  pull_request:
+    paths: ['erpnext/apps/rootedops_commerce/**', 'integrations/commerce/**', 'scripts/commerce*', 'linode_bootstrap.sh', 'nginx/**', 'tests/test_commerce*.py', 'backup/**', 'docker/**', '.github/workflows/commerce-foundation.yml']
+permissions:
+  contents: read
+jobs:
+  foundation:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python -m pip install PyYAML==6.0.2
+      - run: make commerce-test
+  native-restore:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python -m pip install PyYAML==6.0.2
+      - run: bash scripts/commerce_restore_smoke.sh

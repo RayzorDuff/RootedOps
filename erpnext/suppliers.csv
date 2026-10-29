@@ -1,0 +1,7 @@
+ID,Supplier Type,Supplier Name,Series,Gender,Supplier Group,Country,Is Transporter,Image,Billing Currency,Default Company Bank Account,Price List,Supplier Details,Website,Print Language,Supplier Primary Address,Primary Address,Supplier Primary Contact,Mobile No,Email Id,Tax ID,Is IRS 1099 reporting required for supplier?,Tax Category,Tax Withholding Category,Tax Withholding Group,Default Payment Terms Template,Is Internal Supplier,Represents Company,Allow Purchase Invoice Creation Without Purchase Order,Allow Purchase Invoice Creation Without Purchase Receipt,Disabled,Is Frozen,Warn RFQs,Prevent RFQs,Warn POs,Prevent POs,Block Supplier,Hold Type,Release Date,ID (Customer Numbers),Company (Customer Numbers),Customer Number (Customer Numbers),ID (Accounts),Advance Account (Accounts),Company (Accounts),Default Account (Accounts),ID (Allowed To Transact With),Company (Allowed To Transact With),ID (Supplier Portal Users),User (Supplier Portal Users)
+,Company,Amazon,,,Services,United States,,,USD,,,,,,,,,,,,,,,,,,,,,0,,,,,,,,,,,,,,,,,,,
+,Company,Ecwid,,,Services,United States,,,USD,,,,,,,,,,,,,,,,,,,,,0,,,,,,,,,,,,,,,,,,,
+,Company,Clover,,,Services,United States,,,USD,,,,,,,,,,,,,,,,,,,,,0,,,,,,,,,,,,,,,,,,,
+,Company,Givebutter,,,Services,United States,,,USD,,,,,,,,,,,,,,,,,,,,,0,,,,,,,,,,,,,,,,,,,
+,Company,Farmers Market Organizer,,,Services,United States,,,USD,,,,,,,,,,,,,,,,,,,,,0,,,,,,,,,,,,,,,,,,,
+,Company,Advertising Vendor,,,Services,United States,,,USD,,,,,,,,,,,,,,,,,,,,,0,,,,,,,,,,,,,,,,,,,
