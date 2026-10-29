@@ -39,3 +39,17 @@ def import_plan(path):
     frappe.db.commit()
     return {'products_imported_or_existing':len(imported),'archives_imported_or_existing':archived,
             'price_lists_changed':False,'stock_changed':False,'financial_documents_created':False}
+
+
+def export_test_catalog(plan_path, output_path):
+    """Bench-only private snapshot for staging integration rehearsals."""
+    if frappe.local.site != 'erp-test.danks.store':
+        raise ValueError('Restricted to the disposable staging site')
+    from rootedops_commerce.api import catalog
+    import os
+    plan=json.loads(Path(plan_path).read_text())
+    if plan.get('errors'):raise ValueError('Reconciliation errors')
+    result={p['content']['item']:catalog(p['content']['item']) for p in plan['products']}
+    fd=os.open(output_path,os.O_WRONLY|os.O_CREAT|os.O_EXCL,0o600)
+    with os.fdopen(fd,'w') as stream:json.dump(result,stream,default=str)
+    return {'catalog_records_exported':len(result),'canonical_content_changed':False}
