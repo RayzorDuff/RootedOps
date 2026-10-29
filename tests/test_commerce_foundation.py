@@ -125,3 +125,14 @@ class StagingTests(unittest.TestCase):
             self.assertEqual((out/'.env').stat().st_mode & 0o777,0o600)
             self.assertNotIn('45.33.107.185',(out/'.env').read_text())
             with self.assertRaises(ValueError):staging.render(out)
+
+class MediaTests(unittest.TestCase):
+    def test_original_gallery_and_variants_are_retained(self):
+        sys.path.insert(0,str(ROOT/'integrations/commerce'))
+        import media
+        source={'products':[{'imageUrl':'https://cdn.example/a','originalImageUrl':'https://cdn.example/original',
+            'galleryImages':[{'url':'https://cdn.example/b'}],
+            '_combinations':[{'imageUrl':'https://cdn.example/c'}]}]}
+        self.assertEqual(len(media.media_urls(source)),4)
+        for url in ('http://cdn.example/a','https://user:secret@cdn.example/a','https://other.example/a'):
+            with self.assertRaises(ValueError):media.validate_url(url,{'cdn.example'})

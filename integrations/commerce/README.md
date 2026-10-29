@@ -83,3 +83,14 @@ ERP content and mappings using `compose_projection`.
 - Back up and restore DB + media; compare fields/counts and old product URL redirects.
 - No production import, DNS cutover, subscription cancellation or merchant changes
   are performed by these tools.
+
+## Offline media archive
+
+`media.py source.json private/media --allow-host <reviewed-CDN-host>` collects
+product/variant original, gallery and thumbnail URLs, downloads binaries with
+no credentials, and records SHA-256/size/content-type in a private manifest.
+Only explicitly reviewed public HTTPS CDN hosts are accepted; redirects fail
+closed for separate review. Blobs are content-addressed, and existing bytes are
+verified before reuse. Keep the manifest/export together in a tested backup.
+The default size limit is 50 MiB per asset. This command has no network effects
+until explicitly invoked with the reviewed source hosts.

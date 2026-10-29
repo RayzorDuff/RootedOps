@@ -11,10 +11,10 @@ WORKDIR /home/frappe/frappe-bench
 
 # Copy local custom app into the image
 COPY erpnext/apps/rootedops_payroll /home/frappe/frappe-bench/apps/rootedops_payroll
-RUN chown -R frappe:frappe /home/frappe/frappe-bench/apps/rootedops_payroll
+RUN chown -R frappe /home/frappe/frappe-bench/apps/rootedops_payroll
 
 COPY erpnext/apps/rootedops_commerce /home/frappe/frappe-bench/apps/rootedops_commerce
-RUN chown -R frappe:frappe /home/frappe/frappe-bench/apps/rootedops_commerce
+RUN chown -R frappe /home/frappe/frappe-bench/apps/rootedops_commerce
 
 USER frappe
 

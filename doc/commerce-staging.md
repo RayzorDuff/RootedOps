@@ -110,3 +110,14 @@ The broad RootedOps unittest suite also has a pre-existing static assertion in
 `Already published; use reviewed update workflow`. The current main-branch PHP
 supports approved published revisions. Commerce tests are independent of this
 known unrelated assertion; PHP syntax checking is skipped if PHP is unavailable.
+
+After the exact baseline fix, 031 and remaining schema migrations through 051
+applied successfully on the test Linode. PostgreSQL tests 026, 027, 031 and 051
+passed, including synthetic WooCommerce mapping and quantity checks. ERPNext
+image build is a separate validation layer; PostgreSQL success does not imply
+Frappe application installation or checkout success.
+
+The fresh ERP image build exposed another existing bring-up assumption:
+`chown frappe:frappe` fails because the current upstream image has a frappe user
+without a same-name group. The Dockerfile now assigns ownership to the existing
+user without requiring a nonexistent group. Both local apps receive that fix.
