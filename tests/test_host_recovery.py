@@ -37,6 +37,12 @@ class HostRecoveryTests(unittest.TestCase):
     self.assertEqual(app['environment']['FLAG'],'false')
     self.assertTrue(result['networks']['default']['internal'])
     self.assertEqual(config['services']['app']['container_name'],'production')
+ def test_all_declared_hosts_have_matching_vhosts(self):
+    import re
+    for name,host in recovery.HOSTS.items():
+        path=ROOT/'nginx'/(name+'.conf')
+        self.assertTrue(path.is_file(),str(path))
+        self.assertIn(host,re.findall(r'server_name\s+([^;]+);',path.read_text())[0].split())
  def test_source_recovery_retains_required_tree_and_grav_retirement(self):
     import yaml
     for path in ('linode_bootstrap.sh','backup/backup-stack.sh','erpnext/apps/rootedops_commerce/pyproject.toml','.github/workflows/commerce-foundation.yml'):
