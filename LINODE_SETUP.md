@@ -117,8 +117,7 @@ sudo certbot --nginx \
   -d documenso-test.danks.store \
   -d listmonk-test.danks.store \
   -d erp-test.danks.store \
-  -d www.yourdomain.com \
-  -d yourdomain.com
+  -d grav-test.danks.store
 ```
 
 Update `.env` values so each service knows its public URL
@@ -883,7 +882,7 @@ This repository is that separate infrastructure project required by SignatureGat
 Set these additional values in RootedOps `.env` before recreating n8n:
 
 ```dotenv
-MP_APP_PRODUCTS_URL=https://appsmith.danks.store/app/mushroomprocess/products
+MP_APP_PRODUCTS_URL=https://appsmith-test.danks.store/app/mushroomprocess/products
 MP_REGULATED_BUSINESS_URL=https://rootedpsyche.org
 ```
 

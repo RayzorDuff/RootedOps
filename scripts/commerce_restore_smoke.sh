@@ -16,6 +16,7 @@ trap cleanup EXIT
 [[ -z "$(docker ps -aq --filter label=com.docker.compose.project=commerce-test)" ]]
 [[ -z "$(docker volume ls -q --filter label=com.docker.compose.project=commerce-test)" ]]
 python3 "$ROOT/scripts/commerce_staging.py" "$WORK/env"
+docker compose --env-file "$WORK/env/.env" -f "$WORK/env/compose.yml" config --quiet
 mkdir -p "$WORK/backup/db"
 docker run -d --name "$SOURCE" -e POSTGRES_PASSWORD=synthetic-test-only postgres:16 >/dev/null
 for i in $(seq 1 60); do

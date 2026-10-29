@@ -166,10 +166,10 @@ native PostgreSQL 16 staging restore or live WooCommerce API synchronization.
 
 Bulk Lish paste copies failed integrity checks and were not restored. A temporary
 ciphertext-only receiver was stopped. Provisioning staging HTTPS with Certbot
-was rejected by automatic approval review as outside restore authorization; no
-certificate/account was provisioned. Native restore and live sync require an
-approved secure transfer route (for example explicit approval of test-host TLS,
-or an operator placing the original files privately on the test host).
+was initially rejected by automatic approval review as outside restore authorization.
+The user has since explicitly approved Certbot installation/certificates on the test
+host. The Linode browser session expired before execution; renewed sign-in is now
+the blocker. No certificate/account is claimed provisioned.
 
 The ciphertext-only receiver supports optional --certfile / --keyfile paths,
 accepts only a preapproved ciphertext digest, has no download route, and closes
