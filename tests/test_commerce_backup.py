@@ -28,6 +28,40 @@ class BackupTests(unittest.TestCase):
                     info=tarfile.TarInfo(name);info.size=4;t.addfile(info,io.BytesIO(b'test'))
                 self.assertEqual(bool(self.validate(p).returncode),bool(expected))
 
+    def test_frappe_asset_symlinks_allowlisted_only_in_sites_archive(self):
+        with tempfile.TemporaryDirectory() as d:
+            links = {
+                'assets/frappe': '/home/frappe/frappe-bench/apps/frappe/frappe/public',
+                'assets/erpnext': '/home/frappe/frappe-bench/apps/erpnext/erpnext/public',
+            }
+            def make_archive(filename, link_name, destination):
+                p = Path(d) / filename
+                with tarfile.open(p, 'w:gz') as t:
+                    data = tarfile.TarInfo('./site_config.json')
+                    data.size = 2
+                    t.addfile(data, io.BytesIO(b'{}'))
+                    link = tarfile.TarInfo('./' + link_name)
+                    link.type = tarfile.SYMTYPE
+                    link.linkname = destination
+                    t.addfile(link)
+                return self.validate(p)
+
+            for name, target in links.items():
+                result = make_archive('erpnext_sites.tgz', name, target)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                result = make_archive('erpnext_apps.tgz', name, target)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn('Unsafe archive link', result.stderr)
+
+            result = make_archive('erpnext_sites.tgz', 'assets/evil', '/etc/passwd')
+            self.assertNotEqual(result.returncode, 0)
+            result = make_archive('erpnext_sites.tgz', 'assets/frappe', '/etc/passwd')
+            self.assertNotEqual(result.returncode, 0)
+            result = make_archive('erpnext_sites.tgz', 'assets/frappe', '../../escape')
+            self.assertNotEqual(result.returncode, 0)
+            result = make_archive('erpnext_sites.tgz', 'assets/frappe', '/home/frappe/frappe-bench/apps/erpnext/erpnext/public')
+            self.assertNotEqual(result.returncode, 0)
+
     def test_actual_prefixed_mount_name_is_resolved(self):
         with tempfile.TemporaryDirectory() as d:
             docker=Path(d)/'docker'
