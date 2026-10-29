@@ -4,7 +4,7 @@ version:
 	@cat VERSION
 
 validate:
-	@bash -n linode_bootstrap.sh backup/*.sh docker/*.sh
+	@bash -n linode_bootstrap.sh backup/*.sh docker/*.sh scripts/commerce_pg_roundtrip.sh
 	@python3 -m compileall -q erpnext/apps/rootedops_payroll/rootedops_payroll erpnext/apps/rootedops_commerce/rootedops_commerce erpnext/scripts integrations/commerce
 
 release-check: validate

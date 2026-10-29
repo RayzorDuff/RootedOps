@@ -59,8 +59,10 @@ def render(output):
         N8N_SECURE_COOKIE='true',ERPNEXT_INSTALL_COMMERCE='1')
     # No upstream production service URLs/tokens are necessary in this project.
     for k in list(env):
-        if k.startswith(('LISTMONK_','DOCUMENSO_','SIGNATUREGATE_','AIRTABLE_','NC_')):
+        if k.startswith(('LISTMONK_','DOCUMENSO_','SIGNATUREGATE_','AIRTABLE_','NC_','CLOVER_','ECWID_','REPORT_','GIVEBUTTER_')):
             env[k] = ''
+    for k in ('MP_APP_LOTS_URL','MP_APP_PRODUCTS_URL','MP_REGULATED_BUSINESS_URL'):
+        env[k] = ''
     output.mkdir(mode=0o700,parents=True)
     for name,text in [('compose.yml',yaml.safe_dump(config,sort_keys=False)),('.env','\n'.join(k+'='+str(v) for k,v in env.items())+'\n')]:
         path=output/name

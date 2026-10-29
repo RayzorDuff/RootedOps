@@ -129,3 +129,12 @@ or source DB name, dumps the schema/data and restores to a newly created
 The original source remains untouched. Repeating the command intentionally
 fails if the restore target already exists; review/remove only that disposable
 target separately before repeating.
+
+The first staging image resolved the repository's floating v16 inputs to Frappe
+16.54.0 and ERPNext 16.53.0. The existing production versions reported by the owner
+are older (16.14.0 / 16.13.0); do not treat staging validation as proof of exact
+production-version compatibility or upgrade production implicitly. Pin and test
+that deployment separately before production installation.
+
+PostgreSQL dump/restore verification succeeded to a separate
+`mushroomprocess_restorecheck` database. No production data was imported.

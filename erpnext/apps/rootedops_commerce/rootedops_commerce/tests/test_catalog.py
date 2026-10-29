@@ -53,3 +53,20 @@ class TestCatalog(IntegrationTestCase):
         self.assertEqual(frappe.db.get_value('Item','_Test Commerce Retry','is_stock_item'), 0)
         payload['content']['source_payload']='{"id":"changed"}'
         with self.assertRaises(frappe.ValidationError):import_product(json.dumps(payload))
+
+    def test_source_archive_identity_and_payload_are_immutable(self):
+        doc = frappe.get_doc({'doctype':'Commerce Source Archive',
+            'source_key':'ecwid:test:order:archive','record_type':'order','payload':'{"id":"archive"}'}).insert()
+        original_hash = doc.payload_hash
+        doc.reload()
+        self.assertEqual(doc.payload_hash, original_hash)
+        doc.source_key = 'ecwid:test:order:other'
+        with self.assertRaises(frappe.ValidationError):doc.save()
+
+    def test_guest_cannot_import(self):
+        from rootedops_commerce.api import import_product
+        try:
+            frappe.set_user('Guest')
+            with self.assertRaises(frappe.PermissionError):import_product('{}')
+        finally:
+            frappe.set_user('Administrator')

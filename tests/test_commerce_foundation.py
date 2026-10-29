@@ -70,7 +70,6 @@ class CommerceTests(unittest.TestCase):
         self.assertNotIn('allow_guest',code);self.assertNotIn('ignore_permissions',code)
         self.assertIn('check_permission("read")',code)
 
-if __name__ == '__main__':unittest.main()
 
 class ChannelTests(unittest.TestCase):
     @classmethod
@@ -160,3 +159,6 @@ class ReconciliationBoundaryTests(unittest.TestCase):
     def test_overlong_canonical_fields_require_review(self):
         source=CommerceTests().source();source['products'][0]['name']='x'*141
         self.assertTrue(migration.plan(source)['errors'])
+
+if __name__ == '__main__':
+    unittest.main()
