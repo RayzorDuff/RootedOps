@@ -12,7 +12,7 @@ import tarfile
 import time
 import yaml
 from host_recovery import ROOT,projects,command
-from commerce_restore import read_env
+from commerce_restore import read_env,copy_counts
 
 # Archive names are stable even though destination Compose project names differ.
 VOLUMES=[('core','nocodb','/usr/app/data','nocodb_data.tgz'),
@@ -62,6 +62,8 @@ class Recovery:
     if (self.output/'TEST_ENVIRONMENT').read_text().strip()!='rootedops-full-test':raise ValueError('Explicit full-test environment required')
     if not (self.backup/'SHA256SUMS').is_file():raise ValueError('Full restore requires SHA256SUMS')
     subprocess.run(['sha256sum','--check','--quiet','SHA256SUMS'],cwd=self.backup,check=True)
+    if subprocess.check_output(['docker','ps','-aq'],text=True).strip():
+        raise ValueError('Full recovery requires a new host without existing containers')
     for _,path,_ in projects(self.output):
         config=yaml.safe_load(path.read_text())
         if config['networks']['default'].get('internal') is not True:raise ValueError('Outbound isolation required')
@@ -123,6 +125,8 @@ class Recovery:
     with (self.output/'RESTORE_STARTED').open('x') as f:f.write('Inspect partial state on failure; never auto-retry.\n')
     env=read_env(self.output/'.env');source=read_env(self.backup/'meta/.env')
     env.update({k:source[k] for k in LOCAL_KEYS if source.get(k)})
+    # Preserve local database passwords required by restored service configuration.
+    env.update({k:source[k] for k in env if k.endswith(('_DB_PASSWORD','_DB_ROOT_PASSWORD')) and source.get(k)})
     write_env(self.output/'.env',env)
     # Raw Rallly clusters must retain their PostgreSQL major and encryption/storage keys.
     rallly_archive=self.backup/'volumes/rallly-selfhosted_db-data.tgz'
@@ -141,7 +145,7 @@ class Recovery:
         r_env.update({k:old[k] for k in ('SECRET_PASSWORD','POSTGRES_PASSWORD','S3_ACCESS_KEY_ID','S3_SECRET_ACCESS_KEY','GARAGE_RPC_SECRET')})
         r_env.update(POSTGRES_VERSION=major,POSTGRES_DATA_MOUNT='/var/lib/postgresql' if int(major)>=18 else '/var/lib/postgresql/data')
         write_env(self.output/'rallly/.env',r_env);temp.unlink()
-    restored=[]
+    restored=[];verified={}
     for project,service,destination,archive in VOLUMES:
         if (self.backup/'volumes'/archive).is_file():
             self.volume(project,service,destination,archive);restored.append(archive)
@@ -149,7 +153,12 @@ class Recovery:
         file=service+'.sql.gz'
         if not (self.backup/'db'/file).is_file():continue
         self.dc('core','up','-d',service);self.ready('core',service)
-        self.sql('core',file,['exec','-T',service,'psql','-v','ON_ERROR_STOP=1','-U',env[prefix+'_DB_USER'],'-d',env[prefix+'_DB_NAME']]);restored.append(file)
+        self.sql('core',file,['exec','-T',service,'psql','-v','ON_ERROR_STOP=1','-U',env[prefix+'_DB_USER'],'-d',env[prefix+'_DB_NAME']])
+        expected=copy_counts(self.backup/'db'/file)
+        for table,count in expected.items():
+            actual=self.dc('core','exec','-T',service,'psql','-v','ON_ERROR_STOP=1','-U',env[prefix+'_DB_USER'],'-d',env[prefix+'_DB_NAME'],'-Atc',f'SELECT count(*) FROM public."{table}"',capture_output=True,text=True).stdout.strip()
+            if int(actual)!=count:raise ValueError('Restored PostgreSQL COPY count mismatch')
+        verified[file]=len(expected);restored.append(file)
     for project,service,file,password,database in [
       ('rootedpsyche','rootedpsyche-wordpress-db','rootedpsyche-wordpress-all-databases.sql.gz','ROOTEDPSYCHE_WP_DB_ROOT_PASSWORD','wordpress'),
       ('dank','dank-wordpress-db','dank-wordpress-all-databases.sql.gz','DANK_WP_DB_ROOT_PASSWORD','dank_wordpress')]:
@@ -187,7 +196,7 @@ class Recovery:
                 config=yaml.safe_load((self.output/'core.yml').read_text())
                 config['services']['listmonk']['volumes']=[str(uploads)+':/listmonk/uploads:rw']
                 (self.output/'core.yml').write_text(yaml.safe_dump(config,sort_keys=False))
-    report={'restored':restored,'apps_started':False,'external_egress':False,'migrations_run':False,
+    report={'restored':restored,'postgres_copy_tables_verified':verified,'apps_started':False,'external_egress':False,'migrations_run':False,
       'acceptance':'Pending endpoint remapping, health/data checks and operator review. Do not start schedulers.'}
     (self.output/'restore-receipt.json').write_text(json.dumps(report,indent=2))
     print('Full archive recovery completed into isolated projects. Applications remain stopped for endpoint and version review.')
