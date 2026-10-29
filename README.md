@@ -249,3 +249,5 @@ SignatureGate paper upload provider setup and the n8n-only recreation command ar
 
 Fresh test-host recovery: [bootstrap and selected restore](doc/test-environment-restore.md).
 Production backup fixes and operator commands: [backup handoff](doc/production-backup-handoff.md).
+
+Full-stack clean-host bootstrap and restore acceptance: [issue #22 procedure](doc/fresh-host-recovery.md).
