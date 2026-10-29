@@ -50,6 +50,17 @@ class RecoveryTests(unittest.TestCase):
                 restore.preflight(env, backup, ['mushroomprocess'], None)
             self.assertFalse((env/'RESTORE_STARTED').exists())
 
+    def test_copy_count_validation_does_not_count_escaped_newlines(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory)/'dump.gz'
+            with gzip.open(path, 'wb') as f:
+                f.write(b'COPY public.example (id, description) FROM stdin;\n1\tText with \\n escape\n2\tAnother\n\\.\n')
+            self.assertEqual(restore.copy_counts(path), {'example': 2})
+            with gzip.open(path, 'wb') as f:
+                f.write(b'COPY public.example (id) FROM stdin;\n1\n')
+            with self.assertRaisesRegex(ValueError, 'Unterminated'):
+                restore.copy_counts(path)
+
     def test_nginx_defaults_are_explicit_test_hosts(self):
         import re
         for path in (ROOT/'nginx').glob('*.conf'):

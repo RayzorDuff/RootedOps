@@ -28,6 +28,29 @@ def read_env(path):
     return values
 
 
+def copy_counts(path):
+    """Count standard public-schema pg_dump COPY rows without retaining data."""
+    counts = {}
+    table = None
+    with gzip.open(path, 'rt', encoding='utf-8') as stream:
+        for line in stream:
+            if table is not None:
+                if line.rstrip('\n') == r'\.':
+                    table = None
+                else:
+                    counts[table] += 1
+            else:
+                match = re.fullmatch(r'COPY public\.([a-z_][a-z_0-9]*) \(.*\) FROM stdin;\n?', line)
+                if match:
+                    table = match[1]
+                    if table in counts:
+                        raise ValueError('Duplicate COPY table')
+                    counts[table] = 0
+    if table is not None:
+        raise ValueError('Unterminated COPY data')
+    return counts
+
+
 def preflight(environment, backup, components, source_site):
     if not components or not set(components) <= COMPONENTS:
         raise ValueError('Select known components explicitly')
@@ -40,6 +63,8 @@ def preflight(environment, backup, components, source_site):
     config = yaml.safe_load((environment/'compose.yml').read_text())
     if config.get('name') != 'commerce-test':
         raise ValueError('Unexpected Compose project')
+    if config.get('networks', {}).get('default', {}).get('internal') is not True:
+        raise ValueError('Restored services must use an internal network without external egress')
     if any(options for options in config.get('volumes', {}).values()):
         raise ValueError('External or custom-named restore volumes are forbidden')
     for service in config['services'].values():
@@ -69,6 +94,8 @@ def preflight(environment, backup, components, source_site):
             with gzip.open(path, 'rb') as stream:
                 while stream.read(1024*1024):
                     pass
+    if 'mushroomprocess' in components:
+        copy_counts(backup/'db/mushroomprocess-bridge-postgres.sql.gz')
     if (backup/'SHA256SUMS').is_file():
         subprocess.run(['sha256sum', '--check', '--quiet', 'SHA256SUMS'], cwd=backup, check=True)
     return env
@@ -143,9 +170,18 @@ class Restore:
         if 'mushroomprocess' in components:
             self.dc('up', '-d', 'mushroomprocess-bridge-postgres')
             self.ready('mushroomprocess-bridge-postgres')
+            expected = copy_counts(self.backup/'db/mushroomprocess-bridge-postgres.sql.gz')
             self.sql('mushroomprocess-bridge-postgres.sql.gz', 'exec', '-T',
                      'mushroomprocess-bridge-postgres', 'psql', '-v', 'ON_ERROR_STOP=1',
                      '-U', self.env['MP_BRIDGE_DB_USER'], '-d', self.env['MP_BRIDGE_DB_NAME'])
+            for table, count in expected.items():
+                actual = self.dc('exec', '-T', 'mushroomprocess-bridge-postgres', 'psql', '-v',
+                                 'ON_ERROR_STOP=1', '-U', self.env['MP_BRIDGE_DB_USER'], '-d',
+                                 self.env['MP_BRIDGE_DB_NAME'], '-Atc',
+                                 f'SELECT count(*) FROM public."{table}"', capture_output=True, text=True)
+                if int(actual.stdout.strip()) != count:
+                    raise ValueError('Restored COPY row count mismatch: '+table)
+            print(f'Verified {len(expected)} restored COPY table counts.')
         for service, destination, archive in [
             ('n8n', '/home/node/.n8n', 'n8n_data.tgz'),
             ('appsmith', '/appsmith-stacks', 'appsmith_stacks.tgz')]:

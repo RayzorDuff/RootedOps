@@ -49,7 +49,8 @@ def render(output):
         if isinstance(deps,list):service['depends_on']=[d for d in deps if d in services]
     services['erpnext-bootstrap']['environment']['ERPNEXT_INSTALL_COMMERCE'] = '1'
     # Apps volume is fresh here. No modifications to existing production volumes.
-    config = {'name':'commerce-test','services':services,'volumes':volumes}
+    config = {'name':'commerce-test','services':services,'volumes':volumes,
+              'networks':{'default':{'internal':True}}}
     env = {}
     for line in (ROOT/'.env.example').read_text().splitlines():
         if '=' in line and not line.startswith('#'):

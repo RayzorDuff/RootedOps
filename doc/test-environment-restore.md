@@ -20,7 +20,9 @@ sudo docker compose --env-file /opt/commerce-test/.env -f /opt/commerce-test/com
 The bootstrap installs Docker/Compose, NGINX/Certbot, PostgreSQL client, PyYAML,
 rclone and the encrypted-transfer dependency. It opens only SSH/HTTP/HTTPS in
 UFW. Every rendered Docker port binds to loopback because Docker can bypass UFW.
-No services or certificates are provisioned automatically. The renderer creates
+No services or certificates are provisioned automatically. The rendered default
+network is internal: restored containers cannot contact production or external
+email/payment services. Keep that isolation during the recovery rehearsal. The renderer creates
 fresh credentials and a `TEST_ENVIRONMENT` marker, and refuses overwrites.
 Only PostgreSQL, Appsmith, n8n and ERPNext dependencies are selected. No Minecraft,
 listmonk, scheduling or Rooted Psyche instance is launched. The separate Dank
@@ -57,7 +59,8 @@ ERPNext data was not supplied in these attachments.
 
 The restore refuses existing project containers and nonempty target app volumes.
 It uses actual mounts from the generated containers, starts only selected database
-services, and streams SQL with error checking. On failure it leaves a
+services, and streams SQL with error checking. Standard public-schema PostgreSQL COPY table
+row counts are compared to the dump before declaring success. On failure it leaves a
 `RESTORE_STARTED` marker and partial data for inspection; it never silently clears
 volumes or retries. Do not rerun on a partially restored environment.
 
@@ -77,6 +80,33 @@ starting Appsmith, replace restored datasource connections with test PostgreSQL.
 Before starting ERP workers, disable outbound email, webhooks and scheduled jobs
 and review integrations. Keep maintenance mode enabled until that review completes.
 Never start the whole Compose project indiscriminately after a production restore.
+
+## Start the reviewed test applications
+
+Use this prefix from the generated directory for the following commands:
+
+```bash
+cd /opt/commerce-test
+# Inspect/disable restored workflows before starting the n8n server.
+sudo docker compose --env-file .env -f compose.yml run --rm --no-deps --entrypoint n8n n8n update:workflow --all --active=false
+# After ERP version compatibility review, while maintenance/scheduler pause remain enabled:
+sudo docker compose --env-file .env -f compose.yml run --rm --no-deps erpnext-backend bench --site erp-test.danks.store migrate
+# Launch UI processes only. Workers/scheduler remain stopped for integration review.
+sudo docker compose --env-file .env -f compose.yml up -d --no-deps erpnext-backend erpnext-websocket erpnext-frontend appsmith n8n
+```
+
+The internal network blocks external datasource endpoints while Appsmith is
+reconfigured through its UI. Point it at `mushroomprocess-bridge-postgres:5432`,
+`mushroomprocess_test`, with credentials from the fresh private `.env`. Audit any
+restored application queries before running them. Use an SSH tunnel to loopback
+ports until the test accounts, endpoints and NGINX TLS are ready. Clear ERP
+maintenance mode only after its outbound settings have been reviewed. Do not
+remove internal networking to make production credentials or endpoints work.
+
+For a new ERP site with no ERP backup, use the separate fresh-site bootstrap in
+[commerce-staging.md](commerce-staging.md); do not invoke the ERP restore component.
+A successful data restore is followed by these deliberate application checks,
+not an automatic resumption of production jobs.
 
 ## Explicit default hostnames
 

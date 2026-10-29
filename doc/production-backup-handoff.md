@@ -46,6 +46,7 @@ Linode restore. Do not send credentials or archive contents in a GitHub issue.
 
 Required new artifacts for the pending rehearsal: nonempty `n8n_data.tgz`, nonempty
 `appsmith_stacks.tgz`, the MushroomProcess dump, and (for ERP recovery) the ERP SQL
-and sites archive. Original application versions/image digests must be recorded so
+and sites archive. New backup metadata records Docker image digests and `bench version`.
+Original application versions/image digests must be recorded so
 the restored application code matches the data schema. See
 [test-environment-restore.md](test-environment-restore.md).

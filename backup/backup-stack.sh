@@ -106,6 +106,8 @@ git -C "$REPO_ROOT" rev-parse HEAD > "$BACKUP_DIR/meta/git_commit.txt" 2>/dev/nu
 $DOCKER_BIN version > "$BACKUP_DIR/meta/docker-version.txt"
 $DOCKER_BIN volume ls > "$BACKUP_DIR/meta/docker-volumes.txt"
 $DOCKER_BIN ps -a > "$BACKUP_DIR/meta/docker-ps.txt"
+$DOCKER_BIN image ls --digests --no-trunc > "$BACKUP_DIR/meta/docker-images.txt"
+$DOCKER_BIN exec erpnext-backend bench version > "$BACKUP_DIR/meta/frappe-app-versions.txt"
 cp "$COMPOSE_FILE" "$BACKUP_DIR/meta/docker-compose.yml"
 cp "$ENV_FILE" "$BACKUP_DIR/meta/.env"
 
