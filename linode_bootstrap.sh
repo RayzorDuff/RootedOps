@@ -1,9 +1,25 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
-# Fresh Ubuntu 24.04 test host preparation. Starting/restoring is explicit.
+# Fresh Ubuntu 24.04 isolated host preparation. Starting/restoring is explicit.
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 DEPLOYMENT_DIR="${1:-$REPO_ROOT/.test-deployment}"
 if [[ ${EUID} -ne 0 ]]; then exec sudo bash "$0" "$@"; fi
+# Select DNS hostname suffix once, before package installation or configuration.
+# Use /dev/tty so the prompt works with sudo and redirected stdin.
+if [[ -r /dev/tty ]]; then
+  printf 'Hostname suffix [-test] (empty for unsuffixed production hostnames): ' > /dev/tty
+  IFS= read -r HOSTNAME_SUFFIX < /dev/tty
+else
+  echo 'Interactive terminal required to select the hostname suffix.' >&2
+  exit 1
+fi
+HOSTNAME_SUFFIX="${HOSTNAME_SUFFIX:--test}"
+# A single hyphen means explicitly no suffix; Enter retains -test.
+if [[ "$HOSTNAME_SUFFIX" == "-" ]]; then HOSTNAME_SUFFIX=""; fi
+if [[ -n "$HOSTNAME_SUFFIX" && ! "$HOSTNAME_SUFFIX" =~ ^-[a-z0-9]+(-[a-z0-9]+)*$ ]]; then
+  echo 'Invalid suffix. Use -test, -test2, or - for no suffix.' >&2; exit 1
+fi
+printf 'Selected hostname suffix: %s\\n' "${HOSTNAME_SUFFIX:-<none>}" > /dev/tty
 source /etc/os-release
 [[ "$ID" == ubuntu && "$VERSION_ID" == 24.04 ]] || {
   echo 'Supported bootstrap target: Ubuntu 24.04 LTS' >&2; exit 1;
@@ -21,7 +37,7 @@ ufw allow 80/tcp
 ufw allow 443/tcp
 ufw --force enable
 # Docker-published ports bypass UFW: the test renderer binds all ports to loopback.
-python3 "$REPO_ROOT/scripts/host_recovery.py" prepare "$DEPLOYMENT_DIR"
+python3 "$REPO_ROOT/scripts/host_recovery.py" prepare "$DEPLOYMENT_DIR" --hostname-suffix "$HOSTNAME_SUFFIX"
 if [[ -n "${SUDO_UID:-}" && "$SUDO_UID" != 0 ]]; then
   chown -R "$SUDO_UID:${SUDO_GID}" "$DEPLOYMENT_DIR"
   chown -h "$SUDO_UID:${SUDO_GID}" "$REPO_ROOT/.env"
