@@ -149,6 +149,10 @@ def prepare(output,rallly_path=None,hostname_suffix="-test"):
     for name,path,project in sources:
         config=transform(yaml.safe_load(path.read_text()),path.parent,project)
         if name=='core':
+            # Issue #22: use the pinned upstream release image; building floating main
+            # under the legacy Node 20 Dockerfile breaks on upstream Node/npm changes.
+            config['services']['documenso'].pop('build',None)
+            config['services']['documenso']['image']='ghcr.io/documenso/documenso:v2.20.0'
             config['services']['documenso']['volumes'][0]=str(output/'certs/cert.p12')+':/opt/documenso/cert.p12:ro'
             config['services'].pop('minecraft-bedwars',None) # explicit off; no automatic world creation
             config['services']['mailpit']={'image':'axllent/mailpit:v1.27','restart':'unless-stopped'}
