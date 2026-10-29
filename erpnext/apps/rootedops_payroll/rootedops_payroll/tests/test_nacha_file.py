@@ -46,6 +46,55 @@ class TestNachaFile(unittest.TestCase):
             "1123456789",
         )
 
+    def test_payroll_description_in_required_batch_positions(self):
+        lines = generate_nacha(
+            self.profile(), [self.entry()],
+            creation_date="260925", creation_time="1500",
+        ).splitlines()
+        self.assertEqual(lines[1][53:63], "PAYROLL   ")
+
+    def test_validator_rejects_missing_payroll_description(self):
+        lines = generate_nacha(
+            self.profile(), [self.entry()],
+            creation_date="260925", creation_time="1500",
+        ).splitlines()
+        lines[1] = lines[1][:53] + "SALARY    " + lines[1][63:]
+        with self.assertRaisesRegex(ValueError, "PAYROLL"):
+            validate_nacha("\n".join(lines))
+
+    def test_accented_receiving_name_and_id_are_ascii(self):
+        entry = ACHCredit(
+            "HR-EMP-00001", "José Muñoz", "021000021", "123456789",
+            "Checking", Decimal("84.78"), "José",
+        )
+        lines = generate_nacha(
+            self.profile(), [entry],
+            creation_date="260925", creation_time="1500",
+        ).splitlines()
+        self.assertEqual(lines[2][54:76].rstrip(), "JOSE MUNOZ")
+        self.assertEqual(lines[2][39:54].rstrip(), "JOSE")
+        self.assertTrue(all(len(line) == 94 and line.isascii() for line in lines))
+
+    def test_nontransliterable_receiving_name_rejected(self):
+        entry = ACHCredit(
+            "HR-EMP-00001", "李明", "021000021", "123456789",
+            "Checking", Decimal("84.78"),
+        )
+        with self.assertRaisesRegex(ValueError, "printable ASCII"):
+            generate_nacha(
+                self.profile(), [entry],
+                creation_date="260925", creation_time="1500",
+            )
+
+    def test_validator_rejects_non_ascii_record(self):
+        lines = generate_nacha(
+            self.profile(), [self.entry()],
+            creation_date="260925", creation_time="1500",
+        ).splitlines()
+        lines[2] = lines[2][:54] + "É" + lines[2][55:]
+        with self.assertRaisesRegex(ValueError, "printable ASCII"):
+            validate_nacha("\n".join(lines))
+
     def test_checking_and_savings(self):
         text = generate_nacha(
             self.profile(),
