@@ -38,7 +38,7 @@ ufw allow 80/tcp
 ufw allow 443/tcp
 ufw --force enable
 # Docker-published ports bypass UFW: the test renderer binds all ports to loopback.
-python3 "$REPO_ROOT/scripts/host_recovery.py" prepare "$DEPLOYMENT_DIR" --hostname-suffix "$HOSTNAME_SUFFIX"
+python3 "$REPO_ROOT/scripts/host_recovery.py" prepare "$DEPLOYMENT_DIR" --hostname-suffix="$HOSTNAME_SUFFIX"
 if [[ -n "${SUDO_UID:-}" && "$SUDO_UID" != 0 ]]; then
   chown -R "$SUDO_UID:${SUDO_GID}" "$DEPLOYMENT_DIR"
   chown -h "$SUDO_UID:${SUDO_GID}" "$REPO_ROOT/.env"
