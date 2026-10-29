@@ -15,7 +15,7 @@ def draft_payload(record, parent_id=None, attributes=None):
             raise ValueError('Reviewed parent ID and WooCommerce variant attributes required')
         # Variations inherit name/description/gallery from the parent. The full
         # source remains in ERP and the plan, rather than dropping it silently.
-        body = {k:v for k,v in body.items() if k in ('sku','description','meta_data')}
+        body = {k:v for k,v in body.items() if k in ('sku','description','meta_data','manage_stock','stock_quantity','status')}
         body['attributes'] = attributes
         if record['woocommerce'].get('images'):
             body['image'] = record['woocommerce']['images'][0]

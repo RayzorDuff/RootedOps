@@ -136,3 +136,18 @@ class MediaTests(unittest.TestCase):
         self.assertEqual(len(media.media_urls(source)),4)
         for url in ('http://cdn.example/a','https://user:secret@cdn.example/a','https://other.example/a'):
             with self.assertRaises(ValueError):media.validate_url(url,{'cdn.example'})
+
+class SnapshotConnectorTests(unittest.TestCase):
+    def test_join_uses_erp_content_and_operational_quantity(self):
+        sys.path.insert(0,str(ROOT/'integrations/commerce'))
+        import sync
+        row={'ecommerce_id':7,'erp_item_code':'BLUE','desired_quantity':3}
+        catalog={'item':{'disabled':False},'content':{'item':'BLUE','publication_status':'Published',
+                 'public_title':'Canonical title','channel_overrides':[]}}
+        mapping={'item':'BLUE','provider':'woocommerce','site_key':'test','external_sku':'BLUE'}
+        record=sync.prepare(row,catalog,mapping)
+        self.assertEqual(record['woocommerce']['name'],'Canonical title')
+        self.assertEqual(record['woocommerce']['stock_quantity'],3)
+        self.assertEqual(record['woocommerce']['status'],'draft')
+        catalog['content']['publication_status']='Draft'
+        with self.assertRaises(ValueError):sync.prepare(row,catalog,mapping)

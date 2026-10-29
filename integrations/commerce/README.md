@@ -94,3 +94,21 @@ closed for separate review. Blobs are content-addressed, and existing bytes are
 verified before reuse. Keep the manifest/export together in a tested backup.
 The default size limit is 50 MiB per asset. This command has no network effects
 until explicitly invoked with the reviewed source hosts.
+
+## MushroomProcess → ERPNext → WooCommerce staging connector
+
+`sync.py snapshot.json reviewed-map.json --output private/projection.json` reads
+canonical content through the authenticated ERP catalog API, joins a timestamped
+operational snapshot by both ERP Item and MushroomProcess ecommerce ID, and
+produces a draft channel projection. The reviewed map is keyed by ecommerce ID;
+each entry supplies `item`, `provider=woocommerce`, `site_key`, `external_sku`,
+and optional reviewed variant `parent_sku`, `parent_id`, `attributes` or
+`has_variants`. It rejects disabled Items, unapproved content, missing mappings,
+and inconsistent/negative quantities. No SKU-based identity guessing.
+
+`--apply-staging` enables draft upserts to shop-test only; `WC_AUTHORIZATION`
+contains a Basic authentication header supplied securely through the environment.
+The output stores returned target IDs for reviewed mapping writeback. No automatic
+production schedule or historical order processing is installed. Refresh snapshots
+immediately before apply: this initial manual connector has no reservation/version
+locking and is unsuitable for live checkout until that order-lifecycle work lands.
