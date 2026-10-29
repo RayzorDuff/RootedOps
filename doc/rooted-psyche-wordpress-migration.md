@@ -1,6 +1,6 @@
 # Rooted Psyche: Grav to WordPress migration
 
-This is a staged migration. The current Grav site stays online until WordPress is verified. The new WordPress Compose file is intentionally separate from the existing stack so normal RootedOps `docker compose` operations do not start it.
+Migration completed on 2026-10-23. WordPress serves the public Rooted Psyche site; Grav is stopped and retired. The WordPress Compose file remains separate from the main stack. The sections below retain historical cutover instructions.
 
 ## 1. Preflight on the Linode
 
@@ -64,4 +64,4 @@ Keep the first release minimal: a homepage, basic theme, working donation action
 
 Build the sanctuary campaign landing page after WordPress cutover. BookWorks remains the editorial source; WordPress publishes the public presentation; Givebutter handles donations.
 
-**Do not** shut down Grav or switch Nginx merely because the new containers start. The live cutover requires the validation steps above.
+The production cutover is complete. Do not reactivate Grav during routine maintenance. Verify WordPress database and HTML-volume restoration during the clean-Linode rehearsal.

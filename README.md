@@ -20,7 +20,7 @@ RootedOps currently manages:
 - Documenso for self-hosted document signing
 - Listmonk for self-hosted newsletters and mailing-list management
 - ERPNext + HRMS for accounting, payroll, purchasing, sales, and HR operations
-- Grav for lightweight public/static site hosting
+- WordPress for Rooted Psyche public website hosting
 - Stable MushroomProcess QR routing at `qr-test.danks.store` via NGINX → n8n
 - NGINX reverse-proxy templates for HTTP services
 - Backup and restore scripts, including Google Drive/rclone retention pruning
@@ -116,9 +116,9 @@ For ERPNext continuation work, start with:
 - `erpnext/CHATGPT_HANDOFF.json`
 - `erpnext/README_SCRIPTS.md`
 
-### Grav
+### WordPress
 
-Grav is included for lightweight website hosting. The repository includes a minimal Grav content/theme scaffold and an NGINX config for public HTTP/TLS routing.
+Rooted Psyche is hosted on WordPress using `docker/docker-compose.wordpress.yml`, with persistent WordPress HTML and MariaDB volumes. Nginx forwards to the loopback WordPress port (production: 8096). Grav is retired; historical sources are archival only.
 
 ### Minecraft Bedrock
 
@@ -179,7 +179,7 @@ Local service ports:
 | n8n | `http://localhost:5678` |
 | Appsmith | `http://localhost:8081` |
 | ERPNext | `http://localhost:8086` |
-| Grav | `http://localhost:8085` |
+| Rooted Psyche WordPress | `http://127.0.0.1:8096` |
 | Documenso | `http://localhost:3002` |
 | Listmonk | `http://localhost:9000` |
 | Minecraft Bedrock | UDP `19132` |
@@ -194,8 +194,8 @@ nginx/               HTTP reverse-proxy site configs
 backup/              Backup, restore, and rclone service helpers
 erpnext/             ERPNext/HRMS templates, scripts, and handoff notes
 n8n/                 Workflow exports that are part of this ops baseline
-grav/                Grav bind-mount target
-grav.mysite/         Starter Grav site/theme/content scaffold
+grav/                Historical Grav archive (not deployed)
+grav.mysite/         Historical Grav site source
 doc/                 RootedOps changelog and repository notes
 README_MINECRAFT.md  Optional Minecraft Bedrock sidecar service notes
 LINODE_SETUP.md      Practical Linode deployment guide
@@ -208,7 +208,7 @@ The main deployment guide is:
 
 - `LINODE_SETUP.md`
 
-That guide covers host provisioning, firewall, Docker installation, NGINX, Certbot, persistent data, Documenso setup, Grav setup, ERPNext initialization, Google Drive/rclone backup mount setup, backup execution, restore procedure, and maintenance notes.
+That guide covers host provisioning, firewall, Docker installation, NGINX, Certbot, persistent data, Documenso setup, WordPress setup, ERPNext initialization, Google Drive/rclone backup mount setup, backup execution, restore procedure, and maintenance notes.
 
 ## Backups
 
@@ -220,7 +220,7 @@ The backup script handles:
 - MariaDB dump for ERPNext
 - Docker volume archives for NocoDB, n8n, Appsmith, ERPNext sites/apps/logs, and other persistent service state
 - bind-mounted Listmonk media uploads
-- bind-mounted operational files such as `.env`, nginx configs, Grav files, Documenso certificate material, and optional Minecraft Bedrock data
+- bind-mounted operational files such as `.env`, nginx configs, archived Grav files and WordPress volumes, Documenso certificate material, and optional Minecraft Bedrock data
 - upload/copy to an rclone remote such as Google Drive
 - retention pruning for old remote backup directories
 

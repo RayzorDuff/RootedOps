@@ -13,7 +13,7 @@ This is intentionally practical rather than exhaustive. It assumes Ubuntu 22.04 
 - Ubuntu 22.04/24.04 LTS
 - Enable Linode backups.
 - Add an SSH key during provisioning and disable password SSH.
-- Size the Linode for the combined workload. With Appsmith, NocoDB, Documenso, Grav, PostgreSQL, MariaDB, Redis, n8n, and ERPNext/Frappe HR on one host, start closer to an 8 GB / 4 vCPU plan than a minimal instance.
+- Size the Linode for the combined workload. With Appsmith, NocoDB, Documenso, WordPress, PostgreSQL, MariaDB, Redis, n8n, and ERPNext/Frappe HR on one host, start closer to an 8 GB / 4 vCPU plan than a minimal instance.
 - Add a DNS A record for each subdomain you intend to proxy
 
 ## 1. Baseline hardening
@@ -84,7 +84,7 @@ This repo includes example NGINX site configs under:
 - `nginx/appsmith.conf`
 - `nginx/documenso.conf`
 - `nginx/listmonk.conf`
-- `nginx/grav.conf`
+- `nginx/rootedpsyche-wordpress.conf`
 - `nginx/erpnext.conf`
 - `nginx/qr.conf` — stable MushroomProcess Product/Lot QR resolver at `qr-test.danks.store`
 
@@ -92,7 +92,7 @@ Install the HTTP site configs like this:
 
 ```bash
 sudo apt-get install -y nginx certbot python3-certbot-nginx
-sudo cp nginx/n8n.conf nginx/nocodb.conf nginx/appsmith.conf nginx/documenso.conf nginx/listmonk.conf nginx/grav.conf nginx/erpnext.conf nginx/qr.conf /etc/nginx/sites-available/
+sudo cp nginx/n8n.conf nginx/nocodb.conf nginx/appsmith.conf nginx/documenso.conf nginx/listmonk.conf nginx/rootedpsyche-wordpress.conf nginx/erpnext.conf nginx/qr.conf /etc/nginx/sites-available/
 sudo ln -sf /etc/nginx/sites-available/n8n.conf /etc/nginx/sites-enabled/n8n.conf
 sudo ln -sf /etc/nginx/sites-available/nocodb.conf /etc/nginx/sites-enabled/nocodb.conf
 sudo ln -sf /etc/nginx/sites-available/appsmith.conf /etc/nginx/sites-enabled/appsmith.conf
@@ -117,7 +117,7 @@ sudo certbot --nginx \
   -d documenso-test.danks.store \
   -d listmonk-test.danks.store \
   -d erp-test.danks.store \
-  -d grav-test.danks.store
+  -d rootedpsyche-test.danks.store
 ```
 
 Update `.env` values so each service knows its public URL
@@ -501,18 +501,16 @@ sudo docker compose --env-file ./.env -f docker/docker-compose.yml restart docum
 
 If signed documents get stuck in `Processing document...`, inspect the Documenso container logs and verify the mounted `documenso/certs/cert.p12` file and passphrase.
 
-## 7. Grav
+## 7. Rooted Psyche WordPress
+
+Rooted Psyche runs from `docker/docker-compose.wordpress.yml` with persistent database and HTML volumes. Nginx proxies to `127.0.0.1:8096` in production; use the appropriate test hostname and port on test Linodes. The former Grav container is retired and must not be started in routine deployment.
 
 ```bash
-mkdir grav && sudo chmod 777 grav -R
-sudo docker compose --env-file ./.env -f docker/docker-compose.yml up -d grav
-chmod 777 grav.mysite/* && sudo cp -a grav.mysite/* grav/
+sudo docker compose --env-file ./.env -f docker/docker-compose.wordpress.yml config --quiet
+sudo docker compose --env-file ./.env -f docker/docker-compose.wordpress.yml up -d
 ```
 
-Admin UI:
-- `http://localhost:8085/admin`
-
-Then complete the NGINX and Certbot steps for your main site.
+See `doc/rooted-psyche-wordpress-migration.md` for migration history and restore considerations. Preserve historical Grav archives.
 
 ## 8. ERPNext + Frappe HR
 
@@ -852,7 +850,7 @@ Then validate in the UI:
 - n8n workflows and credentials
 - Appsmith applications
 - Documenso login and completed documents
-- Grav content and admin login
+- WordPress homepage, admin login, media, and Givebutter widget
 - ERPNext site, attachments, and HRMS
 
 ## 12. Backup/restore caveats and recommendations
@@ -869,7 +867,7 @@ Then validate in the UI:
 ### ERPNext Operational notes
 - Use ERPNext Companies for both Dank Mushrooms and Rooted Psyche inside one ERPNext site unless you later decide you need strict application-level separation.
 - Keep SignatureGate and MushroomProcess application databases separate from ERPNext. Integration should happen through APIs, exports, or controlled ETL, not shared tables.
-- ERPNext and Frappe HR are resource-hungry compared with Grav or n8n; monitor memory pressure closely after enabling payroll and background jobs.
+- ERPNext and Frappe HR are resource-hungry compared with WordPress or n8n; monitor memory pressure closely after enabling payroll and background jobs.
 
 ### Repository boundary
 
