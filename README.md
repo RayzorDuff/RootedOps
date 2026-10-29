@@ -21,6 +21,8 @@ RootedOps currently manages:
 - Listmonk for self-hosted newsletters and mailing-list management
 - ERPNext + HRMS for accounting, payroll, purchasing, sales, and HR operations
 - WordPress for Rooted Psyche public website hosting
+- Tymeslot for Rooted Psyche appointment booking and Google Calendar integration
+- Rallly for meeting polls and optional Google Meet conferencing
 - Stable MushroomProcess QR routing at `qr-test.danks.store` via NGINX → n8n
 - NGINX reverse-proxy templates for HTTP services
 - Backup and restore scripts, including Google Drive/rclone retention pruning
@@ -120,6 +122,15 @@ For ERPNext continuation work, start with:
 
 Rooted Psyche is hosted on WordPress using `docker/docker-compose.wordpress.yml`, with persistent WordPress HTML and MariaDB volumes. Nginx forwards to the loopback WordPress port (production: 8096). Grav is retired; historical sources are archival only.
 
+### Rooted Psyche scheduling: Tymeslot and Rallly
+
+Two independently managed scheduling deployments serve Rooted Psyche:
+
+- **Tymeslot:** appointment booking at `https://schedule.rootedpsyche.org` (host loopback `127.0.0.1:4000`). Compose: `docker/scheduling/tymeslot.compose.yml`, project `rootedops-scheduling`. Supports organizer Google Calendar integration and optional Google Meet appointments.
+- **Rallly:** group/board meeting date polls at `https://poll.rootedpsyche.org` (host loopback `127.0.0.1:3003`). Its separate upstream self-hosted Compose project `rallly-selfhosted` is configured locally; template environment example: `docker/scheduling/rallly.env.example`. Supports Google login and Google Meet conferencing.
+
+Neither is started by `docker/docker-compose.yml`; follow [the scheduling runbook](doc/SCHEDULING.md) for independent startup, SMTP, OAuth redirect URI configuration, Nginx/Certbot, operator testing, backup and restore. The checked-in Nginx examples use **test hostnames**, so production hostnames must be configured explicitly rather than copied unchanged. RootedOps owns deployment, not upstream scheduling application source code. Treat booking, poll and OAuth secrets as private.
+
 ### Minecraft Bedrock
 
 Minecraft Bedrock hosting is supported as an optional sidecar service, not a core business component. It uses the official Bedrock Dedicated Server runtime and downloaded Bedrock `.mcworld` maps.
@@ -182,12 +193,15 @@ Local service ports:
 | Rooted Psyche WordPress | `http://127.0.0.1:8096` |
 | Documenso | `http://localhost:3002` |
 | Listmonk | `http://localhost:9000` |
+| Tymeslot (separate Compose project) | `http://127.0.0.1:4000` |
+| Rallly (separate upstream Compose project) | `http://127.0.0.1:3003` |
 | Minecraft Bedrock | UDP `19132` |
 
 ## Repository layout
 
 ```text
 docker/              Compose stack and custom Dockerfiles
+  scheduling/        Tymeslot Compose and Rallly environment example
 listmonk/uploads/    Bind-mounted Listmonk media upload directory
 nginx/               HTTP reverse-proxy site configs
                       Includes `qr.conf` for the stable MushroomProcess QR resolver
@@ -196,7 +210,7 @@ erpnext/             ERPNext/HRMS templates, scripts, and handoff notes
 n8n/                 Workflow exports that are part of this ops baseline
 grav/                Historical Grav archive (not deployed)
 grav.mysite/         Historical Grav site source
-doc/                 RootedOps changelog and repository notes
+doc/                 Canonical documentation, including scheduling and BookWorks WordPress guides
 README_MINECRAFT.md  Optional Minecraft Bedrock sidecar service notes
 LINODE_SETUP.md      Practical Linode deployment guide
 linode_bootstrap.sh  Convenience bootstrap script for a new Ubuntu host
@@ -219,12 +233,15 @@ The backup script handles:
 - PostgreSQL logical dumps for SignatureGate, MushroomProcess bridge, Listmonk, NocoDB metadata, and Documenso
 - MariaDB dump for ERPNext
 - Docker volume archives for NocoDB, n8n, Appsmith, ERPNext sites/apps/logs, and other persistent service state
+- Cold scheduling archives for Tymeslot app/PostgreSQL volumes and Rallly database/Garage volumes plus the upstream Rallly environment configuration; scheduling containers are paused briefly and previously running containers restarted
 - bind-mounted Listmonk media uploads
 - bind-mounted operational files such as `.env`, nginx configs, archived Grav files and WordPress volumes, Documenso certificate material, and optional Minecraft Bedrock data
 - upload/copy to an rclone remote such as Google Drive
 - retention pruning for old remote backup directories
 
 Minecraft Bedrock data is included as `bind_mounts/minecraft-bedrock.tgz` when `MINECRAFT_BEDROCK_DATA_PATH` is configured. The script stops `minecraft-bedwars` during that archive by default to avoid copying an active Bedrock LevelDB world.
+
+See [scheduling operations and restore](doc/SCHEDULING.md) for the five scheduling volume names and the requirement to validate a restored snapshot separately. WordPress publication documentation lives in [deployment](doc/bookworks-wordpress-deployment.md) and [original-HTML lifecycle](doc/bookworks-wordpress-publication-lifecycle.md).
 
 ## Relationship to MushroomProcess and SignatureGate
 

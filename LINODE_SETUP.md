@@ -87,6 +87,8 @@ This repo includes example NGINX site configs under:
 - `nginx/rootedpsyche-wordpress.conf`
 - `nginx/erpnext.conf`
 - `nginx/qr.conf` — stable MushroomProcess Product/Lot QR resolver at `qr-test.danks.store`
+- `nginx/tymeslot.conf` — Tymeslot scheduling proxy (checked-in test hostname; production uses `schedule.rootedpsyche.org`)
+- `nginx/rallly.conf` — Rallly meeting polls proxy (checked-in test hostname; production uses `poll.rootedpsyche.org`)
 
 Install the HTTP site configs like this:
 
@@ -938,6 +940,10 @@ The first command is read-only. Staging creates/updates a draft and
 its six managed images, but never publishes, changes menus, or edits a
 published page. Inspect the WordPress draft before manual publication.
 
+
+## Scheduling deployments (RootedOps #17)
+
+Tymeslot and Rallly use independent Compose projects, not the main `docker/docker-compose.yml`. Tymeslot's pinned image, SMTP and OAuth configuration are defined through `docker/scheduling/tymeslot.compose.yml` and the root `.env`; its loopback HTTP port is **4000**. The Rallly upstream self-hosted deployment uses a separate local Compose configuration and `.env` (template: `docker/scheduling/rallly.env.example`) and binds to loopback HTTP port **3003**. Provision public Nginx/TLS sites explicitly for `schedule.rootedpsyche.org` and `poll.rootedpsyche.org`; checked-in Nginx examples intentionally target `*-test.rootedpsyche.org` and must be reviewed before production use. See [scheduling deployment and OAuth procedures](doc/SCHEDULING.md) for exact commands, redirects, Gmail SMTP, Gmail/Meet permissions, and operator checks. Do not check in credentials or overwrite the upstream-generated Rallly `.env`.
 
 ## Scheduling service backup coverage (RootedOps #17)
 
