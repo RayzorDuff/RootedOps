@@ -19,6 +19,20 @@ class HostRecoveryTests(unittest.TestCase):
     self.assertEqual(len(base64.b64decode(a['TYMESLOT_DATA_ENCRYPTION_KEY'])),32)
     for key in ('ECWID_SECRET_TOKEN','CLOVER_ACCESS_TOKEN','OPENROUTER_KEY','ERPNEXT_API_SECRET'):
         self.assertEqual(a[key],'')
+ def test_hostname_suffix_generation(self):
+    default=recovery.hosts_for_suffix('-test')
+    second=recovery.hosts_for_suffix('-test2')
+    production=recovery.hosts_for_suffix('')
+    self.assertEqual(default['erpnext'],'erp-test.danks.store')
+    self.assertEqual(second['erpnext'],'erp-test2.danks.store')
+    self.assertEqual(second['tymeslot'],'schedule-test2.rootedpsyche.org')
+    self.assertEqual(production['erpnext'],'erp.danks.store')
+    self.assertEqual(production['rootedpsyche-wordpress'],'www.rootedpsyche.org')
+    for suffix in ('test2','-bad_name','-','-Test'):
+        with self.assertRaises(ValueError): recovery.hosts_for_suffix(suffix)
+    with tempfile.TemporaryDirectory() as d:
+        path=Path(d);(path/'receipt.json').write_text('{"hostname_suffix":"-test2"}')
+        self.assertEqual(recovery.deployment_hosts(path),second)
  def test_private_write_refuses_overwrite(self):
     with tempfile.TemporaryDirectory() as directory:
         path=Path(directory)/'private/.env';recovery.private_write(path,'secret')
