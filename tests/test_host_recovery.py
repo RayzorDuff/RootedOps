@@ -43,3 +43,18 @@ class HostRecoveryTests(unittest.TestCase):
         self.assertTrue((ROOT/path).is_file(),path)
     self.assertNotIn('grav',yaml.safe_load((ROOT/'docker/docker-compose.yml').read_text())['services'])
     self.assertFalse((ROOT/'nginx/grav.conf').exists())
+
+class FullRestoreGuards(unittest.TestCase):
+ def test_existing_host_is_refused_before_any_restore_mutation(self):
+    from unittest.mock import patch
+    import full_restore
+    with tempfile.TemporaryDirectory() as directory:
+        root=Path(directory);env=root/'test';backup=root/'backup';env.mkdir();backup.mkdir()
+        (env/'TEST_ENVIRONMENT').write_text('rootedops-full-test\n')
+        (backup/'SHA256SUMS').write_text('')
+        recovery=full_restore.Recovery(env,backup)
+        with patch.object(full_restore.subprocess,'run') as run, patch.object(full_restore.subprocess,'check_output',return_value='existing-container\n'):
+            with self.assertRaisesRegex(ValueError,'new host'):
+                recovery.run(None)
+            self.assertFalse((env/'RESTORE_STARTED').exists())
+            self.assertTrue(all(call.args[0][0]=='sha256sum' for call in run.call_args_list))

@@ -17,6 +17,7 @@ jobs:
       - run: python -m unittest discover -s tests -p 'test_host_recovery.py' -v
       - run: make commerce-test
       - run: bash -n linode_bootstrap.sh backup/*.sh
+      - run: python -m py_compile scripts/host_recovery.py scripts/full_restore.py
       - run: python scripts/host_recovery.py prepare "$RUNNER_TEMP/rootedops-recovery"
       - run: python scripts/host_recovery.py validate "$RUNNER_TEMP/rootedops-recovery"
       - name: Native ERP MariaDB healthcheck
