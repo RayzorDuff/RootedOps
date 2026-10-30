@@ -245,3 +245,33 @@ of two units first, retry identical reference, refresh Woo snapshot, then cancel
 only unshipped holds release. Refund must not move a shipped Product back. New
 string-only mp_commerce_commit_fulfillment calls now refuse unverified release.
 Lot/bulk allocation, non-unit packages and returns/reversals remain manual gates.
+
+### SignatureGate post-release harness checkpoint
+
+SignatureGate feature/appsmith-e2e-foundation checkpoint
+`eafc0c7068e8e99ae9ec405371f9203ba68d73db` (PR #28) has passed local naming/assets/
+release checks, two safety tests and discovery of two Playwright journeys. It has
+**not** passed actual Appsmith login/navigation/cash browser execution. Its v1.2.0
+scope/version/export are unchanged. RootedOps companion CI runs only its pinned
+native DB/guard contracts, never a substitute browser UI or a SignatureGate release gate.
+
+On the authorized new staging host, use SignatureGate/e2e/README.md verbatim:
+`npm ci --prefix e2e --ignore-scripts`; configure private E2E_DB_PASSWORD,
+E2E_INSTANCE_TOKEN and E2E_DATABASE_URL for the dedicated signaturegate_e2e DB/user;
+`docker compose -f e2e/compose.yml up -d`; opt in E2E_ALLOW_RESET=1; run
+`npm run --prefix e2e db:reset`, `db:check`, then `node e2e/database.test.mjs`.
+That reset refuses signaturegate/signaturegate_test, unknown hosts/roles, an
+unmarked nonempty DB or wrong instance marker before destructive operations.
+Do not rebind any actual app to the disposable fixture DB.
+
+Import a separate real SignatureGate E2E Appsmith clone and rebind every datasource
+to postgres-e2e. Create purpose-built artificial reviewer/practitioner accounts;
+never reuse live passwords or OAuth. Review actual accessible role/name/label
+selectors into ignored e2e/selectors.private.json. Set E2E_APPSMITH_URL to the
+explicit local/test origin, E2E_APP_PATH to /app/signaturegate-e2e/ACTUAL_ROUTE,
+E2E_SELECTORS_FILE, E2E_SELECTORS_REVIEWED=1, E2E_POST_RELEASE_ACK=post-v1.2.0 and
+private E2E_REVIEWER_PASSWORD. From e2e: `npx playwright install chromium`, `npm test`,
+then inspect the private HTML report and retained failure traces/screenshots.
+No reports or auth state may be published without privacy review. Repeat reset and
+real runs before calling #27 proven. Only then implement the MushroomProcess browser
+follow-up with its own DB, app clone, fixtures and authority/permission checks.

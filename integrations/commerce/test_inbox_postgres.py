@@ -15,6 +15,8 @@ class NativeInboxTests(unittest.TestCase):
     def setUpClass(cls):
         cls.connect=staticmethod(connect_test(os.environ['COMMERCE_INBOX_DSN']))
         with cls.connect() as db:
+            if db.execute('SELECT EXISTS(SELECT 1 FROM products) OR EXISTS(SELECT 1 FROM lots) OR EXISTS(SELECT 1 FROM mp_commerce_orders)').fetchone()[0]:
+                raise ValueError('Native fixture suite requires an empty disposable database')
             db.execute(Path(__file__).with_name('inbox.sql').read_text())
             db.execute('CREATE TABLE erp_draft_probe(source_key text PRIMARY KEY)')
             cls.item=db.execute("INSERT INTO items(item_id,name,category,active) VALUES('INBOX-SYNTHETIC','Synthetic','grain',true) RETURNING nocopk").fetchone()[0]
@@ -23,7 +25,7 @@ class NativeInboxTests(unittest.TestCase):
             cls.ecommerce=db.execute("INSERT INTO ecommerce(name,item_id,provider,site_key,external_sku,erp_item_code,sync_enabled,status) VALUES('Inbox synthetic',%s,'woocommerce','synthetic','SYN-1','ERP-SYN-1',true,'Sterilized') RETURNING nocopk",(cls.item,)).fetchone()[0]
     def setUp(self):
         with self.connect() as db:
-            for table in ['commerce_delivery','commerce_inbox','erp_draft_probe','mp_commerce_payment_matches','mp_commerce_events','mp_commerce_reservations','mp_commerce_orders']:
+            for table in ['commerce_delivery','commerce_inbox','erp_draft_probe','mp_commerce_erp_links','mp_commerce_payment_matches','mp_commerce_events','mp_commerce_reservations','mp_commerce_orders']:
                 db.execute('DELETE FROM '+table)
         self.inbox=Inbox(self.connect);self.mp=PostgresInventory(self.connect)
     def receive(self):

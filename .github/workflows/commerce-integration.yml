@@ -60,3 +60,31 @@ jobs:
             -v "$PWD/erpnext/apps/rootedops_commerce:/opt/rootedops_commerce:ro" \
             -v "$PWD/scripts/commerce_frappe_ci.sh:/opt/commerce_frappe_ci.sh:ro" \
             frappe/erpnext:v16.13.0 /opt/commerce_frappe_ci.sh
+  appsmith-harness-contracts:
+    name: SignatureGate offline harness contracts (not browser E2E)
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_DB: signaturegate_e2e
+          POSTGRES_USER: signaturegate_e2e
+          POSTGRES_PASSWORD: synthetic-ci-only
+        ports: ['5432:5432']
+        options: --health-cmd="pg_isready -U signaturegate_e2e" --health-interval=5s --health-retries=12
+    env:
+      E2E_DATABASE_URL: postgresql://signaturegate_e2e:synthetic-ci-only@127.0.0.1:5432/signaturegate_e2e
+      E2E_INSTANCE_TOKEN: synthetic-ci-instance-marker-not-a-live-credential
+      E2E_ALLOW_RESET: '1'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: RayzorDuff/SignatureGate
+          ref: eafc0c7068e8e99ae9ec405371f9203ba68d73db
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: npm ci --prefix e2e --ignore-scripts --no-audit --no-fund
+      - run: npm run --prefix e2e test:guards
+      - run: node e2e/database.test.mjs
+      - run: npm run --prefix e2e test:list

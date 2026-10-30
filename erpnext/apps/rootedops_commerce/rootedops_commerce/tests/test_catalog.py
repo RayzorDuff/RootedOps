@@ -81,6 +81,9 @@ class TestCatalog(IntegrationTestCase):
             frappe.get_doc({'doctype':'Customer Group','customer_group_name':'_Test Commerce Customers','is_group':0}).insert()
         if not frappe.db.exists('Territory','_Test Commerce Territory'):
             frappe.get_doc({'doctype':'Territory','territory_name':'_Test Commerce Territory','is_group':0}).insert()
+        if not frappe.db.exists('Address Template',{'is_default':1}):
+            frappe.get_doc({'doctype':'Address Template','country':'United States','is_default':1,
+                            'template':'{{ address_line1 }} {{ city }}'}).insert()
         plan={'financial_replay':False,'fulfillment_replay':False,'customers':[{
             'source_key':'synthetic-native-customer','source_payload':{'id':'native'},
             'customer':{'customer_name':'Synthetic Commerce Customer','customer_type':'Individual',
