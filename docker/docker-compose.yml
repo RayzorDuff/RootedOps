@@ -435,17 +435,18 @@ services:
     entrypoint:
       - bash
       - -lc
-    command: |
-      set -e
-      if [ ! -d /out-apps/frappe ] || [ ! -d /out-apps/erpnext ] || [ ! -d /out-apps/rootedops_payroll ]; then
-        echo 'Initializing ERPNext apps volume from container image...'
-        cp -a /home/frappe/frappe-bench/apps/. /out-apps/
-      else
-        echo 'ERPNext apps volume already initialized.'
-      fi
-      if [ ! -d /out-apps/rootedops_commerce ]; then
-        cp -a /home/frappe/frappe-bench/apps/rootedops_commerce /out-apps/
-      fi
+    command:
+      - |
+        set -e
+        if [ ! -d /out-apps/frappe ] || [ ! -d /out-apps/erpnext ] || [ ! -d /out-apps/rootedops_payroll ]; then
+          echo 'Initializing ERPNext apps volume from container image...'
+          cp -a /home/frappe/frappe-bench/apps/. /out-apps/
+        else
+          echo 'ERPNext apps volume already initialized.'
+        fi
+        if [ ! -d /out-apps/rootedops_commerce ]; then
+          cp -a /home/frappe/frappe-bench/apps/rootedops_commerce /out-apps/
+        fi
     volumes:
       - erpnext_apps:/out-apps
     restart: "no"
@@ -461,24 +462,25 @@ services:
     entrypoint:
       - bash
       - -lc
-    command: |
-      set -e
-      mkdir -p sites sites/assets
-      cat > sites/apps.txt <<'EOF'
-      frappe
-      erpnext
-      hrms
-      employee_self_service
-      rootedops_payroll
-      rootedops_commerce
-      EOF
-      bench set-config -g db_host ${ERPNEXT_DB_HOST}
-      bench set-config -g db_port ${ERPNEXT_DB_PORT}
-      bench set-config -g redis_cache redis://${ERPNEXT_REDIS_CACHE_HOST}:${ERPNEXT_REDIS_CACHE_PORT}
-      bench set-config -g redis_queue redis://${ERPNEXT_REDIS_QUEUE_HOST}:${ERPNEXT_REDIS_QUEUE_PORT}
-      bench set-config -g redis_socketio redis://${ERPNEXT_REDIS_QUEUE_HOST}:${ERPNEXT_REDIS_QUEUE_PORT}
-      bench set-config -gp socketio_port ${ERPNEXT_SOCKETIO_PORT:-9000}
-      ln -sfn ../../apps/rootedops_payroll/rootedops_payroll/public sites/assets/rootedops_payroll
+    command:
+      - |
+        set -e
+        mkdir -p sites sites/assets
+        cat > sites/apps.txt <<'EOF'
+        frappe
+        erpnext
+        hrms
+        employee_self_service
+        rootedops_payroll
+        rootedops_commerce
+        EOF
+        bench set-config -g db_host ${ERPNEXT_DB_HOST}
+        bench set-config -g db_port ${ERPNEXT_DB_PORT}
+        bench set-config -g redis_cache redis://${ERPNEXT_REDIS_CACHE_HOST}:${ERPNEXT_REDIS_CACHE_PORT}
+        bench set-config -g redis_queue redis://${ERPNEXT_REDIS_QUEUE_HOST}:${ERPNEXT_REDIS_QUEUE_PORT}
+        bench set-config -g redis_socketio redis://${ERPNEXT_REDIS_QUEUE_HOST}:${ERPNEXT_REDIS_QUEUE_PORT}
+        bench set-config -gp socketio_port ${ERPNEXT_SOCKETIO_PORT:-9000}
+        ln -sfn ../../apps/rootedops_payroll/rootedops_payroll/public sites/assets/rootedops_payroll
     volumes:
       - erpnext_apps:/home/frappe/frappe-bench/apps
       - erpnext_sites:/home/frappe/frappe-bench/sites

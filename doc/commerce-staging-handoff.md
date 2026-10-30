@@ -666,8 +666,8 @@ customer records, source database identities or credentials as test artifacts.
 `mariadb-check --check` returned 0 (938 output lines). Nine sequence tables report
 the expected engine-does-not-support-check note; all other statuses were OK.
 This database integrity check does not replace Frappe migrations or accounting
-reconciliation. The restored MP schema contains 135 public tables; its forward
-commerce migration inventory is the next acceptance step.
+reconciliation. The restored MP information-schema inventory contains 135 public
+relations, including views, with 92 physical tables.
 
 Two rehearsal corrections are now covered by regression tests:
 
@@ -689,3 +689,45 @@ CI must execute that adapter test. PR #29 native stopped-volume regression passe
 for both recovery implementations in [Actions run 41142467924](https://github.com/RayzorDuff/RootedOps/actions/runs/41142467924).
 The follow-up branch starts from main `9b0d64ddf0619278caed3fe43e8f351e0989e643`
 and retains PR #30's environment-derived target hostname, including `-test2` support.
+
+### Forward migrations and ERP initializer repair
+
+After auditing the restored schema, applied only these missing forward files:
+`051_erp_commerce_catalog.sql`, `052_commerce_order_ledger.sql`,
+`053_preserve_product_spawn_timezone.sql`, `054_commerce_operational_bridge.sql`.
+All commands exited 0; row counts in all 92 existing MP tables remained unchanged.
+The new ledger has zero orders and the spawn wrapper has
+`TimeZone=America/Denver`. Private `mp-migration-receipt.json` records source SHA,
+file hashes and preservation evidence. Do not replay the baseline or the unrelated
+051 extraction migration merely because its numeric prefix matches.
+
+The restored Frappe site lists the five source apps at their expected versions.
+The first commerce installation failed with `ModuleNotFoundError` because two
+Compose initializers had multiline **string** commands with `bash -lc` entrypoints.
+Compose resolved these to 8 and 7 arguments respectively: Bash executed only
+`set`, returned 0, and never copied commerce or configured Redis. An exit code
+alone was insufficient evidence of initialization.
+
+Both initializer commands now use a one-element script list. Generated staging
+configuration was repaired in place with its prior copy preserved privately;
+no environment regeneration, database import or credential replacement occurred.
+Resolved argv now contains exactly one script, the actual initializers exited 0,
+and the commerce package files appeared in the restored apps volume. Use the
+bench virtualenv Python for import probes, not the image's system Python.
+Existing generated deployments need the same reviewed command-shape repair or
+they will retain the old strings. `host_recovery.py validate` now rejects split
+`bash -lc` commands; fresh rendering inherits the corrected template. Regression
+coverage checks script shape, commerce inclusion and Bash syntax (16 recovery tests).
+
+Reproduce initialization after reviewing private generated configuration:
+
+```sh
+cfg="$PWD/.test-deployment"
+sudo docker compose --env-file "$cfg/.env" -f "$cfg/core.yml" run --rm --no-deps erpnext-apps-init
+sudo docker compose --env-file "$cfg/.env" -f "$cfg/core.yml" up -d --no-deps erpnext-redis-cache erpnext-redis-queue
+sudo docker compose --env-file "$cfg/.env" -f "$cfg/core.yml" run --rm --no-deps erpnext-configurator
+```
+
+These commands prepare files/cache only. Commerce install/migrate, catalog/order
+acceptance, TLS, browser E2E and payment acceptance must still be recorded from
+their actual results; none follows from the initializer's success alone.
