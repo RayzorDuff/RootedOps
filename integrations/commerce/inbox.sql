@@ -3,7 +3,7 @@ BEGIN;
 CREATE TABLE IF NOT EXISTS commerce_inbox (
   provider text NOT NULL, site_key text NOT NULL, event_id text NOT NULL,
   external_order_id text NOT NULL, revision bigint NOT NULL,
-  payload jsonb NOT NULL, received_at timestamptz NOT NULL DEFAULT now(),
+  payload jsonb NOT NULL, raw_body bytea NOT NULL, received_at timestamptz NOT NULL DEFAULT now(),
   PRIMARY KEY(provider,site_key,event_id)
 );
 CREATE TABLE IF NOT EXISTS commerce_delivery (

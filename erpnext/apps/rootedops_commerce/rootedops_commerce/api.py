@@ -1,4 +1,5 @@
 """Authenticated, permission-aware catalog reads. Frappe token auth is required."""
+from copy import deepcopy
 import frappe
 
 
@@ -33,7 +34,7 @@ def import_product(payload):
     from decimal import Decimal, InvalidOperation
     if not ({"System Manager", "Sales Manager"} & set(frappe.get_roles())):
         frappe.throw("Commerce import requires Sales Manager", frappe.PermissionError)
-    data = frappe.parse_json(payload)
+    data = deepcopy(frappe.parse_json(payload))
     content_data = dict(data["content"])
     code = content_data["item"]
     source = content_data.get("source_key")
@@ -120,7 +121,7 @@ def import_reviewed_catalog(payload):
     """Atomic reviewed batch; attributes, UOM, groups, templates/lists must exist."""
     if not frappe.conf.get("commerce_catalog_import_enabled"):
         frappe.throw("Catalog batch import requires explicit site configuration")
-    data = frappe.parse_json(payload)
+    data = deepcopy(frappe.parse_json(payload))
     if not data.get("source_sha256") or not data.get("review_sha256"):
         frappe.throw("Bound source and review hashes required")
     result = []

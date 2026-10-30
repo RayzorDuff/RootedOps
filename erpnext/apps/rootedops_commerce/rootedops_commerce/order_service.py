@@ -3,6 +3,7 @@
 Never submit documents or move stock based on a storefront status. Frappe POST
 provides the transaction; callers must retry unique-key conflicts idempotently.
 """
+from copy import deepcopy
 import hashlib
 import json
 from decimal import Decimal
@@ -40,7 +41,7 @@ def validate_draft(values,event):
 
 @frappe.whitelist(methods=['POST'])
 def stage_order(payload):
-    _authorized();data=frappe.parse_json(payload);event=data['event'];values=dict(data['reviewed_draft'])
+    _authorized();data=frappe.parse_json(payload);event=data['event'];values=deepcopy(data['reviewed_draft'])
     validate_draft(values,event)
     key=mapping_key(event['provider'],event['site_key'],event['external_order_id'])
     fingerprint=hashlib.sha256(json.dumps(values,sort_keys=True,separators=(',',':')).encode()).hexdigest()

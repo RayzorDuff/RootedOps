@@ -22,9 +22,9 @@ class Inbox:
                 if old[0] != event:
                     raise ValueError('Event identity/configuration drift')
                 return {'event_id': event['event_id'], 'duplicate': True}
-            inserted = db.execute('''INSERT INTO commerce_inbox(provider,site_key,event_id,external_order_id,revision,payload)
-                VALUES(%s,%s,%s,%s,%s,%s::jsonb) ON CONFLICT DO NOTHING RETURNING event_id''',
-                (*key,event['external_order_id'],event['revision'],json.dumps(event))).fetchone()
+            inserted = db.execute('''INSERT INTO commerce_inbox(provider,site_key,event_id,external_order_id,revision,payload,raw_body)
+                VALUES(%s,%s,%s,%s,%s,%s::jsonb,%s) ON CONFLICT DO NOTHING RETURNING event_id''',
+                (*key,event['external_order_id'],event['revision'],json.dumps(event),raw)).fetchone()
             if not inserted:
                 old = db.execute('SELECT payload FROM commerce_inbox WHERE provider=%s AND site_key=%s AND event_id=%s',key).fetchone()
                 if old[0] != event:raise ValueError('Event identity/configuration drift')

@@ -1,4 +1,5 @@
 """Permission-aware, transaction-scoped historical Customer/draft SO import."""
+from copy import deepcopy
 import hashlib
 import json
 from decimal import Decimal
@@ -19,7 +20,7 @@ def _ensure(key, payload, kind, values):
         return target
     # A concurrent insert loses on the unique identity key and its entire POST
     # rolls back, including the created document. Retry then resolves the winner.
-    doc = frappe.get_doc(dict(values, doctype=kind)).insert()
+    doc = frappe.get_doc(dict(deepcopy(values), doctype=kind)).insert()
     frappe.get_doc({'doctype': 'Commerce Migration Identity', 'source_key': key,
                     'payload_hash': fingerprint, 'source_payload': json.dumps(payload, sort_keys=True),
                     'target_doctype': kind, 'target_name': doc.name}).insert()
