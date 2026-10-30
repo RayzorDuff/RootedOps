@@ -85,6 +85,18 @@ class HostRecoveryTests(unittest.TestCase):
     self.assertFalse((ROOT/'nginx/grav.conf').exists())
 
 class FullRestoreGuards(unittest.TestCase):
+ def test_compose_failure_does_not_expose_credential_arguments(self):
+    import subprocess
+    from unittest.mock import patch
+    import full_restore
+    with tempfile.TemporaryDirectory() as directory:
+        selected=full_restore.Recovery(Path(directory)/'test',Path(directory),['erpnext'])
+        secret='synthetic-private-test-password'
+        with patch.object(full_restore.subprocess,'run',side_effect=subprocess.CalledProcessError(1,['docker','exec','MYSQL_PWD='+secret])):
+            with self.assertRaises(RuntimeError) as caught:selected.dc('core','exec','-e','MYSQL_PWD='+secret)
+        self.assertNotIn(secret,str(caught.exception))
+        self.assertTrue(caught.exception.__suppress_context__)
+
  def test_redaction_acknowledgement_never_ignores_missing_or_changed_payloads(self):
     import hashlib
     import full_restore

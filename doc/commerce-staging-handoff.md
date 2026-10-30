@@ -599,3 +599,23 @@ sudo python3 scripts/full_restore.py "$PWD/.test-deployment" /PRIVATE/COMPLETE_B
 The same invocation without `--check-only` performs that selected restore only
 after compatibility and all remaining checks pass. Full-stack recovery without
 component selection retains the original strict complete-manifest/source-key rules.
+
+### Native image verification on the new staging host
+
+The pinned custom ERP image built successfully. Network-isolated disposable image
+probes report all six expected package versions: Frappe 16.14.0, ERPNext 16.13.0,
+HRMS 16.4.7, ESS 2.2.2, rootedops_payroll 0.4.10 and rootedops_commerce 0.3.0.
+Image ID: sha256:650bf324f27b820d9e110bea6e4af90f8246b1cdadb734027ef4613646b75af6
+(local custom image ID, not a public registry manifest). Reproduce after the pinned
+build with `docker run --rm --network none --entrypoint bench
+rootedops-erpnext:v16.13.0 version`; use the image's
+`/home/frappe/frappe-bench/env/bin/python` and importlib.metadata.version for the
+six-package probe because the base image's apps.txt lists only frappe/erpnext.
+
+Archived Appsmith/n8n digests pulled successfully. Private generated configuration
+also pins database/cache images to the archived registry digests. The compatibility
+receipt is based on those pulls, package probes and matching backup metadata; it
+is not database/application acceptance. No production env was parsed. Original
+hashes for all remaining backup files verified with exactly the two documented
+secret-metadata omissions. MP/ERP selected restore preflight is now being exercised;
+Appsmith/n8n credential restoration remains deferred without keys-only input.

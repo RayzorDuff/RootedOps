@@ -117,7 +117,12 @@ class Recovery:
         verified+=1
     expected={('db/' if name.endswith('.sql.gz') else 'volumes/')+name for name in self.selected_files}
     if not verified or not expected<=seen:raise ValueError('Selected payload missing from checksum manifest')
- def dc(self,project,*args,**kw):return subprocess.run(self.commands[project]+list(args),check=True,**kw)
+ def dc(self,project,*args,**kw):
+    try:return subprocess.run(self.commands[project]+list(args),check=True,**kw)
+    except subprocess.CalledProcessError:
+        # Compose exec arguments may contain generated DB credentials. Never put
+        # the original command/exception into a traceback or public report.
+        raise RuntimeError('Recovery command failed in '+project+'; inspect private service diagnostics') from None
  def preflight(self,source_site=None):
     if (self.output/'TEST_ENVIRONMENT').read_text().strip()!='rootedops-full-test':raise ValueError('Explicit full-test environment required')
     if (self.output/'RESTORE_STARTED').exists():raise ValueError('Restore already started; inspect partial state instead of retrying')
