@@ -34,6 +34,9 @@ def upsert_draft(base_url, authorization, record, parent_id=None, attributes=Non
         raise ValueError('Adapter restricted to shop-test.danks.store')
     body = draft_payload(record, parent_id, attributes)
     root = base_url.rstrip('/') + '/wp-json/wc/v3/'
+    if record.get('expected_currency'):
+        currency=request(root+'settings/general/woocommerce_currency',authorization)['value']
+        if currency!=record['expected_currency']:raise ValueError('Woo store currency differs from ERP reviewed currency')
     resource = f'products/{int(parent_id)}/variations' if (record.get('parent_sku') or record['item'].get('parent_sku')) else 'products'
     matches = request(root + resource + '?' + urlencode({'sku':body['sku'],'per_page':100}), authorization)
     matches = [r for r in matches if r.get('sku') == body['sku']]

@@ -14,6 +14,7 @@ from urllib.parse import urlencode, urlsplit
 sys.path.insert(0,str(Path(__file__).resolve().parents[2]/'erpnext/apps/rootedops_commerce'))
 from rootedops_commerce.contract import compose_projection
 from ecwid_migrate import api, private_write
+from reviewed_catalog import money
 from channel import upsert_draft
 
 
@@ -27,7 +28,7 @@ def prepare(row, catalog, reviewed):
     projection = compose_projection(content,mapping,row)
     c=projection['content']
     source_key = c.get('source_key') or 'erp:item:' + c['item']
-    return {'source_key':source_key,
+    record={'source_key':source_key,
             'item':{'parent_sku':reviewed.get('parent_sku'), 'has_variants':reviewed.get('has_variants',False)},
             'woocommerce':{'sku':reviewed['external_sku'],'name':c['public_title'],'status':'draft',
                 'description':c.get('full_description',''),'short_description':c.get('short_description',''),
@@ -37,6 +38,33 @@ def prepare(row, catalog, reviewed):
                              {'key':'_rootedops_erp_item','value':c['item']},
                              {'key':'_rootedops_seo_title','value':c.get('seo_title','')},
                              {'key':'_rootedops_seo_description','value':c.get('seo_description','')}]}}
+    commercial=reviewed.get('commercial')
+    if commercial:
+        from datetime import date
+        if commercial['item_group']!=catalog['item']['item_group']:raise ValueError('ERP Item Group mapping drift')
+        currency=commercial['currency']
+        record['expected_currency']=currency
+        body=record['woocommerce']
+        body['categories']=[{'id':int(value)} for value in commercial['woocommerce_category_ids']]
+        if any(value['id']<=0 for value in body['categories']):raise ValueError('Reviewed category IDs required')
+        taxes=[r['item_tax_template'] for r in catalog['item'].get('taxes',[])]
+        expected=commercial.get('erp_item_tax_template')
+        if taxes!=([expected] if expected else []):raise ValueError('ERP Item Tax Template mapping drift')
+        if not expected and commercial.get('reviewed_no_item_tax') is not True:raise ValueError('Review ERP tax treatment')
+        if commercial['woocommerce_tax_status'] not in ('taxable','none','shipping'):raise ValueError('Invalid Woo tax status')
+        body.update(tax_status=commercial['woocommerce_tax_status'],tax_class=commercial['woocommerce_tax_class'])
+        if not catalog['item'].get('has_variants'):
+            as_of=date.fromisoformat(catalog['as_of_date'])
+            prices=[p for p in catalog['prices'] if p['price_list']==commercial['price_list']
+                and p['currency']==currency and p['uom']==catalog['item']['stock_uom']
+                and (not p.get('valid_from') or date.fromisoformat(str(p['valid_from']))<=as_of)
+                and (not p.get('valid_upto') or date.fromisoformat(str(p['valid_upto']))>=as_of)]
+            if len(prices)!=1:raise ValueError('Missing/ambiguous active ERP Item Price')
+            body['regular_price']=money(prices[0]['item_price_rate'])
+        media=commercial['woocommerce_media_ids']
+        body['images']=[{'id':int(media[i['image']])} for i in c.get('gallery',[])]
+        if any(i['id']<=0 for i in body['images']):raise ValueError('Verified uploaded media IDs required')
+    return record
 
 
 def main():
@@ -51,7 +79,10 @@ def main():
         m=reviewed.get(str(row['ecommerce_id']))
         if not m:raise ValueError('Missing reviewed mapping for ecommerce ID '+str(row['ecommerce_id']))
         if m['provider']!='woocommerce':raise ValueError('This adapter projects WooCommerce only')
-        endpoint=a.erp_url.rstrip('/')+'/api/method/rootedops_commerce.api.catalog?'+urlencode({'item':m['item']})
+        if a.apply_staging and not m.get('commercial'):raise ValueError('Staging publication requires reviewed commercial price/tax/category/media mappings')
+        query={'item':m['item']}
+        if m.get('commercial'):query['price_list']=m['commercial']['price_list']
+        endpoint=a.erp_url.rstrip('/')+'/api/method/rootedops_commerce.api.catalog?'+urlencode(query)
         catalog=api(endpoint,os.environ['ERP_AUTHORIZATION'])['message']
         record=prepare(row,catalog,m)
         result={'ecommerce_id':row['ecommerce_id'],'record':record,'status':'planned'}

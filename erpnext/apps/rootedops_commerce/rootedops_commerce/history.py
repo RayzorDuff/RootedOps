@@ -1,4 +1,5 @@
 """Permission-aware, transaction-scoped historical Customer/draft SO import."""
+from copy import deepcopy
 import hashlib
 import json
 from decimal import Decimal
@@ -19,7 +20,7 @@ def _ensure(key, payload, kind, values):
         return target
     # A concurrent insert loses on the unique identity key and its entire POST
     # rolls back, including the created document. Retry then resolves the winner.
-    doc = frappe.get_doc(dict(values, doctype=kind)).insert()
+    doc = frappe.get_doc(dict(deepcopy(values), doctype=kind)).insert()
     frappe.get_doc({'doctype': 'Commerce Migration Identity', 'source_key': key,
                     'payload_hash': fingerprint, 'source_payload': json.dumps(payload, sort_keys=True),
                     'target_doctype': kind, 'target_name': doc.name}).insert()
@@ -40,7 +41,25 @@ def import_history(payload):
         allowed = {'customer_name', 'customer_type', 'customer_group', 'territory'}
         if set(row['customer']) - allowed:
             raise ValueError('Unsupported Customer fields')
-        customers[row['source_key']] = _ensure(row['source_key'], row, 'Customer', row['customer']).name
+        customer=_ensure(row['source_key'],row,'Customer',row['customer'])
+        customers[row['source_key']]=customer.name
+        links=[{'link_doctype':'Customer','link_name':customer.name}]
+        if row.get('contact'):
+            contact=dict(row['contact'])
+            if set(contact)-{'first_name','last_name','email_ids','phone_nos'}:raise ValueError('Unsupported Contact fields')
+            for email in contact.get('email_ids',[]):
+                if set(email)-{'email_id','is_primary'}:raise ValueError('Unsupported Contact email fields')
+            for phone in contact.get('phone_nos',[]):
+                if set(phone)-{'phone','is_primary_phone','is_primary_mobile_no'}:raise ValueError('Unsupported Contact phone fields')
+            contact['links']=links
+            _ensure(row['source_key']+':contact',row['contact'],'Contact',contact)
+        for row_address in row.get('addresses',[]):
+            address=dict(row_address);source_id=address.pop('source_address_id')
+            allowed_address={'address_title','address_type','address_line1','address_line2','city','state','pincode','country','email_id','phone'}
+            if set(address)-allowed_address:raise ValueError('Unsupported Address fields')
+            address['links']=links
+            key=hashlib.sha256((row['source_key']+':address:'+str(source_id)).encode()).hexdigest()
+            _ensure(key,row_address,'Address',address)
     for row in plan['orders']:
         values = dict(row['sales_order'])
         allowed = {'company', 'currency', 'conversion_rate', 'transaction_date', 'delivery_date',

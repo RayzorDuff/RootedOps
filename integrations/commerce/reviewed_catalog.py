@@ -107,7 +107,7 @@ def compile_catalog(plan, review, media_manifest=()):
             price = {'currency': currency, 'price_list': review['selling_price_list'], 'item_price_rate': rate}
             wc['regular_price'] = rate
         mapping = dict(product['mapping'], item=code)
-        records.append({'source_key': product['source_key'], 'item': item, 'content': content,
+        records.append({'source_key': product['source_key'], 'expected_currency':currency, 'item': item, 'content': content,
                         'mapping': mapping, 'price': price, 'woocommerce': wc,
                         'variant_attributes': woo_attributes, 'parent_sku': parent_sku})
     return {'schema_version': 1, 'source_sha256': plan['source_sha256'], 'records': records,

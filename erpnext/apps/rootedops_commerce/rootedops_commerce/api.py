@@ -1,4 +1,5 @@
 """Authenticated, permission-aware catalog reads. Frappe token auth is required."""
+from copy import deepcopy
 import frappe
 
 
@@ -12,9 +13,11 @@ def catalog(item, price_list=None):
     if price_list:
         prices = frappe.get_list("Item Price", filters={"item_code": item, "price_list": price_list},
             fields=["name", "price_list", "currency", "item_price_rate", "uom", "valid_from", "valid_upto"])
-    return {"schema_version": 1, "content": content.as_dict(),
+    return {"schema_version": 1, "as_of_date": frappe.utils.today(), "content": content.as_dict(),
             "item": {"item_code": erp_item.item_code, "disabled": erp_item.disabled,
-                     "stock_uom": erp_item.stock_uom, "variant_of": erp_item.variant_of},
+                     "stock_uom": erp_item.stock_uom, "variant_of": erp_item.variant_of,
+                     "item_group": erp_item.item_group,"has_variants": erp_item.has_variants,
+                     "taxes": [{"item_tax_template":r.item_tax_template} for r in erp_item.get("taxes")]},
             "prices": prices,
             "mappings": frappe.get_list("Commerce Channel Mapping", filters={"item": item},
                 fields=["name", "item", "provider", "site_key", "external_product_id",
@@ -33,7 +36,7 @@ def import_product(payload):
     from decimal import Decimal, InvalidOperation
     if not ({"System Manager", "Sales Manager"} & set(frappe.get_roles())):
         frappe.throw("Commerce import requires Sales Manager", frappe.PermissionError)
-    data = frappe.parse_json(payload)
+    data = deepcopy(frappe.parse_json(payload))
     content_data = dict(data["content"])
     code = content_data["item"]
     source = content_data.get("source_key")
@@ -120,7 +123,7 @@ def import_reviewed_catalog(payload):
     """Atomic reviewed batch; attributes, UOM, groups, templates/lists must exist."""
     if not frappe.conf.get("commerce_catalog_import_enabled"):
         frappe.throw("Catalog batch import requires explicit site configuration")
-    data = frappe.parse_json(payload)
+    data = deepcopy(frappe.parse_json(payload))
     if not data.get("source_sha256") or not data.get("review_sha256"):
         frappe.throw("Bound source and review hashes required")
     result = []
