@@ -223,8 +223,9 @@ class Recovery:
         if not major.isdigit():raise ValueError('Invalid PostgreSQL major')
         r_env=read_env(self.output/'rallly/.env')
         with tarfile.open(self.backup/'bind_mounts/rallly-selfhosted-env.tgz') as archive:
-            member=next(m for m in archive if m.name.lstrip('./')=='.env')
-            text=archive.extractfile(member).read().decode()
+            members=[m for m in archive if m.isfile() and m.name.removeprefix('./')=='.env']
+            if len(members)!=1:raise ValueError('Expected exactly one Rallly .env archive member')
+            text=archive.extractfile(members[0]).read().decode()
         temp=self.output/'rallly/source.env';temp.write_text(text);temp.chmod(0o600)
         old=read_env(temp)
         r_env.update({k:old[k] for k in ('SECRET_PASSWORD','POSTGRES_PASSWORD','S3_ACCESS_KEY_ID','S3_SECRET_ACCESS_KEY','GARAGE_RPC_SECRET')})
