@@ -84,6 +84,23 @@ class Inbox:
             return db.execute('''SELECT state,last_error,count(*) FROM commerce_delivery
                 GROUP BY state,last_error ORDER BY state,last_error''').fetchall()
 
+    def completed_order(self, key):
+        with self.connect() as db:
+            row=db.execute('''SELECT i.payload,d.state FROM commerce_inbox i
+                JOIN commerce_delivery d USING(provider,site_key,event_id)
+                WHERE i.provider=%s AND i.site_key=%s AND i.external_order_id=%s
+                ORDER BY i.revision DESC,i.received_at DESC LIMIT 1''',key).fetchone()
+            if not row or row[1]!='done':raise ValueError('Latest order event must have completed delivery')
+            return row[0]
+
+
+def reconcile_order(inbox, mp_target, erp_target, key):
+    """Refresh independently verified ERP references; no event/payment/stock replay."""
+    event=inbox.completed_order(key)
+    receipt=erp_target.resolve(event)
+    mp_target.link_erp(event,receipt)
+    return {'reconciled':True,'accounting_posted':False,'physical_fulfillment':False}
+
 
 def deliver_one(inbox, mp_target, erp_target, *, max_attempts=5, retry_seconds=30):
     claim=inbox.claim()
@@ -138,6 +155,11 @@ class ReviewedERP:
         payload={'event':event,'reviewed_draft':draft}
         return self.request(self.base+'/api/method/rootedops_commerce.order_service.stage_order',
                             self.authorization,'POST',{'payload':json.dumps(payload)})['message']
+
+    def resolve(self,event):
+        identity={k:event[k] for k in ('provider','site_key','external_order_id')}
+        return self.request(self.base+'/api/method/rootedops_commerce.order_service.resolve_order',
+                            self.authorization,'POST',{'payload':json.dumps(identity)})['message']
 
 
 def application(inbox,sites):

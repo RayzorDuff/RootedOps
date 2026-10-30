@@ -141,4 +141,17 @@ class TestCatalog(IntegrationTestCase):
                 frappe.get_doc('Sales Order',first['sales_order']).submit()
             self.assertEqual(frappe.db.count('Sales Invoice'),before_invoice)
             self.assertEqual(frappe.db.count('Payment Entry'),before_payment)
+            # An explicitly submitted operational order can still resolve links.
+            # Updating source state never cancels or posts its ERP documents.
+            event.update(revision=3,status='processing')
+            stage_order({'event':event,'reviewed_draft':draft})
+            order=frappe.get_doc('Sales Order',first['sales_order']);order.submit()
+            from rootedops_commerce.order_service import resolve_order
+            self.assertEqual(resolve_order(event)['sales_order'],order.name)
+            event.update(revision=4,status='cancelled')
+            result=stage_order({'event':event,'reviewed_draft':draft})
+            self.assertTrue(result['reconciliation_required'])
+            self.assertEqual(frappe.db.get_value('Sales Order',order.name,'docstatus'),1)
+            self.assertEqual(frappe.db.count('Sales Invoice'),before_invoice)
+            self.assertEqual(frappe.db.count('Payment Entry'),before_payment)
         finally:frappe.conf.commerce_order_integration_enabled=old

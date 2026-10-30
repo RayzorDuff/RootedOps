@@ -7,7 +7,7 @@ from pathlib import Path
 import sys
 from urllib.parse import urlsplit
 from wsgiref.simple_server import make_server
-from inbox import Inbox, PostgresInventory, ReviewedERP, application, deliver_one
+from inbox import Inbox, PostgresInventory, ReviewedERP, application, deliver_one, reconcile_order
 from ecwid_migrate import api
 
 
@@ -30,8 +30,9 @@ def connect_test(dsn):
 
 def main():
     p=argparse.ArgumentParser(description=__doc__)
-    p.add_argument('command',choices=['init','serve','work-once','status','replay'])
+    p.add_argument('command',choices=['init','serve','work-once','status','replay','reconcile-order'])
     p.add_argument('--config',type=Path);p.add_argument('--event-key',nargs=3)
+    p.add_argument('--order-key',nargs=3)
     a=p.parse_args();connect=connect_test(os.environ['COMMERCE_INBOX_DSN']);inbox=Inbox(connect)
     if a.command=='init':
         with connect() as db:db.execute(Path(__file__).with_name('inbox.sql').read_text())
@@ -52,6 +53,10 @@ def main():
         if not a.config:p.error('--config required')
         approved=json.loads(a.config.read_text())['approved_erp_drafts']
         erp=ReviewedERP('https://erp-test.danks.store',os.environ['ERP_AUTHORIZATION'],approved,api)
-        print(json.dumps({'worked':deliver_one(inbox,PostgresInventory(connect_test(os.environ['MP_TEST_DSN'])),erp)}))
+        mp=PostgresInventory(connect_test(os.environ['MP_TEST_DSN']))
+        if a.command=='reconcile-order':
+            if not a.order_key:p.error('reconcile-order requires --order-key PROVIDER SITE ORDER_ID')
+            print(json.dumps(reconcile_order(inbox,mp,erp,tuple(a.order_key))))
+        else:print(json.dumps({'worked':deliver_one(inbox,mp,erp)}))
 
 if __name__=='__main__':main()

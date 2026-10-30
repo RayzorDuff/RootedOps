@@ -315,3 +315,17 @@ Invoices referencing those orders are blocked too. Operational cancelled/failed/
 refunded source orders require review before ERP submission. The order service
 still creates drafts only; no merchant event posts accounting. Native tests must
 verify those protections after installing the new hooks.
+
+After Accounts Manager explicitly links submitted documents, refresh MP identities
+without redelivering a Woo snapshot:
+
+```sh
+python3 integrations/commerce/runtime.py reconcile-order --config /PRIVATE/inbox-config.json --order-key woocommerce TEST_SITE WOO_ORDER_ID
+```
+
+This refuses until the latest durable event has completed delivery, reads current
+ERP source references, and idempotently links them to MP. It neither ingests an
+order again nor confirms payment/reservations. Submitted operational Sales Orders
+can resolve stable references and receive source-status updates; cancel/refund of
+a submitted order returns reconciliation_required and never cancels ERP documents.
+Accounting reversals/credit notes remain explicit Accounts Manager work.

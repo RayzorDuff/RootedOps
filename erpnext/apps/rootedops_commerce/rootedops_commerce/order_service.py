@@ -54,7 +54,8 @@ def stage_order(payload):
         if int(event['revision'])==state.revision and state.status!=event['status']:
             raise ValueError('Same-revision status conflict')
         order=frappe.get_doc('Sales Order',state.sales_order);order.check_permission('read')
-        if order.docstatus!=0:raise ValueError('Submitted/cancelled order requires explicit reconciliation')
+        if order.docstatus==2:raise ValueError('Cancelled ERP order requires explicit reconciliation')
+        if Decimal(str(order.grand_total))!=Decimal(event['total']):raise ValueError('ERP order total drift requires review')
         state.revision=int(event['revision']);state.status=event['status'];state.save()
     else:
         customer=frappe.get_doc('Customer',values['customer']);customer.check_permission('read')
@@ -72,7 +73,20 @@ def stage_order(payload):
         state.sales_order=order.name;state.save()
     return {'status':'staged','source_key':key,'sales_order':state.sales_order,
             'sales_invoice':state.sales_invoice,'payment_entry':state.payment_entry,
-            'accounting_posted':False,'physical_fulfillment':False}
+            'accounting_posted':False,'physical_fulfillment':False,
+            'reconciliation_required':order.docstatus==1 and event['status'] in ('cancelled','failed','refunded')}
+
+
+@frappe.whitelist(methods=['POST'])
+def resolve_order(payload):
+    """Read current durable references after an explicit accounting link, without replay."""
+    _authorized();data=frappe.parse_json(payload)
+    key=mapping_key(data['provider'],data['site_key'],data['external_order_id'])
+    state=frappe.get_doc('Commerce Order State',key);state.check_permission('read')
+    order=frappe.get_doc('Sales Order',state.sales_order);order.check_permission('read')
+    if order.docstatus==2:raise ValueError('Cancelled ERP order requires explicit reconciliation')
+    return {'source_key':key,'sales_order':state.sales_order,'sales_invoice':state.sales_invoice,
+            'payment_entry':state.payment_entry,'accounting_posted':False,'physical_fulfillment':False}
 
 
 @frappe.whitelist(methods=['POST'])

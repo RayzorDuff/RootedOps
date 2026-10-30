@@ -7,7 +7,7 @@ import json
 import os
 from pathlib import Path
 import unittest
-from inbox import Inbox,PostgresInventory,deliver_one
+from inbox import Inbox,PostgresInventory,deliver_one,reconcile_order
 from runtime import connect_test
 
 class NativeInboxTests(unittest.TestCase):
@@ -60,5 +60,20 @@ class NativeInboxTests(unittest.TestCase):
         self.assertEqual(self.inbox.status(),[('dead','mapping_review',1)])
         self.inbox.replay(('woocommerce','synthetic',received['event_id']))
         self.assertEqual(self.inbox.status(),[('pending',None,1)])
+
+    def test_explicit_financial_reference_refresh_does_not_replay_order(self):
+        from types import SimpleNamespace
+        self.receive();key=('woocommerce','synthetic','10')
+        target=SimpleNamespace(resolve=lambda event:{'sales_order':'SYNTHETIC-SO',
+            'sales_invoice':'SYNTHETIC-SI','payment_entry':'SYNTHETIC-PE'})
+        with self.assertRaises(ValueError):reconcile_order(self.inbox,self.mp,target,key)
+        deliver_one(self.inbox,self.mp,lambda event,mp:{'sales_order':'SYNTHETIC-SO'})
+        for _ in range(2):self.assertTrue(reconcile_order(self.inbox,self.mp,target,key)['reconciled'])
+        with self.connect() as db:
+            self.assertEqual(db.execute('SELECT count(*) FROM mp_commerce_events').fetchone()[0],1)
+            self.assertEqual(db.execute('SELECT sum(quantity) FROM mp_commerce_reservations').fetchone()[0],1)
+            self.assertEqual(db.execute('SELECT sales_invoice,payment_entry FROM mp_commerce_erp_links').fetchone(),('SYNTHETIC-SI','SYNTHETIC-PE'))
+            raw=db.execute('SELECT raw_body FROM commerce_inbox').fetchone()[0]
+            self.assertEqual(json.loads(raw)['id'],10)
 
 if __name__=='__main__':unittest.main()
