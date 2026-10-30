@@ -41,13 +41,23 @@ def _field(value: object, length: int, *, align: str = "left", fill: str = " ") 
     return s.ljust(length, fill) if align == "left" else s.rjust(length, fill)
 
 
+_ASCII_TRANSLITERATION = str.maketrans({
+    "’": "'", "‘": "'", "“": '"', "”": '"',
+    "–": "-", "—": "-",
+    "Ł": "L", "ł": "l", "Ø": "O", "ø": "o",
+    "Æ": "AE", "æ": "ae", "Œ": "OE", "œ": "oe",
+    "Đ": "D", "đ": "d", "Þ": "TH", "þ": "th",
+    "ß": "SS",
+})
+
+
 def _text_field(value: object, length: int) -> str:
     """Normalize ACH display text to printable ASCII before width truncation.
 
     Decomposed accents are removed (José -> JOSE); characters that cannot
     be represented in ASCII fail closed rather than silently changing names.
     """
-    normalized = unicodedata.normalize("NFKD", str(value or "").upper())
+    normalized = unicodedata.normalize("NFKD", str(value or "").translate(_ASCII_TRANSLITERATION).upper())
     normalized = "".join(ch for ch in normalized if not unicodedata.combining(ch))
     if any(ord(ch) < 32 or ord(ch) > 126 for ch in normalized):
         raise ValueError("NACHA text contains characters that cannot be represented in printable ASCII")
@@ -289,7 +299,7 @@ def validate_nacha(text: str) -> dict[str, int | str]:
         raise ValueError("Expected exactly one batch header, batch control, and file control record")
 
     bh, bc, fc = batch_headers[0], batch_controls[0], file_controls[0]
-    if bh[53:63] != "PAYROLL   ":
+    if bh[53:60] != "PAYROLL":
         raise ValueError("PPD payroll batch Company Entry Description must begin with PAYROLL")
     service = bh[1:4]
     if service not in {SERVICE_CLASS_CREDITS_ONLY, SERVICE_CLASS_MIXED} or bc[1:4] != service:
