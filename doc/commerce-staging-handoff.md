@@ -470,3 +470,76 @@ fixture SQL against restored production data. The Root integration workflow runs
 - Fresh #22 full restore and reboot/round-trip, ERP/MP/Woo live parity, rendered SEO,
   actual Appsmith UI and Clover validation remain new-host tasks. No historical
   deleted-host test has been represented as reproducible current acceptance.
+
+## New-host rehearsal checkpoint — October 30, 2026
+
+The owner has prepared a new Ubuntu test host and handed over its authenticated
+non-root console. Bootstrap configuration already exists; do not regenerate it.
+Current RootedOps main is d3d5ce29229fe435da14a755368bb06ecc2b89bc (#28 merged),
+MP main is 127bae5769492ee6e653be26e33d00347b00e4a0 (#108 merged). The commerce
+code delta from the tested Root checkpoint is documentation plus upstream payroll
+changes; preserve both. Exact infrastructure identifiers and raw endpoint evidence
+stay private on the host.
+
+Executed new-host evidence: generated configuration passes Compose interpolation,
+internal-network/loopback-port, unique/free-port and bind-source validation. Docker
+has no containers or volumes. All 13 required test domains passed direct A/AAAA
+queries against both Cloudflare authoritative nameservers (26 endpoint checks):
+expected test IPv4, authoritative answers and no AAAA records. The corrected ERP
+and shop records are present. An extraneous DNS record still needs owner review;
+no DNS edits or certificates were issued. The private evidence file is
+`.test-deployment/dns-authoritative-check.json`. DNS success is not HTTP/TLS or
+application acceptance.
+
+**Scope update from owner:** restore only commerce dependencies from the complete
+backup being copied. Do not restore unrelated Rooted Psyche WordPress, scheduling,
+Listmonk, LibreChat, SignatureGate production DB, Documenso or Minecraft. SignatureGate
+browser proof later uses its own artificial fixture DB, not a production DB restore.
+This selected rehearsal does not complete #22's full-stack restore acceptance.
+
+### Selected restore into the existing bootstrap configuration
+
+`full_restore.py --components` selects MushroomProcess, ERPNext, Appsmith, n8n and
+optionally Dank WordPress. Omit the option only when a full-stack rehearsal is
+explicitly intended. No environment re-render is needed. Selected ERP restores
+apps/sites only, not logs or production Redis queue/cache data. No production bind
+archives, unrelated application secrets or source database passwords are copied
+by the selected path. Original Appsmith/n8n encryption keys and the site's ERP
+configuration are retained as required to decrypt restored data. Database users
+are local to isolated projects. Review WordPress DB config against its generated
+test credentials before starting a restored WP volume.
+
+Wait for the operator's explicit **copy complete** notice before any backup scan,
+checksum, version review or restore; an incomplete snapshot must never be accepted.
+Discover the actual backup directory without assuming that a displayed `~` path
+is root's or the deployment account's home. Then:
+
+```sh
+# Use the verified complete snapshot, kept private; never source meta/.env.
+# Review its app/image version metadata before building or marking compatibility.
+sudo python3 scripts/full_restore.py "$PWD/.test-deployment" /PRIVATE/COMPLETE_BACKUP \
+  --source-site ACTUAL_SOURCE_SITE --components mushroomprocess erpnext appsmith n8n --check-only
+# Only after all preflight checks and compatibility review succeed:
+sudo python3 scripts/full_restore.py "$PWD/.test-deployment" /PRIVATE/COMPLETE_BACKUP \
+  --source-site ACTUAL_SOURCE_SITE --components mushroomprocess erpnext appsmith n8n
+```
+
+Both commands retain full SHA256SUMS validation, fresh-host/project/volume checks,
+archive safety and explicit image compatibility requirements. The first command
+creates no containers, volumes, database records or restore markers. Missing
+selected archives or original encryption keys refuse before mutation. The restore
+receipt records selected components and explicitly distinguishes the limited scope.
+Applications remain stopped for callback/datasource/account review. Do not invoke
+fresh-install `start` afterward.
+
+If the complete backup includes the independent Dank WooCommerce DB/HTML archives,
+add `dank-wordpress` to the selection before the first restore. Otherwise keep it
+out and provision a fresh isolated Dank store only after restore prerequisites are
+satisfied; do not import the Rooted Psyche store into it. Start only explicit reviewed
+service names, keeping ERP workers/scheduler and n8n workflows disabled. Certificate
+and public-access work still waits for initial account/access-control completion.
+
+Pending: backup copy/checksums and image compatibility review, selected native
+restore and data comparisons, application isolation/remapping, live catalog/order
+integration, real Appsmith browser proof and Clover sandbox acceptance. None has
+been marked passed merely because bootstrap or DNS validation succeeded.
