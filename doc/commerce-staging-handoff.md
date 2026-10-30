@@ -518,10 +518,10 @@ is root's or the deployment account's home. Then:
 # Use the verified complete snapshot, kept private; never source meta/.env.
 # Review its app/image version metadata before building or marking compatibility.
 sudo python3 scripts/full_restore.py "$PWD/.test-deployment" /PRIVATE/COMPLETE_BACKUP \
-  --source-site ACTUAL_SOURCE_SITE --components mushroomprocess erpnext appsmith n8n --check-only
+  --source-site ACTUAL_SOURCE_SITE --components mushroomprocess erpnext appsmith n8n --key-file /PRIVATE/restore.keys --check-only
 # Only after all preflight checks and compatibility review succeed:
 sudo python3 scripts/full_restore.py "$PWD/.test-deployment" /PRIVATE/COMPLETE_BACKUP \
-  --source-site ACTUAL_SOURCE_SITE --components mushroomprocess erpnext appsmith n8n
+  --source-site ACTUAL_SOURCE_SITE --components mushroomprocess erpnext appsmith n8n --key-file /PRIVATE/restore.keys
 ```
 
 Both commands retain full SHA256SUMS validation, fresh-host/project/volume checks,
@@ -567,3 +567,35 @@ Appsmith and n8n image availability is being checked against archived registry
 digests before any restore marker/volume is created. Do not substitute current
 `latest` for an unavailable archived n8n image. Record pull/build digests and
 `bench version` after native verification before marking compatibility reviewed.
+
+### Secret-minimal selected recovery
+
+Selected recovery never opens or parses the source production `meta/.env`. MP and
+ERP recovery require no separate source env file. Appsmith/n8n require an explicit
+`--key-file` owned/protected by the operator (mode 0600 or stricter), containing
+exactly the selected original encryption keys: APPSMITH_ENCRYPTION_PASSWORD,
+APPSMITH_ENCRYPTION_SALT and/or N8N_ENCRYPTION_KEY. Extra production credentials
+in that file are rejected. Keep values out of chat, Git and logs. Alternatively,
+leave those encrypted volumes out and initialize fresh test instances from reviewed
+repository app/workflow exports. Do not silently switch encrypted data to new keys.
+
+When the operator has deliberately removed secret metadata from a complete backup,
+`--allow-removed-secret-metadata` acknowledges only absent `meta/.env` and
+`bind_mounts/rallly-selfhosted-env.tgz` during a selected restore. Every other
+manifest entry must still exist and match its original SHA256. Every selected
+payload must be represented in the manifest. Unsafe/duplicate paths and payload
+hash drift refuse; the source manifest is never rewritten. The receipt lists the
+omitted secret metadata explicitly. This is a documented limited recovery, not an
+assertion that the original full snapshot remains unmodified.
+
+Example with no source env or separate encryption secrets needed:
+
+```sh
+sudo python3 scripts/full_restore.py "$PWD/.test-deployment" /PRIVATE/COMPLETE_BACKUP \
+  --source-site ACTUAL_SOURCE_SITE --components mushroomprocess erpnext \
+  --allow-removed-secret-metadata --check-only
+```
+
+The same invocation without `--check-only` performs that selected restore only
+after compatibility and all remaining checks pass. Full-stack recovery without
+component selection retains the original strict complete-manifest/source-key rules.

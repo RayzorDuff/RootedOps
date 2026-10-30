@@ -85,6 +85,39 @@ class HostRecoveryTests(unittest.TestCase):
     self.assertFalse((ROOT/'nginx/grav.conf').exists())
 
 class FullRestoreGuards(unittest.TestCase):
+ def test_redaction_acknowledgement_never_ignores_missing_or_changed_payloads(self):
+    import hashlib
+    import full_restore
+    with tempfile.TemporaryDirectory() as directory:
+        root=Path(directory);(root/'db').mkdir()
+        payload=root/'db/mushroomprocess-bridge-postgres.sql.gz';payload.write_bytes(b'synthetic')
+        manifest='0'*64+'  meta/.env\n'+hashlib.sha256(payload.read_bytes()).hexdigest()+'  db/'+payload.name+'\n'
+        (root/'SHA256SUMS').write_text(manifest)
+        selected=full_restore.Recovery(root/'test',root,['mushroomprocess'],allow_removed_secret_metadata=True)
+        selected.verify_checksums()
+        self.assertEqual(selected.removed_secret_metadata,['meta/.env'])
+        self.assertEqual((root/'SHA256SUMS').read_text(),manifest)
+        payload.write_bytes(b'tampered')
+        with self.assertRaisesRegex(ValueError,'checksum mismatch'):selected.verify_checksums()
+        payload.unlink()
+        with self.assertRaisesRegex(ValueError,'Missing or unsafe'):selected.verify_checksums()
+        (root/'SHA256SUMS').write_text('0'*64+'  meta/.env\n')
+        with self.assertRaisesRegex(ValueError,'Selected payload'):selected.verify_checksums()
+
+ def test_selected_recovery_requires_only_private_allowlisted_keys(self):
+    import full_restore
+    with tempfile.TemporaryDirectory() as directory:
+        root=Path(directory)
+        self.assertEqual(full_restore.Recovery(root/'test',root,['mushroomprocess','erpnext']).encryption_source(),{})
+        keys=root/'keys';keys.write_text('N8N_ENCRYPTION_KEY=synthetic\n');keys.chmod(0o600)
+        selected=full_restore.Recovery(root/'test',root,['n8n'],key_file=keys)
+        self.assertEqual(selected.encryption_source(),{'N8N_ENCRYPTION_KEY':'synthetic'})
+        keys.write_text('N8N_ENCRYPTION_KEY=synthetic\nCLOVER_ACCESS_TOKEN=unwanted\n')
+        with self.assertRaisesRegex(ValueError,'exactly'):selected.encryption_source()
+        keys.chmod(0o644)
+        with self.assertRaisesRegex(ValueError,'private permissions'):selected.encryption_source()
+        with self.assertRaises(ValueError):full_restore.Recovery(root/'test',root,key_file=keys)
+
  def test_component_selection_omits_unrelated_data_and_pending_queues(self):
     import full_restore
     with tempfile.TemporaryDirectory() as directory:
@@ -132,7 +165,8 @@ class FullRestoreGuards(unittest.TestCase):
         with gzip.open(backup/'db/mushroomprocess-bridge-postgres.sql.gz','wb') as f:f.write(b'-- synthetic empty dump\n')
         for name in ('erpnext-all-databases.sql.gz','rootedpsyche-wordpress-all-databases.sql.gz'):(backup/'db'/name).touch()
         for name in ('n8n_data.tgz','appsmith_stacks.tgz','rallly-selfhosted_db-data.tgz'):(backup/'volumes'/name).touch()
-        selected=full_restore.Recovery(env,backup,['mushroomprocess','n8n','appsmith'])
+        keys=env/'decryption.keys';keys.write_text('N8N_ENCRYPTION_KEY=synthetic-preserved-key\nAPPSMITH_ENCRYPTION_PASSWORD=synthetic-password\nAPPSMITH_ENCRYPTION_SALT=synthetic-salt\n');keys.chmod(0o600)
+        selected=full_restore.Recovery(env,backup,['mushroomprocess','n8n','appsmith'],key_file=keys)
         selected.preflight=Mock();selected.dc=Mock(return_value=SimpleNamespace(stdout=''))
         selected.ready=Mock();selected.sql=Mock();selected.volume=Mock()
         selected.run(None)

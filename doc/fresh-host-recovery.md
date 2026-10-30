@@ -182,3 +182,11 @@ Selected ERP recovery excludes production Redis data and logs. Unselected volume
 binds, databases and secrets remain untouched. Wait for backup transfer completion,
 verify the full manifest and app/image compatibility, and leave restored apps stopped
 until production callbacks/credentials/workflows are disabled and targets rebound.
+
+Selected restores do not parse a production env file. Use a private `--key-file`
+containing exactly the chosen Appsmith/n8n encryption keys if those volumes are
+selected. MP/ERP need no separate source env. Explicit
+`--allow-removed-secret-metadata` permits only operator-removed meta/.env and the
+Rallly env archive to be absent; all other original hashes and selected payloads
+remain mandatory and the original manifest is preserved. Full recovery retains
+its complete-snapshot requirements. See the handoff for examples and scope limits.

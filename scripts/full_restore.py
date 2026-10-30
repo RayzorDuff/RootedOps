@@ -2,6 +2,7 @@
 """Fresh-host full or selected commerce restore; internal test networks only."""
 import argparse
 import gzip
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -48,6 +49,7 @@ COMPONENT_FILES={
  'dank-wordpress':{'dank-wordpress-all-databases.sql.gz','dank-wordpress-html.tgz'}}
 COMPONENT_KEYS={'appsmith':{'APPSMITH_ENCRYPTION_PASSWORD','APPSMITH_ENCRYPTION_SALT'},
  'n8n':{'N8N_ENCRYPTION_KEY'}}
+REMOVABLE_SECRET_METADATA={'meta/.env','bind_mounts/rallly-selfhosted-env.tgz'}
 
 
 def write_env(path,values):
@@ -62,12 +64,17 @@ def write_env(path,values):
 
 
 class Recovery:
- def __init__(self,output,backup,components=None):
+ def __init__(self,output,backup,components=None,key_file=None,allow_removed_secret_metadata=False):
     self.output,self.backup=output.resolve(),backup.resolve()
     self.components=None if components is None else frozenset(components)
     if self.components is not None and (not self.components or not self.components<=set(COMMERCE_COMPONENTS)):
         raise ValueError('Select supported commerce components explicitly')
     self.selected_files=None if self.components is None else set().union(*(COMPONENT_FILES[c] for c in self.components))
+    self.key_file=Path(key_file) if key_file is not None else None
+    self.allow_removed_secret_metadata=allow_removed_secret_metadata
+    self.removed_secret_metadata=[]
+    if self.components is None and (self.key_file or allow_removed_secret_metadata):
+        raise ValueError('Secret-minimal options require an explicit component selection')
     self.commands={name:command(self.output/'.env',self.output/(name+'.yml'),[]) for name in ('core','rootedpsyche','dank','tymeslot')}
     self.commands['rallly']=command(self.output/'rallly/.env',self.output/'rallly/compose.yml',['--profile','bundled-db','--profile','bundled-storage'])
  def selected(self,archive):return self.selected_files is None or archive in self.selected_files
@@ -76,6 +83,40 @@ class Recovery:
  def bind_archives(self):
     # Commerce restores no production routing, scheduling secrets or unrelated binds.
     return list((self.backup/'bind_mounts').glob('*.tgz')) if self.components is None else []
+ def encryption_source(self):
+    if self.components is None:return read_env(self.backup/'meta/.env')
+    needed=set().union(*(COMPONENT_KEYS.get(c,set()) for c in self.components))
+    if not needed:return {}
+    if self.key_file is None:raise ValueError('Provide a private --key-file with only selected original encryption keys')
+    if self.key_file.stat().st_mode&0o077:raise ValueError('Encryption key file must have private permissions')
+    source=read_env(self.key_file)
+    if set(source)!=needed or any(not value for value in source.values()):
+        raise ValueError('Key file must contain exactly the selected encryption keys, without other production credentials')
+    return source
+ def verify_checksums(self):
+    if not self.allow_removed_secret_metadata:
+        subprocess.run(['sha256sum','--check','--quiet','SHA256SUMS'],cwd=self.backup,check=True)
+        return
+    # Never rewrite the original manifest or ignore arbitrary missing payloads.
+    self.removed_secret_metadata=[];verified=0;seen=set()
+    for line in (self.backup/'SHA256SUMS').read_text().splitlines():
+        match=re.fullmatch(r'([a-fA-F0-9]{64}) [ *](.+)',line)
+        if not match:raise ValueError('Invalid checksum manifest entry')
+        name=match[2];parts=Path(name)
+        if parts.is_absolute() or '..' in parts.parts:raise ValueError('Unsafe checksum path')
+        normalized=parts.as_posix()
+        if normalized in seen:raise ValueError('Duplicate checksum path')
+        seen.add(normalized);path=self.backup/parts
+        if not path.exists() and normalized in REMOVABLE_SECRET_METADATA:
+            self.removed_secret_metadata.append(normalized);continue
+        if not path.is_file() or not path.resolve().is_relative_to(self.backup):raise ValueError('Missing or unsafe backup payload')
+        digest=hashlib.sha256()
+        with path.open('rb') as stream:
+            while block:=stream.read(1024*1024):digest.update(block)
+        if digest.hexdigest()!=match[1].lower():raise ValueError('Backup checksum mismatch')
+        verified+=1
+    expected={('db/' if name.endswith('.sql.gz') else 'volumes/')+name for name in self.selected_files}
+    if not verified or not expected<=seen:raise ValueError('Selected payload missing from checksum manifest')
  def dc(self,project,*args,**kw):return subprocess.run(self.commands[project]+list(args),check=True,**kw)
  def preflight(self,source_site=None):
     if (self.output/'TEST_ENVIRONMENT').read_text().strip()!='rootedops-full-test':raise ValueError('Explicit full-test environment required')
@@ -87,7 +128,7 @@ class Recovery:
             if not (self.backup/directory/archive).is_file():raise ValueError('Missing selected backup: '+archive)
     if self.selected('erpnext-all-databases.sql.gz') and (self.backup/'db/erpnext-all-databases.sql.gz').exists():
         if not source_site or not re.fullmatch(r'[a-zA-Z0-9.-]+',source_site):raise ValueError('--source-site required before restoring ERP')
-    subprocess.run(['sha256sum','--check','--quiet','SHA256SUMS'],cwd=self.backup,check=True)
+    self.verify_checksums()
     if subprocess.check_output(['docker','ps','-aq'],text=True).strip():
         raise ValueError('Full recovery requires a new host without existing containers')
     for _,path,_ in projects(self.output):
@@ -101,7 +142,7 @@ class Recovery:
             cmd=['docker','ps','-aq','--filter','label=com.docker.compose.project='+project] if kind=='container' else ['docker','volume','ls','-q','--filter','label=com.docker.compose.project='+project]
             if subprocess.check_output(cmd,text=True).strip():raise ValueError('Existing test project; refusing destructive reuse')
     if not (self.output/'IMAGE_COMPATIBILITY_REVIEWED').is_file():raise ValueError('Review backup app/image versions first; create IMAGE_COMPATIBILITY_REVIEWED only after compatibility is confirmed')
-    if not (self.backup/'meta/.env').is_file():raise ValueError('Source local encryption keys are required in meta/.env')
+    if self.components is None and not (self.backup/'meta/.env').is_file():raise ValueError('Source local encryption keys are required in meta/.env')
     for path in self.archives('volumes','*.tgz'):
         subprocess.run(['bash','-c','source "$1"; validate_managed_volume_archive "$2"','preflight',str(ROOT/'backup/volume-tools.sh'),str(path)],check=True)
     known={v[3] for v in VOLUMES}
@@ -110,7 +151,7 @@ class Recovery:
     known_db={service+'.sql.gz' for service,_ in PG}|{'erpnext-all-databases.sql.gz','rootedpsyche-wordpress-all-databases.sql.gz','dank-wordpress-all-databases.sql.gz'}
     extra_db={p.name for p in self.archives('db','*.gz')}-known_db
     if extra_db:raise ValueError('Unmapped database dumps: '+', '.join(sorted(extra_db)))
-    source=read_env(self.backup/'meta/.env')
+    source=self.encryption_source()
     if self.selected('n8n_data.tgz') and (self.backup/'volumes/n8n_data.tgz').exists() and not source.get('N8N_ENCRYPTION_KEY'):
         raise ValueError('Missing original n8n encryption key')
     if self.components is not None:
@@ -153,7 +194,7 @@ class Recovery:
  def run(self,source_site):
     self.preflight(source_site)
     with (self.output/'RESTORE_STARTED').open('x') as f:f.write('Inspect partial state on failure; never auto-retry.\n')
-    env=read_env(self.output/'.env');source=read_env(self.backup/'meta/.env')
+    env=read_env(self.output/'.env');source=self.encryption_source()
     keys=set(LOCAL_KEYS) if self.components is None else set().union(*(COMPONENT_KEYS.get(c,set()) for c in self.components))
     env.update({k:source[k] for k in keys if source.get(k)})
     # Preserve local database passwords required by restored service configuration.
@@ -229,6 +270,7 @@ class Recovery:
                 config['services']['listmonk']['volumes']=[str(uploads)+':/listmonk/uploads:rw']
                 (self.output/'core.yml').write_text(yaml.safe_dump(config,sort_keys=False))
     report={'restored':restored,'selected_components':sorted(self.components) if self.components is not None else 'full-stack',
+      'removed_secret_metadata':self.removed_secret_metadata,
       'scope':'Selected components only; not full-stack recovery acceptance' if self.components is not None else 'Full archive recovery',
       'postgres_copy_tables_verified':verified,'apps_started':False,'external_egress':False,'migrations_run':False,
       'acceptance':'Pending endpoint remapping, health/data checks and operator review. Do not start schedulers.'}
@@ -240,6 +282,8 @@ if __name__=='__main__':
  p=argparse.ArgumentParser(description=__doc__);p.add_argument('environment',type=Path);p.add_argument('backup',type=Path);p.add_argument('--source-site')
  p.add_argument('--components',nargs='+',choices=COMMERCE_COMPONENTS,help='Restore only these commerce components; omit for full recovery')
  p.add_argument('--check-only',action='store_true',help='Validate the complete snapshot and restore prerequisites without mutation')
- a=p.parse_args();recovery=Recovery(a.environment,a.backup,a.components)
+ p.add_argument('--key-file',type=Path,help='Private file containing exactly the selected original Appsmith/n8n encryption keys')
+ p.add_argument('--allow-removed-secret-metadata',action='store_true',help='Acknowledge removed meta/.env/Rallly env archive only; all other hashes remain mandatory')
+ a=p.parse_args();recovery=Recovery(a.environment,a.backup,a.components,a.key_file,a.allow_removed_secret_metadata)
  if a.check_only:recovery.preflight(a.source_site);print('Restore prerequisites validated; no volumes or databases created.')
  else:recovery.run(a.source_site)
