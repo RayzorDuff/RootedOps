@@ -206,10 +206,88 @@ class Recovery:
                     return
         time.sleep(2)
     raise RuntimeError('Readiness timed out: '+service)
- def run(self,source_site):
-    self.preflight(source_site)
-    with (self.output/'RESTORE_STARTED').open('x') as f:f.write('Inspect partial state on failure; never auto-retry.\n')
-    env=read_env(self.output/'.env');source=self.encryption_source()
+ def verify_test2_resume(self,source_site):
+    # Exact interrupted rehearsal checkpoint; never a general-purpose retry bypass.
+    if self.components is not None or self.key_file or self.allow_removed_secret_metadata:
+        raise ValueError('Test2 checkpoint requires full-stack recovery mode')
+    if self.output!=Path('/home/rootedops/RootedOps/.test-deployment') or self.backup!=Path('/home/rootedops/backups/20261030-023001'):
+        raise ValueError('Test2 checkpoint path mismatch')
+    if source_site!='erp.danks.store' or read_env(self.output/'.env').get('ERPNEXT_SITE_NAME')!='erp-test2.danks.store':
+        raise ValueError('Test2 source or target site mismatch')
+    if not (self.output/'RESTORE_STARTED').is_file() or (self.output/'restore-receipt.json').exists():
+        raise ValueError('Expected interrupted restore checkpoint not found')
+    if not (self.output/'IMAGE_COMPATIBILITY_REVIEWED').is_file():
+        raise ValueError('Missing application compatibility review')
+    if (self.output/'TEST_ENVIRONMENT').read_text().strip()!='rootedops-full-test':
+        raise ValueError('Not an isolated full-test deployment')
+    self.verify_checksums()
+    expected_volumes={
+       'rallly-test_db-data','rallly-test_garage-data','rallly-test_garage-meta',
+       'rootedops-full-test_appsmith_stacks','rootedops-full-test_erpnext_apps',
+       'rootedops-full-test_erpnext_db_data','rootedops-full-test_erpnext_logs',
+       'rootedops-full-test_erpnext_redis_cache_data','rootedops-full-test_erpnext_redis_queue_data',
+       'rootedops-full-test_erpnext_sites','rootedops-full-test_listmonk_pgdata',
+       'rootedops-full-test_mushroomprocess_bridge_pgdata','rootedops-full-test_n8n_data',
+       'rootedops-full-test_nocodb_data','rootedops-full-test_nocodb_meta_pgdata',
+       'rootedops-full-test_signaturegate_pgdata','rootedpsyche-test_rootedpsyche_wordpress_db',
+       'rootedpsyche-test_rootedpsyche_wordpress_html','tymeslot-test_tymeslot_data',
+       'tymeslot-test_tymeslot_pg'}
+    volumes=subprocess.check_output(['docker','volume','ls','-q'],text=True).splitlines()
+    if set(volumes)!=expected_volumes or len(volumes)!=len(expected_volumes):
+        raise ValueError('Test2 volume inventory has changed')
+    expected_containers={
+       'rootedops-full-test-nocodb-meta-postgres-1','rootedops-full-test-listmonk-postgres-1',
+       'rootedops-full-test-mushroomprocess-bridge-postgres-1','rootedops-full-test-signaturegate-postgres-1',
+       'rallly-test-garage-1','rallly-test-db-1','tymeslot-test-tymeslot-1',
+       'rootedpsyche-test-rootedpsyche-wordpress-1','rootedops-full-test-erpnext-redis-queue-1',
+       'rootedops-full-test-erpnext-redis-cache-1','rootedops-full-test-erpnext-backend-1',
+       'rootedops-full-test-appsmith-1','rootedops-full-test-n8n-1','rootedops-full-test-nocodb-1'}
+    ids=subprocess.check_output(['docker','ps','-aq'],text=True).splitlines()
+    if len(ids)!=len(expected_containers):raise ValueError('Test2 container inventory has changed')
+    for cid in ids:
+        data=json.loads(subprocess.check_output(['docker','inspect',cid],text=True))[0]
+        name=data['Name'].removeprefix('/')
+        if name not in expected_containers:raise ValueError('Unexpected container in test2 checkpoint')
+        project=data['Config'].get('Labels',{}).get('com.docker.compose.project')
+        if project not in ('rootedops-full-test','rootedpsyche-test','tymeslot-test','rallly-test'):
+            raise ValueError('Container has unexpected Compose ownership')
+        expected_state='running' if name in {
+           'rootedops-full-test-nocodb-meta-postgres-1','rootedops-full-test-listmonk-postgres-1',
+           'rootedops-full-test-mushroomprocess-bridge-postgres-1',
+           'rootedops-full-test-signaturegate-postgres-1'} else 'created'
+        if data['State']['Status']!=expected_state:raise ValueError('Unexpected container state: '+name)
+    env=read_env(self.output/'.env')
+    verified={}
+    for service,prefix in PG[:3]:
+        dump=self.backup/'db'/(service+'.sql.gz')
+        expected=copy_counts(dump)
+        for table,count in expected.items():
+            query='SELECT count(*) FROM public."'+table.replace('"','""')+'"'
+            result=self.dc('core','exec','-T',service,'psql','-v','ON_ERROR_STOP=1',
+               '-U',env[prefix+'_DB_USER'],'-d',env[prefix+'_DB_NAME'],'-Atc',query,
+               capture_output=True,text=True)
+            if result.stdout.strip()!=str(count):
+                raise ValueError('Existing restored table mismatch for '+service)
+        verified[dump.name]=len(expected)
+    # The NocoDB dump must not have run; require no public user tables.
+    nocodb=self.dc('core','exec','-T','nocodb-meta-postgres','psql','-v','ON_ERROR_STOP=1',
+         '-U',env['NC_DB_USER'],'-d',env['NC_DB_NAME'],'-Atc',
+         "SELECT count(*) FROM pg_tables WHERE schemaname='public'",
+         capture_output=True,text=True)
+    if nocodb.stdout.strip()!='0':raise ValueError('NocoDB is not empty; cannot resume')
+    return verified
+
+ def run(self,source_site,resume_test2=False):
+    if resume_test2:
+        verified=self.verify_test2_resume(source_site)
+        print('Verified interrupted test2 checkpoint: three PostgreSQL dumps match; NocoDB empty.',flush=True)
+    else:
+        self.preflight(source_site)
+        with (self.output/'RESTORE_STARTED').open('x') as f:f.write('Inspect partial state on failure; never auto-retry.\\n')
+        verified={}
+    env=read_env(self.output/'.env')
+    if not resume_test2:
+        source=self.encryption_source()
     keys=set(LOCAL_KEYS) if self.components is None else set().union(*(COMPONENT_KEYS.get(c,set()) for c in self.components))
     env.update({k:source[k] for k in keys if source.get(k)})
     # Preserve local database passwords required by restored service configuration.
@@ -241,13 +319,19 @@ class Recovery:
         r_env.update({k:old[k] for k in ('SECRET_PASSWORD','POSTGRES_PASSWORD','S3_ACCESS_KEY_ID','S3_SECRET_ACCESS_KEY','GARAGE_RPC_SECRET')})
         r_env.update(POSTGRES_VERSION=major,POSTGRES_DATA_MOUNT='/var/lib/postgresql' if int(major)>=18 else '/var/lib/postgresql/data')
         write_env(self.output/'rallly/.env',r_env);temp.unlink()
-    restored=[];verified={}
-    for project,service,destination,archive in VOLUMES:
-        if self.selected(archive) and (self.backup/'volumes'/archive).is_file():
-            self.volume(project,service,destination,archive);restored.append(archive)
+    restored=[]
+    if resume_test2:
+        restored.extend(p.name for p in self.archives('volumes','*.tgz'))
+    else:
+        for project,service,destination,archive in VOLUMES:
+            if self.selected(archive) and (self.backup/'volumes'/archive).is_file():
+                self.volume(project,service,destination,archive);restored.append(archive)
     for service,prefix in PG:
         file=service+'.sql.gz'
         if not self.selected(file) or not (self.backup/'db'/file).is_file():continue
+        if resume_test2 and service in {s for s,_ in PG[:3]}:
+            restored.append(file)
+            continue
         self.dc('core','up','-d',service);self.ready('core',service)
         self.sql('core',file,['exec','-T',service,'psql','-v','ON_ERROR_STOP=1','-U',env[prefix+'_DB_USER'],'-d',env[prefix+'_DB_NAME']])
         expected=copy_counts(self.backup/'db'/file)
@@ -308,8 +392,10 @@ if __name__=='__main__':
  p=argparse.ArgumentParser(description=__doc__);p.add_argument('environment',type=Path);p.add_argument('backup',type=Path);p.add_argument('--source-site')
  p.add_argument('--components',nargs='+',choices=COMMERCE_COMPONENTS,help='Restore only these commerce components; omit for full recovery')
  p.add_argument('--check-only',action='store_true',help='Validate the complete snapshot and restore prerequisites without mutation')
+ p.add_argument('--resume-test2-checkpoint',action='store_true',help='Resume only the verified October 30 test2 partial checkpoint')
  p.add_argument('--key-file',type=Path,help='Private file containing exactly the selected original Appsmith/n8n encryption keys')
  p.add_argument('--allow-removed-secret-metadata',action='store_true',help='Acknowledge removed meta/.env/Rallly env archive only; all other hashes remain mandatory')
  a=p.parse_args();recovery=Recovery(a.environment,a.backup,a.components,a.key_file,a.allow_removed_secret_metadata)
- if a.check_only:recovery.preflight(a.source_site);print('Restore prerequisites validated; no volumes or databases created.')
- else:recovery.run(a.source_site)
+ if a.check_only and a.resume_test2_checkpoint:recovery.verify_test2_resume(a.source_site);print('Interrupted test2 checkpoint verified; no changes made.')
+ elif a.check_only:recovery.preflight(a.source_site);print('Restore prerequisites validated; no volumes or databases created.')
+ else:recovery.run(a.source_site,resume_test2=a.resume_test2_checkpoint)
