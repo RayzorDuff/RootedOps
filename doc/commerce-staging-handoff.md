@@ -1,6 +1,6 @@
 # Commerce staging handoff — maintained during offline development
 
-Status: offline implementation in progress. The previous development Linode is
+Status: offline implementation ready for owner PR review; staging acceptance remains open. The previous development Linode is
 deleted. Do not contact its IP, reuse its credentials, or infer recoverable state.
 This document is the execution record for a **new explicitly authorized** staging
 host. It is not permission to deploy, change DNS/merchant settings, process live
@@ -14,7 +14,7 @@ payments, cancel Ecwid or retire MushroomProcess production.
 | MushroomProcess | 03b9903181cb0910770dfcbc6cd25a6c165a648d | feature/commerce-fulfillment | #106 ledger; #107 production reconciliation |
 | SignatureGate | 21e655b05914ec0978dd08b3b3edea559aa5ece9 | feature/appsmith-e2e-foundation | VERSION 1.1.0; v1.2.0 unreleased |
 
-Final tested feature SHAs, PRs and CI run links are recorded below as work lands.
+Tested feature SHAs, PRs and CI run links are recorded in the final checkpoint below.
 A commit cannot contain its own SHA; the tested code checkpoint preceding the
 final documentation-only commit is the reproducible reference. Fetch exact SHAs
 and compare the documentation-only delta before using a subsequent PR head.
@@ -43,7 +43,8 @@ cd ~
 git clone https://github.com/RayzorDuff/RootedOps.git
 cd RootedOps
 git fetch origin
-# Check out the exact reviewed RootedOps SHA from the final checkpoint table.
+# Tested code checkpoint; inspect any subsequent documentation/upstream-only merge delta.
+git checkout --detach 82ea41698310083085a0d2d491fcef218ebb142a
 sudo bash linode_bootstrap.sh
 sudo python3 scripts/host_recovery.py validate "$PWD/.test-deployment"
 ```
@@ -160,8 +161,8 @@ capture evidence. Controlled live checkout/cutover needs separate explicit appro
 
 ## New work checkpoint (updated throughout implementation)
 
-Implementation, tested SHAs, exact inbox/Appsmith commands, CI links and unresolved
-defects are being added here. Anything not marked executed remains an open gate.
+The final checkpoint below records executed offline/CI evidence. Anything not
+marked executed remains an open gate.
 
 ## Rollback, cleanup and no-go checklist
 
@@ -249,8 +250,8 @@ Lot/bulk allocation, non-unit packages and returns/reversals remain manual gates
 ### SignatureGate post-release harness checkpoint
 
 SignatureGate feature/appsmith-e2e-foundation checkpoint
-`eafc0c7068e8e99ae9ec405371f9203ba68d73db` (PR #28) has passed local naming/assets/
-release checks, two safety tests and discovery of two Playwright journeys. It has
+`5cdd875ae4d78f5531c28c4b76ef8c197e475eb3` (PR #28) has passed local naming/assets/
+release checks, three safety tests and discovery of two Playwright journeys. It has
 **not** passed actual Appsmith login/navigation/cash browser execution. Its v1.2.0
 scope/version/export are unchanged. RootedOps companion CI runs only its pinned
 native DB/guard contracts, never a substitute browser UI or a SignatureGate release gate.
@@ -273,7 +274,7 @@ E2E_SELECTORS_FILE, E2E_SELECTORS_REVIEWED=1, E2E_POST_RELEASE_ACK=post-v1.2.0 a
 private E2E_REVIEWER_PASSWORD. From e2e: `npx playwright install chromium`, `npm test`,
 then inspect the private HTML report and retained failure traces/screenshots.
 No reports or auth state may be published without privacy review. Repeat reset and
-real runs before calling #27 proven. Only then implement the MushroomProcess browser
+real runs before calling #27 proven. Only then implement the MushroomProcess #109 browser
 follow-up with its own DB, app clone, fixtures and authority/permission checks.
 
 ### Catalog parity and signed-fixture command details
@@ -329,3 +330,143 @@ order again nor confirms payment/reservations. Submitted operational Sales Order
 can resolve stable references and receive source-status updates; cancel/refund of
 a submitted order returns reconciliation_required and never cancels ERP documents.
 Accounting reversals/credit notes remain explicit Accounts Manager work.
+
+## Final offline code checkpoint and evidence (2026-10-30)
+
+| Repository / PR | Branch | Tested code SHA | New evidence |
+|---|---|---|---|
+| [RootedOps #28](https://github.com/RayzorDuff/RootedOps/pull/28) | feature/commerce-inbox | 82ea41698310083085a0d2d491fcef218ebb142a | [integration 41087056935](https://github.com/RayzorDuff/RootedOps/actions/runs/41087056935), [foundation 41087056842](https://github.com/RayzorDuff/RootedOps/actions/runs/41087056842), [recovery 41087057028](https://github.com/RayzorDuff/RootedOps/actions/runs/41087057028): all green |
+| [MushroomProcess #108](https://github.com/RayzorDuff/MushroomProcess/pull/108) | feature/commerce-fulfillment | 3d948a66ecc6ff9850e67bea92ce5b2c1952f605 | [native rebuild/concurrency + production contracts 41084995240](https://github.com/RayzorDuff/MushroomProcess/actions/runs/41084995240), [lint 41084995225](https://github.com/RayzorDuff/MushroomProcess/actions/runs/41084995225): green |
+| [SignatureGate #28](https://github.com/RayzorDuff/SignatureGate/pull/28) | feature/appsmith-e2e-foundation | 5cdd875ae4d78f5531c28c4b76ef8c197e475eb3 | Pinned native PG/guard contracts and Playwright discovery green in RootedOps integration run above; local make validate/release-check pass; **browser execution not performed** |
+
+RootedOps code checkpoint includes main through 904a233a661cde6c0abc2877dee46460d1d21630;
+main continued with unrelated payroll/NACHA fixes during this session. Final PR
+sync includes main 1cdfd03e51488539cbe7aa3df0788fb8651a15b9, preserving those upstream files. MP/SG audited main SHAs remain those in the
+baseline table. MP production was read-only, observed at
+c6f27240e693d4d8d04ee259ac51ba522d1a5f91; no update/delete was made. SG VERSION,
+release gate and application exports and MP existing application exports are unchanged.
+All new tree objects were checked against local complete Git tree hashes.
+
+New tests executed: Root local 56 tests (55 pass, PHP CLI absent locally);
+foundation CI includes the PHP SEO hook test; native Frappe **7 tests pass**;
+native inbox **3 tests pass**, covering concurrent receipt, commit/lost-response
+retry, fencing/dead-letter/replay and financial-reference refresh without ingestion;
+SG **3 guards pass**, native canonical role denial/access, cash+audit/reset/marker
+checks pass, **2 browser tests discovered only**. MP CI covers native forward SQL,
+legacy inventory/view/production contracts and concurrent oversell protection.
+CI is synthetic and disposable; it contains no production customer/payment data.
+
+Native image `frappe/erpnext:v16.13.0` resolved to
+`sha256:d956e13cde1e3c09c52cffcbfd0476afdcf13fc9b8902cfd7205da650054e8dc`;
+`bench version` reported ERPNext 16.13.0, Frappe 16.14.0 and rootedops_commerce 0.3.0.
+That is the tested combination, **not** proof that floating Docker build arguments
+or production backup apps match it. CI uses PostgreSQL 16, MariaDB 11.4 and Redis
+7.2-alpine. SignatureGate harness 0.1.0 pins Playwright 1.64.1 and pg 8.23.1;
+Appsmith v2.4.2 is a proposed local fixture image, not a browser-tested version.
+Record actual digests for every staging image after bootstrap/restore.
+
+### Source checkout and precise migration/import commands
+
+```sh
+# Separate sibling clones, never check out or mutate MP production.
+git clone https://github.com/RayzorDuff/MushroomProcess.git ../MushroomProcess
+git -C ../MushroomProcess checkout --detach 3d948a66ecc6ff9850e67bea92ce5b2c1952f605
+git clone https://github.com/RayzorDuff/SignatureGate.git ../SignatureGate
+git -C ../SignatureGate checkout --detach 5cdd875ae4d78f5531c28c4b76ef8c197e475eb3
+```
+
+For a restored MP database, inspect existing functions/tables and applied SQL
+receipts; **apply only missing reviewed forward files** with `psql -v ON_ERROR_STOP=1`.
+The full sequence after 050 is 051_erp_commerce_catalog.sql,
+051_extraction_batch_provenance.sql, 052_commerce_order_ledger.sql,
+053_preserve_product_spawn_timezone.sql, 054_commerce_operational_bridge.sql.
+Do not infer migration state from numeric prefix alone (two 051 files), rerun the
+baseline, or substitute production DSNs. Example for **054 only after proving
+051/052/053 are installed**, using a private local test DSN:
+
+```sh
+# runtime connect_test enforces local host and exact disposable database name.
+PYTHONPATH=integrations/commerce .commerce-venv/bin/python - <<'PY'
+import os
+from pathlib import Path
+from runtime import connect_test
+with connect_test(os.environ['MP_TEST_DSN'])() as db:
+    if db.execute("SELECT to_regclass('public.mp_commerce_shipments')").fetchone()[0]:
+        raise SystemExit('054 already present; inspect function versions rather than reapplying')
+    db.execute(Path('../MushroomProcess/schema/pgsql/054_commerce_operational_bridge.sql').read_text())
+PY
+# In the reviewed ERP backend container (generated core.yml service):
+sudo docker compose --env-file .test-deployment/.env -f .test-deployment/core.yml exec erpnext-backend bench --site erp-test.danks.store list-apps
+sudo docker compose --env-file .test-deployment/.env -f .test-deployment/core.yml exec erpnext-backend bench --site erp-test.danks.store migrate
+```
+
+Install missing commerce app first as described above; the image must contain
+its exact reviewed source before `install-app`/`migrate`. Never run native fixture
+bench run-tests against the restored site; those tests belong on a fresh disposable
+CI site. Commerce site flags default disabled. After reviewing configuration:
+
+```sh
+sudo docker compose --env-file .test-deployment/.env -f .test-deployment/core.yml exec erpnext-backend bench --site erp-test.danks.store set-config commerce_catalog_import_enabled true
+# ERP_AUTHORIZATION is a private test Sales Manager API authorization value.
+PYTHONPATH=integrations/commerce .commerce-venv/bin/python - <<'PY'
+import json,os
+from pathlib import Path
+from ecwid_migrate import api,private_write
+plan=json.loads(Path('PRIVATE_CATALOG.json').read_text())
+result=api('https://erp-test.danks.store/api/method/rootedops_commerce.api.import_reviewed_catalog',
+    os.environ['ERP_AUTHORIZATION'],'POST',{'payload':json.dumps(plan)})
+private_write(Path('PRIVATE_ERP_IMPORT_RECEIPT.json'),result)
+PY
+sudo docker compose --env-file .test-deployment/.env -f .test-deployment/core.yml exec erpnext-backend bench --site erp-test.danks.store set-config commerce_catalog_import_enabled false
+```
+
+Repeat the exact reviewed import and compare returned identities/counts. Import
+history with the same guarded pattern using commerce_history_import_enabled and
+rootedops_commerce.history.import_history; disable the flag even after a failure.
+Operational worker uses commerce_order_integration_enabled. Inspect flags via
+private site config; never print credentials. An ERP operator must review/approve
+Commercial Product Content before sync (the importer deliberately creates Draft).
+
+Parity commands are the compiler/sync dry-run above plus read-only Woo REST GETs
+for every returned product/variation ID. Compare ERP Item/Price/tax template,
+source key/hash, SKU, parent/attributes, visible rich text, prices/currency,
+category IDs, tax class, uploaded image IDs and SEO metadata to PRIVATE_WOO_PLAN.
+The legacy `scripts/commerce_live_sync_smoke.py ENVIRONMENT` checks simple draft
+copy/SEO/stock/retry only, using an in-memory approval fixture and no images; it
+**cannot** satisfy full catalog parity, variations, tax/media or checkout acceptance.
+Do not reuse its deleted-host private snapshots; regenerate them on the new host.
+
+For precise native lifecycle regression commands use the MP workflow file and
+`schema/pgsql/tests/052_commerce_order_ledger.sql`,
+`schema/pgsql/tests/054_commerce_operational_bridge.sql` and
+`python3 schema/pgsql/tests/052_commerce_concurrency.py` **only in the fresh
+synthetic commerce_test CI database**. They include executable synthetic payment,
+ERP link, reservation confirmation, physical acknowledgement, partial shipment,
+refresh, cancellation and refund cases and roll back fixture SQL. Do not execute
+fixture SQL against restored production data. The Root integration workflow runs
+`python integrations/commerce/test_inbox_postgres.py -v` on a separate fresh DB.
+
+### Specific remaining review and deployment gates
+
+- No live Clover adapter/plugin checkout, capture evidence, settlement import,
+  accounting reversal or net-fee/FX reconciliation is enabled. Financial links
+  reference existing submitted documents; automatic invoice/payment generation
+  and full native submitted-financial-document scenarios remain acceptance work.
+- Product acknowledgements do not replace operational movement authorization.
+  Lot/bulk/non-unit allocation, expiry, return intake and stock/accounting reversals
+  require reviewed contracts/UI. Dedicated least-privilege worker/operator grants
+  must be reviewed before activation; new trusted functions revoke PUBLIC execute.
+- Active legacy Ecwid workflows are preserved and still need reservation-aware
+  publication/fulfillment conversion. No dual-channel activation until gross stock,
+  held demand, shipped units and legacy allocations reconcile without overselling.
+- MP #80 catalog/GTIN administration and complete ledger controls in Fulfillment
+  are absent. MP #109 is a separate browser extension plan **blocked on SG #27**.
+- Review category hierarchy/existing target IDs, jurisdiction/account/tax mapping,
+  customer duplicates/country/address normalization, Contact consent/phone quality,
+  discounts/shipping allocations and source-image rights/errors manually. API
+  export is required where CSV lacks variation/options/customer/history fields.
+  Passwords, saved payment instruments, unsupported custom fields and login/consent
+  history are not inferred or replayed. Preserve originals in private archives.
+- Fresh #22 full restore and reboot/round-trip, ERP/MP/Woo live parity, rendered SEO,
+  actual Appsmith UI and Clover validation remain new-host tasks. No historical
+  deleted-host test has been represented as reproducible current acceptance.
