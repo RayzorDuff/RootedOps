@@ -64,6 +64,7 @@ def environment():
             env[key]=secrets.token_hex(32 if not key.endswith('_IV') else 16)
         if key.startswith(EXTERNAL):env[key]=''
     env.update(NC_PUBLIC_URL='https://'+HOSTS['nocodb'],ERPNEXT_INSTALL_COMMERCE='1',
+       MP_BRIDGE_DB_NAME='mushroomprocess_test',MP_BRIDGE_DB_USER='mushroomprocess_test',
        ERPNEXT_SITE_NAME=HOSTS['erpnext'],ERPNEXT_PUBLIC_URL='https://'+HOSTS['erpnext'],
        N8N_HOST=HOSTS['n8n'],N8N_EDITOR_BASE_URL='https://'+HOSTS['n8n']+'/',
        WEBHOOK_URL='https://'+HOSTS['n8n']+'/',TYMESLOT_PUBLIC_HOST=HOSTS['tymeslot'],
