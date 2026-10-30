@@ -275,3 +275,43 @@ then inspect the private HTML report and retained failure traces/screenshots.
 No reports or auth state may be published without privacy review. Repeat reset and
 real runs before calling #27 proven. Only then implement the MushroomProcess browser
 follow-up with its own DB, app clone, fixtures and authority/permission checks.
+
+### Catalog parity and signed-fixture command details
+
+The `sync.py` staging apply path now requires `commercial` review on every mapping:
+item_group, currency, price_list, woocommerce_category_ids, ERP Item Tax Template
+(or reviewed_no_item_tax=true), Woo tax status/class and canonical ERP File URL→Woo
+media ID map. It selects exactly one active Item Price using the ERP server's
+as_of_date, checks UOM/currency, emits prices/categories/tax/uploaded media IDs and
+checks the actual Woo store currency before writes. Missing/overlapping prices,
+expired rates, tax/group drift and missing media IDs refuse publication. Template
+prices remain excluded. Example commands (all named files must be reviewed anew):
+
+```sh
+python3 integrations/commerce/migrate_reviewed.py catalog SOURCE_PLAN.json REVIEW.json --media-manifest UPLOADED_MEDIA.json --output PRIVATE_CATALOG.json
+python3 integrations/commerce/migrate_reviewed.py history SOURCE_EXPORT.json HISTORY_REVIEW.json --output PRIVATE_HISTORY.json
+python3 integrations/commerce/sync.py PRIVATE_MP_SNAPSHOT.json PRIVATE_REVIEWED_MAP.json --output PRIVATE_WOO_PLAN.json
+# Only after reviewing the dry-run and test credentials/targets:
+python3 integrations/commerce/sync.py PRIVATE_MP_SNAPSHOT.json PRIVATE_REVIEWED_MAP.json --output PRIVATE_WOO_RESULT.json --apply-staging
+# Run the loopback receiver first, then sign a wholly synthetic Woo fixture:
+python3 integrations/commerce/send_fixture.py SYNTHETIC_WOO_ORDER.json --site TEST_SITE
+# Repeat exactly, then process delivery and inspect aggregate state:
+python3 integrations/commerce/send_fixture.py SYNTHETIC_WOO_ORDER.json --site TEST_SITE
+python3 integrations/commerce/runtime.py work-once --config /PRIVATE/inbox-config.json
+python3 integrations/commerce/runtime.py status
+```
+
+Use raw fixture fields shown by test_inbox_postgres.py: stable Woo id,
+date_modified_gmt, status, currency/total, reviewed payment_method and transaction_id,
+line_items with stable id/product_id/variation_id/SKU/integer quantity, and complete
+refunds. Change status only with a later date_modified_gmt, re-sign the exact bytes,
+and test cancel/failed/refunded snapshots. A partial refund is a negative Woo
+refund total; full-refund status requires refund sum equal to order total. Never
+substitute real customer/payment data. The inbox retains verified raw bodies
+privately for source audit; status output exposes only aggregate safe error codes.
+
+Historical imported Sales Orders are now blocked from submission by a server hook;
+Invoices referencing those orders are blocked too. Operational cancelled/failed/
+refunded source orders require review before ERP submission. The order service
+still creates drafts only; no merchant event posts accounting. Native tests must
+verify those protections after installing the new hooks.

@@ -13,9 +13,11 @@ def catalog(item, price_list=None):
     if price_list:
         prices = frappe.get_list("Item Price", filters={"item_code": item, "price_list": price_list},
             fields=["name", "price_list", "currency", "item_price_rate", "uom", "valid_from", "valid_upto"])
-    return {"schema_version": 1, "content": content.as_dict(),
+    return {"schema_version": 1, "as_of_date": frappe.utils.today(), "content": content.as_dict(),
             "item": {"item_code": erp_item.item_code, "disabled": erp_item.disabled,
-                     "stock_uom": erp_item.stock_uom, "variant_of": erp_item.variant_of},
+                     "stock_uom": erp_item.stock_uom, "variant_of": erp_item.variant_of,
+                     "item_group": erp_item.item_group,"has_variants": erp_item.has_variants,
+                     "taxes": [{"item_tax_template":r.item_tax_template} for r in erp_item.get("taxes")]},
             "prices": prices,
             "mappings": frappe.get_list("Commerce Channel Mapping", filters={"item": item},
                 fields=["name", "item", "provider", "site_key", "external_product_id",

@@ -113,3 +113,21 @@ def attach_financial_documents(payload):
                 'source_order':key,'reference_doctype':kind,'reference_name':value}).insert()
     state.sales_invoice=invoice.name;state.payment_entry=payment.name;state.save()
     return {'source_key':key,'sales_order':order.name,'sales_invoice':invoice.name,'payment_entry':payment.name,'created':False}
+
+
+def protect_order_submission(doc,method=None):
+    """Historical imports are audit-only; terminal channel orders require review."""
+    return _protect_order(doc.name)
+
+
+def _protect_order(name):
+    if frappe.db.exists('Commerce Migration Identity',{'target_doctype':'Sales Order','target_name':name}):
+        frappe.throw('Historical commerce orders are audit-only and cannot be submitted')
+    status=frappe.db.get_value('Commerce Order State',{'sales_order':name},'status')
+    if status in ('cancelled','failed','refunded'):
+        frappe.throw('Commerce order requires cancellation/refund review before submission')
+
+
+def protect_invoice_submission(doc,method=None):
+    for name in {r.sales_order for r in doc.items if r.sales_order}:
+        _protect_order(name)

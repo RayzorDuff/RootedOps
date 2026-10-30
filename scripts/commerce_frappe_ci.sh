@@ -14,4 +14,5 @@ bench new-site commerce-test.local --db-host 127.0.0.1 --db-port 3306 --db-root-
 bench --site commerce-test.local install-app erpnext
 bench --site commerce-test.local install-app rootedops_commerce
 bench --site commerce-test.local set-config allow_tests true
+bench version
 bench --site commerce-test.local run-tests --app rootedops_commerce

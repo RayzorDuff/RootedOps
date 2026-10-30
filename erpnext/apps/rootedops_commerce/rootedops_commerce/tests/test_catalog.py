@@ -106,6 +106,11 @@ class TestCatalog(IntegrationTestCase):
     def test_native_order_staging_replay_and_cancel_never_post_accounting(self):
         from rootedops_commerce.order_service import stage_order
         from frappe.utils import today
+        if not frappe.db.exists('Warehouse Type','Transit'):
+            values={'doctype':'Warehouse Type','name':'Transit'}
+            autoname=frappe.get_meta('Warehouse Type').autoname or ''
+            if autoname.startswith('field:'):values[autoname.split(':',1)[1]]='Transit'
+            frappe.get_doc(values).insert()
         company='_Test Commerce Company'
         if not frappe.db.exists('Company',company):
             frappe.get_doc({'doctype':'Company','company_name':company,'abbr':'TCC',
@@ -132,6 +137,8 @@ class TestCatalog(IntegrationTestCase):
             result=stage_order({'event':event,'reviewed_draft':draft})
             self.assertEqual(result['sales_order'],first['sales_order'])
             self.assertEqual(frappe.db.get_value('Sales Order',first['sales_order'],'docstatus'),0)
+            with self.assertRaisesRegex(frappe.ValidationError,'Commerce order requires'):
+                frappe.get_doc('Sales Order',first['sales_order']).submit()
             self.assertEqual(frappe.db.count('Sales Invoice'),before_invoice)
             self.assertEqual(frappe.db.count('Payment Entry'),before_payment)
         finally:frappe.conf.commerce_order_integration_enabled=old

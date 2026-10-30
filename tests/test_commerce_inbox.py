@@ -58,4 +58,28 @@ class ReviewTests(unittest.TestCase):
         request.return_value=[{'id':1,'email':reviewed['email'],'meta_data':[{'key':'_rootedops_source_key','value':'source'},{'key':'_rootedops_customer_hash','value':digest(reviewed)}]}]
         self.assertFalse(upsert_customer('https://shop-test.danks.store','unused','source',reviewed,mail_sink_verified=True,request=request)['created'])
 
+
+class CatalogPublicationTests(unittest.TestCase):
+    def test_active_erp_price_tax_media_and_category_projection(self):
+        from sync import prepare
+        row={'ecommerce_id':1,'erp_item_code':'SYN','desired_quantity':2}
+        catalog={'as_of_date':'2026-10-30','item':{'disabled':False,'item_group':'Synthetic','stock_uom':'Nos','has_variants':False,'taxes':[]},
+                 'content':{'item':'SYN','public_title':'Synthetic','publication_status':'Published','gallery':[{'image':'/files/synthetic.png'}]},
+                 'prices':[{'price_list':'Synthetic USD','currency':'USD','uom':'Nos','item_price_rate':'12.50','valid_from':'2026-01-01'}]}
+        mapping={'item':'SYN','provider':'woocommerce','site_key':'synthetic','external_sku':'SYN',
+            'commercial':{'item_group':'Synthetic','currency':'USD','price_list':'Synthetic USD','woocommerce_category_ids':[3],
+                'reviewed_no_item_tax':True,'woocommerce_tax_status':'taxable','woocommerce_tax_class':'',
+                'woocommerce_media_ids':{'/files/synthetic.png':7}}}
+        body=prepare(row,catalog,mapping)['woocommerce']
+        self.assertEqual(body['regular_price'],'12.50');self.assertEqual(body['stock_quantity'],2)
+        self.assertEqual(body['images'],[{'id':7}]);self.assertEqual(body['categories'],[{'id':3}])
+        catalog['prices'][0]['valid_upto']='2026-01-02'
+        with self.assertRaisesRegex(ValueError,'active ERP Item Price'):prepare(row,catalog,mapping)
+    def test_store_currency_mismatch_refuses_before_catalog_write(self):
+        from channel import upsert_draft
+        record={'source_key':'synthetic','item':{},'woocommerce':{'sku':'SYN','status':'draft'},'expected_currency':'USD'}
+        request=Mock(return_value={'value':'CAD'})
+        with self.assertRaisesRegex(ValueError,'store currency'):upsert_draft('https://shop-test.danks.store','unused',record,request=request)
+        self.assertEqual(request.call_count,1)
+
 if __name__=='__main__':unittest.main()

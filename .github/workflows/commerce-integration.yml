@@ -28,7 +28,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: RayzorDuff/MushroomProcess
-          ref: d7a906b0ff72e2cf6c82ad32558e0390aa8a6abc
+          ref: 3d948a66ecc6ff9850e67bea92ce5b2c1952f605
           path: .ci/mushroomprocess
       - uses: actions/setup-python@v5
         with:
@@ -80,7 +80,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: RayzorDuff/SignatureGate
-          ref: 7fe657d50375a9b26646349caf07a533c864af6b
+          ref: 5cdd875ae4d78f5531c28c4b76ef8c197e475eb3
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
