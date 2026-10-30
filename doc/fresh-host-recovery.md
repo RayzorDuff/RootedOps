@@ -190,3 +190,19 @@ selected. MP/ERP need no separate source env. Explicit
 Rallly env archive to be absent; all other original hashes and selected payloads
 remain mandatory and the original manifest is preserved. Full recovery retains
 its complete-snapshot requirements. See the handoff for examples and scope limits.
+
+## Internal service routing (production and test deployments)
+
+Use Docker Compose service DNS and container ports for **server-to-server calls** between RootedOps services on the same Compose network. Do not route those requests through the public NGINX hostname or another deployment's `-test` host. Public HTTPS addresses remain necessary for browser navigation, OAuth redirects, webhook ingress, email links, and Appsmith page links. Never indiscriminately rewrite all URLs.
+
+| Calling service | Internal destination | Public-facing counterpart |
+| --- | --- | --- |
+| n8n to NocoDB API | `http://nocodb:8080` | `NC_PUBLIC_URL` for browser links |
+| n8n to Documenso API | `http://documenso:3000` | `DOCUMENSO_PUBLIC_URL` for users/callbacks |
+| n8n to Listmonk API | `http://listmonk:9000` (`LISTMONK_API_BASE_URL`) | `LISTMONK_PUBLIC_URL` for email/user links |
+| n8n to ERPNext API | `http://erpnext-backend:8000` (`ERPNEXT_INTERNAL_URL`) | `ERPNEXT_PUBLIC_URL` |
+| Appsmith to n8n | `http://n8n:5678` for server-executed API datasources | `WEBHOOK_URL`/editor URL for external callbacks/browser links |
+
+Appsmith API datasources, n8n workflow nodes and credentials can store URLs **in restored application data**, not in Compose environment variables. An environment-level change does **not** rewrite them. Inventory those saved destinations, classify whether a request executes server-side or in the browser, and migrate only same-network API requests. Preserve query strings, credentials, workflow IDs and public callback/link URLs. If services are in distinct Compose projects or networks, DNS service names alone will not resolve; explicitly provision and validate a dedicated shared internal network before using them. No automatic production migration or test2 application startup is authorized by these defaults.
+
+For test2, update only generated `.test-deployment/core.yml` n8n server-side URL values after recording a private backup. Validate Compose and the internal network, audit restored Appsmith/n8n connections, and keep background automation disabled during acceptance.
