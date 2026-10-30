@@ -193,7 +193,16 @@ class Recovery:
  def ready(self,project,service):
     for _ in range(120):
         cid=self.dc(project,'ps','-q',service,capture_output=True,text=True).stdout.strip()
-        if cid and subprocess.check_output(['docker','inspect','-f','{{.State.Health.Status}}',cid],text=True).strip()=='healthy':return
+        if cid:
+            state=json.loads(subprocess.check_output(['docker','inspect','-f','{{json .State}}',cid],text=True))
+            if state.get('Status')=='running':
+                health=state.get('Health')
+                if health is not None:
+                    if health.get('Status')=='healthy':return
+                elif service.endswith('postgres') and subprocess.run(
+                    ['docker','exec',cid,'pg_isready','-q'],stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,check=False).returncode==0:
+                    return
         time.sleep(2)
     raise RuntimeError('Readiness timed out: '+service)
  def run(self,source_site):
