@@ -33,7 +33,26 @@ def convert_history(data, review):
         customer = {'customer_name': source.get('name') or source.get('email') or 'Ecwid customer ' + str(source['id']),
                     'customer_type': 'Individual', 'customer_group': review['customer_group'],
                     'territory': review['territory']}
-        customers.append({'source_key': key, 'source_payload': source, 'customer': customer})
+        record={'source_key':key,'source_payload':source,'customer':customer}
+        enrichment=review.get('customers',{}).get(str(source['id']),{})
+        if enrichment:
+            contact=enrichment.get('contact')
+            if contact:
+                if set(contact)-{'first_name','last_name','email_ids','phone_nos'} or not contact.get('first_name'):
+                    raise ValueError('Reviewed Contact fields/name required')
+                record['contact']=contact
+            addresses=enrichment.get('addresses',[])
+            ids=set()
+            for address in addresses:
+                if not address.get('source_address_id') or address['source_address_id'] in ids:
+                    raise ValueError('Stable unique reviewed address identity required')
+                ids.add(address['source_address_id'])
+                if set(address)-{'source_address_id','address_title','address_type','address_line1','address_line2','city','state','pincode','country','email_id','phone'}:
+                    raise ValueError('Unsupported Address fields')
+                if address.get('address_type') not in ('Billing','Shipping') or not all(address.get(k) for k in ['address_line1','city','country']):
+                    raise ValueError('Complete reviewed billing/shipping address required')
+            record['addresses']=addresses
+        customers.append(record)
     for source in data.get('orders', []):
         key = identity('ecwid', site, 'order', source['id'])
         if key in seen:

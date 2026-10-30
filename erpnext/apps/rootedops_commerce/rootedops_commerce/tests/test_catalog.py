@@ -73,3 +73,29 @@ class TestCatalog(IntegrationTestCase):
             with self.assertRaises(frappe.PermissionError):import_product('{}')
         finally:
             frappe.set_user('Administrator')
+
+    def test_history_contact_address_replay_and_order_feature_guard(self):
+        from rootedops_commerce.history import import_history
+        from rootedops_commerce.order_service import stage_order
+        if not frappe.db.exists('Customer Group','_Test Commerce Customers'):
+            frappe.get_doc({'doctype':'Customer Group','customer_group_name':'_Test Commerce Customers','is_group':0}).insert()
+        if not frappe.db.exists('Territory','_Test Commerce Territory'):
+            frappe.get_doc({'doctype':'Territory','territory_name':'_Test Commerce Territory','is_group':0}).insert()
+        plan={'financial_replay':False,'fulfillment_replay':False,'customers':[{
+            'source_key':'synthetic-native-customer','source_payload':{'id':'native'},
+            'customer':{'customer_name':'Synthetic Commerce Customer','customer_type':'Individual',
+                        'customer_group':'_Test Commerce Customers','territory':'_Test Commerce Territory'},
+            'contact':{'first_name':'Synthetic','email_ids':[{'email_id':'synthetic@example.invalid','is_primary':1}]},
+            'addresses':[{'source_address_id':'billing','address_title':'Synthetic billing','address_type':'Billing',
+                          'address_line1':'Synthetic test location','city':'Test city','country':'United States'}]}],'orders':[]}
+        old=frappe.conf.get('commerce_history_import_enabled');frappe.conf.commerce_history_import_enabled=True
+        try:
+            first=import_history(plan);second=import_history(plan)
+            self.assertEqual(first,second)
+            self.assertEqual(frappe.db.count('Commerce Migration Identity',{'target_doctype':'Contact','source_key':'synthetic-native-customer:contact'}),1)
+            contact_name=frappe.db.get_value('Commerce Migration Identity','synthetic-native-customer:contact','target_name')
+            contact=frappe.get_doc('Contact',contact_name)
+            self.assertEqual(contact.links[0].link_name,first['customers']['synthetic-native-customer'])
+            self.assertEqual(first['invoices_created'],0)
+        finally:frappe.conf.commerce_history_import_enabled=old
+        with self.assertRaises(ValueError):stage_order({})

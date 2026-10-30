@@ -1,0 +1,109 @@
+{
+  "doctype": "DocType",
+  "name": "Commerce Order State",
+  "module": "RootedOps Commerce",
+  "engine": "InnoDB",
+  "autoname": "field:source_key",
+  "track_changes": 1,
+  "field_order": [
+    "source_key",
+    "provider",
+    "site_key",
+    "external_order_id",
+    "revision",
+    "status",
+    "draft_hash",
+    "sales_order",
+    "sales_invoice",
+    "payment_entry"
+  ],
+  "fields": [
+    {
+      "fieldname": "source_key",
+      "label": "Source Key",
+      "fieldtype": "Data",
+      "reqd": 1,
+      "unique": 1
+    },
+    {
+      "fieldname": "provider",
+      "label": "Provider",
+      "fieldtype": "Data",
+      "reqd": 1
+    },
+    {
+      "fieldname": "site_key",
+      "label": "Site Key",
+      "fieldtype": "Data",
+      "reqd": 1
+    },
+    {
+      "fieldname": "external_order_id",
+      "label": "External Order Id",
+      "fieldtype": "Data",
+      "reqd": 1
+    },
+    {
+      "fieldname": "revision",
+      "label": "Revision",
+      "fieldtype": "Int",
+      "reqd": 1
+    },
+    {
+      "fieldname": "status",
+      "label": "Status",
+      "fieldtype": "Data",
+      "reqd": 1
+    },
+    {
+      "fieldname": "draft_hash",
+      "label": "Draft Hash",
+      "fieldtype": "Data",
+      "reqd": 1
+    },
+    {
+      "fieldname": "sales_order",
+      "label": "Sales Order",
+      "fieldtype": "Link",
+      "reqd": 0,
+      "options": "Sales Order",
+      "read_only": 1
+    },
+    {
+      "fieldname": "sales_invoice",
+      "label": "Sales Invoice",
+      "fieldtype": "Link",
+      "reqd": 0,
+      "options": "Sales Invoice",
+      "read_only": 1
+    },
+    {
+      "fieldname": "payment_entry",
+      "label": "Payment Entry",
+      "fieldtype": "Link",
+      "reqd": 0,
+      "options": "Payment Entry",
+      "read_only": 1
+    }
+  ],
+  "permissions": [
+    {
+      "role": "System Manager",
+      "read": 1,
+      "create": 1,
+      "write": 1
+    },
+    {
+      "role": "Sales Manager",
+      "read": 1,
+      "create": 1,
+      "write": 1
+    },
+    {
+      "role": "Accounts Manager",
+      "read": 1,
+      "create": 1,
+      "write": 1
+    }
+  ]
+}

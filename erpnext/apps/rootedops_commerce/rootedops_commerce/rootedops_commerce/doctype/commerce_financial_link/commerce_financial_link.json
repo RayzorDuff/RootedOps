@@ -1,0 +1,55 @@
+{
+  "doctype": "DocType",
+  "name": "Commerce Financial Link",
+  "module": "RootedOps Commerce",
+  "engine": "InnoDB",
+  "autoname": "field:reference_key",
+  "field_order": [
+    "reference_key",
+    "source_order",
+    "reference_doctype",
+    "reference_name"
+  ],
+  "fields": [
+    {
+      "fieldname": "reference_key",
+      "label": "Reference Key",
+      "fieldtype": "Data",
+      "reqd": 1,
+      "unique": 1
+    },
+    {
+      "fieldname": "source_order",
+      "label": "Source Order",
+      "fieldtype": "Link",
+      "options": "Commerce Order State",
+      "reqd": 1
+    },
+    {
+      "fieldname": "reference_doctype",
+      "label": "Reference DocType",
+      "fieldtype": "Link",
+      "options": "DocType",
+      "reqd": 1
+    },
+    {
+      "fieldname": "reference_name",
+      "label": "Reference Name",
+      "fieldtype": "Dynamic Link",
+      "options": "reference_doctype",
+      "reqd": 1
+    }
+  ],
+  "permissions": [
+    {
+      "role": "System Manager",
+      "read": 1,
+      "create": 1
+    },
+    {
+      "role": "Accounts Manager",
+      "read": 1,
+      "create": 1
+    }
+  ]
+}
