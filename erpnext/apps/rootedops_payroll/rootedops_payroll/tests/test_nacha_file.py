@@ -95,6 +95,62 @@ class TestNachaFile(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "printable ASCII"):
             validate_nacha("\n".join(lines))
 
+    def test_payroll_description_allows_three_character_suffix(self):
+        lines = generate_nacha(
+            self.profile(), [self.entry()],
+            creation_date="260925", creation_time="1500",
+        ).splitlines()
+        lines[1] = lines[1][:53] + "PAYROLL 02" + lines[1][63:]
+        self.assertEqual(validate_nacha("\n".join(lines))["entry_count"], 1)
+        lines[1] = lines[1][:53] + "PAYROLLEMP" + lines[1][63:]
+        self.assertEqual(validate_nacha("\n".join(lines))["entry_count"], 1)
+
+    def test_common_unicode_name_transliteration(self):
+        cases = {
+            "O’Brien": "O'BRIEN",
+            "Łukasz": "LUKASZ",
+            "Søren": "SOREN",
+            "Æsa": "AESA",
+            "Jean–Luc": "JEAN-LUC",
+            "Œdipe": "OEDIPE",
+            "Đorđe": "DORDE",
+            "Þóra": "THORA",
+        }
+        for original, expected in cases.items():
+            with self.subTest(name=original):
+                entry = ACHCredit(
+                    "HR-EMP-00001", original, "021000021",
+                    "123456789", "Checking", Decimal("84.78"),
+                )
+                lines = generate_nacha(
+                    self.profile(), [entry],
+                    creation_date="260925", creation_time="1500",
+                ).splitlines()
+                self.assertEqual(lines[2][54:76].rstrip(), expected)
+                self.assertTrue(all(len(line) == 94 and line.isascii() for line in lines))
+
+    def test_unsupported_name_error_identifies_employee_and_field(self):
+        entry = ACHCredit(
+            "HR-EMP-00077", "李明", "021000021", "123456789",
+            "Checking", Decimal("84.78"),
+        )
+        with self.assertRaisesRegex(ValueError, "Employee HR-EMP-00077: Receiving Name"):
+            generate_nacha(
+                self.profile(), [entry],
+                creation_date="260925", creation_time="1500",
+            )
+
+    def test_unsupported_individual_id_error_identifies_employee_and_field(self):
+        entry = ACHCredit(
+            "HR-EMP-00077", "TEST EMPLOYEE", "021000021", "123456789",
+            "Checking", Decimal("84.78"), "李明",
+        )
+        with self.assertRaisesRegex(ValueError, "Employee HR-EMP-00077: Individual Identification"):
+            generate_nacha(
+                self.profile(), [entry],
+                creation_date="260925", creation_time="1500",
+            )
+
     def test_checking_and_savings(self):
         text = generate_nacha(
             self.profile(),
