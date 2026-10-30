@@ -9,6 +9,19 @@ sys.path.insert(0,str(ROOT/'scripts'))
 import host_recovery as recovery
 
 class HostRecoveryTests(unittest.TestCase):
+ def test_erp_shell_initializers_receive_one_complete_script(self):
+    import yaml,subprocess
+    config=yaml.safe_load((ROOT/'docker/docker-compose.yml').read_text())
+    for name in ('erpnext-apps-init','erpnext-configurator'):
+        service=config['services'][name]
+        self.assertEqual(service['entrypoint'],['bash','-lc'])
+        self.assertIsInstance(service['command'],list)
+        self.assertEqual(len(service['command']),1)
+        script=service['command'][0]
+        self.assertTrue(script.startswith('set -e\n'))
+        self.assertIn('rootedops_commerce',script)
+        subprocess.run(['bash','-n','-c',script],check=True)
+
  def test_app_fetch_supports_exact_commit_and_tag_without_overwriting(self):
     import subprocess
     with tempfile.TemporaryDirectory() as directory:

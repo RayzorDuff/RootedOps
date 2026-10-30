@@ -210,6 +210,8 @@ def validate(output):
         subprocess.run(command(env,path,profiles)+['config','--quiet'],check=True)
         resolved=json.loads(subprocess.check_output(command(env,path,profiles)+['config','--format','json']))
         for service in resolved['services'].values():
+            if service.get('entrypoint')==['bash','-lc'] and len(service.get('command',[]))!=1:
+                raise ValueError('Shell initializer must receive exactly one script argument')
             for port in service.get('ports',[]):
                 key=(port.get('protocol','tcp'),port['published'])
                 if key in used:raise ValueError('Duplicate host port: '+str(key))
