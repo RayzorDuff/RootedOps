@@ -543,3 +543,27 @@ Pending: backup copy/checksums and image compatibility review, selected native
 restore and data comparisons, application isolation/remapping, live catalog/order
 integration, real Appsmith browser proof and Clover sandbox acceptance. None has
 been marked passed merely because bootstrap or DNS validation succeeded.
+
+### Completed-backup compatibility review
+
+The operator confirmed transfer completion. The full checksum manifest passed on
+the new host. Selected DB/volume archives are present; there is no independent
+Dank WordPress backup, so its staging store must be initialized fresh rather than
+restoring Rooted Psyche WordPress. Archived versions: ERPNext 16.13.0, Frappe 16.14.0,
+HRMS 16.4.7, Employee Self Service 2.2.2, rootedops_payroll 0.4.10. Commerce is not
+installed in that source snapshot and needs the reviewed 0.3.0 app copied/installed
+only after safe restore and datasource/job isolation.
+
+For the custom image use ERPNEXT_IMAGE_TAG=v16.13.0,
+ERPNEXT_HRMS_BRANCH=be4178aa04054ceece66d2c9ea157552962bd663 and
+ERPNEXT_ESS_BRANCH=e13041752c1a218d6954ce9d7a2145031e762fa6. The HRMS tag and ESS
+commit were resolved from their official repositories. `fetch-frappe-app.sh` lets
+these existing build variables select immutable commits as well as branches/tags;
+its local Git test verifies exact checkout and refusal to overwrite a directory.
+Keep restored app source and image dependencies compatible; do not upgrade HRMS/ESS
+or invoke payroll processing just to install commerce.
+
+Appsmith and n8n image availability is being checked against archived registry
+digests before any restore marker/volume is created. Do not substitute current
+`latest` for an unavailable archived n8n image. Record pull/build digests and
+`bench version` after native verification before marking compatibility reviewed.

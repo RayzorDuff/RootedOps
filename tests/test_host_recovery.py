@@ -9,6 +9,26 @@ sys.path.insert(0,str(ROOT/'scripts'))
 import host_recovery as recovery
 
 class HostRecoveryTests(unittest.TestCase):
+ def test_app_fetch_supports_exact_commit_and_tag_without_overwriting(self):
+    import subprocess
+    with tempfile.TemporaryDirectory() as directory:
+        root=Path(directory);source=root/'source';source.mkdir()
+        def git(*args):return subprocess.check_output(['git',*args],text=True,stderr=subprocess.DEVNULL).strip()
+        git('init','-q',str(source));git('-C',str(source),'config','user.name','Synthetic CI')
+        git('-C',str(source),'config','user.email','synthetic@example.invalid')
+        (source/'version').write_text('original');git('-C',str(source),'add','version');git('-C',str(source),'commit','-qm','original')
+        original=git('-C',str(source),'rev-parse','HEAD');git('-C',str(source),'tag','reviewed-version')
+        (source/'version').write_text('later');git('-C',str(source),'commit','-qam','later')
+        for number,ref in enumerate((original,'reviewed-version')):
+            target=root/str(number)
+            result=subprocess.run(['bash',str(ROOT/'docker/fetch-frappe-app.sh'),str(target),source.as_uri(),ref],capture_output=True)
+            self.assertEqual(result.returncode,0,result.stderr.decode())
+            self.assertEqual(git('-C',str(target),'rev-parse','HEAD'),original)
+            self.assertEqual((target/'version').read_text(),'original')
+            retry=subprocess.run(['bash',str(ROOT/'docker/fetch-frappe-app.sh'),str(target),source.as_uri(),ref],capture_output=True)
+            self.assertNotEqual(retry.returncode,0)
+            self.assertEqual((target/'version').read_text(),'original')
+
  def test_distinct_generated_secrets_and_crypto_shapes(self):
     import base64
     a,b=recovery.environment(),recovery.environment()
