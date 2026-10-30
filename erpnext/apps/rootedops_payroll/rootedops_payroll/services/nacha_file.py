@@ -261,10 +261,11 @@ def generate_nacha(profile: NACHAProfile, entries: list[ACHCredit], *, debit_ent
     entry_records = []
     if debit_entry is not None:
         entry_records.append(build_debit_entry(debit_entry, profile.odfi_identification, 1))
-    entry_records.extend(
-        build_entry(e, profile.odfi_identification, i)
-        for i, e in enumerate(entries, 2 if debit_entry is not None else 1)
-    )
+    for i, entry in enumerate(entries, 2 if debit_entry is not None else 1):
+        try:
+            entry_records.append(build_entry(entry, profile.odfi_identification, i))
+        except ValueError as exc:
+            raise ValueError(f"Employee {entry.employee}: {exc}") from exc
     all_entries = ([debit_entry] if debit_entry is not None else []) + list(entries)
     entry_hash = sum(int(validate_routing_number(e.routing_number)[:8]) for e in all_entries)
 
