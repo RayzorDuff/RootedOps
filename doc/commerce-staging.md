@@ -164,7 +164,12 @@ schema/constraints load, and migration 051 produces inventory candidates that
 join exactly to exported product SKUs. These results do not substitute for a
 native PostgreSQL 16 staging restore or live WooCommerce API synchronization.
 
-## Latest native and live verification — 2026-10-29
+## Historical native and live verification — 2026-10-29
+
+The temporary Linode used for the following measurements has been deleted.
+These are historical results, not evidence of a currently running environment.
+Its databases, volumes and credentials are not assumed recoverable. Rebuild a new
+staging environment through #22 and repeat deployment acceptance before use.
 
 The user approved test-host Certbot installation. Valid certificates now cover
 shop-test, erp-test, appsmith-test and n8n-test.danks.store; NGINX installation

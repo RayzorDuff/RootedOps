@@ -1,0 +1,26 @@
+{
+  "store_id": "synthetic",
+  "customers": [
+    {
+      "id": 1,
+      "name": "Synthetic Customer",
+      "email": "synthetic@example.invalid"
+    }
+  ],
+  "orders": [
+    {
+      "id": "ORDER-1",
+      "customerId": 1,
+      "currency": "USD",
+      "total": "12.00",
+      "createDate": "2026-10-01 12:00:00 +0000",
+      "items": [
+        {
+          "id": 3,
+          "sku": "001",
+          "quantity": 2
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,151 @@
+{
+  "schema_version": 1,
+  "source_sha256": "a13a9ee79f9ca274784823a00a2eb1dbd1172b81924689256676deaeba24fd1e",
+  "products": [
+    {
+      "source_key": "ecwid:synthetic:product:1",
+      "content": {
+        "doctype": "Commercial Product Content",
+        "item": "001",
+        "public_title": "Culture",
+        "publication_status": "Draft",
+        "short_description": "",
+        "full_description": "",
+        "seo_title": "",
+        "seo_description": "",
+        "gallery": [],
+        "source_key": "ecwid:synthetic:product:1",
+        "source_payload": "{\"product\":{\"_combinations\":[{\"id\":2,\"options\":[{\"name\":\"Volume\",\"value\":\"20 ml\"}],\"price\":\"15.00\",\"sku\":\"001-20\"}],\"categoryIds\":[3],\"id\":1,\"name\":\"Culture\",\"price\":\"12.50\",\"sku\":\"001\"},\"variation\":null}"
+      },
+      "woocommerce": {
+        "name": "Culture",
+        "sku": "001",
+        "status": "draft",
+        "description": "",
+        "short_description": "",
+        "images": [],
+        "meta_data": [
+          {
+            "key": "_rootedops_source_key",
+            "value": "ecwid:synthetic:product:1"
+          },
+          {
+            "key": "_rootedops_seo_title",
+            "value": ""
+          },
+          {
+            "key": "_rootedops_seo_description",
+            "value": ""
+          }
+        ]
+      },
+      "item": {
+        "item_code": "001",
+        "item_name": "Culture",
+        "has_variants": true,
+        "parent_sku": null
+      },
+      "mapping": {
+        "provider": "ecwid",
+        "site_key": "synthetic",
+        "item": "001",
+        "external_product_id": "1",
+        "external_variation_id": "",
+        "external_sku": "001",
+        "sync_enabled": 0
+      },
+      "price": "12.50",
+      "variant_options": [],
+      "category_ids": [
+        3
+      ],
+      "source_enabled": false
+    },
+    {
+      "source_key": "ecwid:synthetic:product:1:variation:2",
+      "content": {
+        "doctype": "Commercial Product Content",
+        "item": "001-20",
+        "public_title": "Culture",
+        "publication_status": "Draft",
+        "short_description": "",
+        "full_description": "",
+        "seo_title": "",
+        "seo_description": "",
+        "gallery": [],
+        "source_key": "ecwid:synthetic:product:1:variation:2",
+        "source_payload": "{\"product\":{\"_combinations\":[{\"id\":2,\"options\":[{\"name\":\"Volume\",\"value\":\"20 ml\"}],\"price\":\"15.00\",\"sku\":\"001-20\"}],\"categoryIds\":[3],\"id\":1,\"name\":\"Culture\",\"price\":\"12.50\",\"sku\":\"001\"},\"variation\":{\"id\":2,\"options\":[{\"name\":\"Volume\",\"value\":\"20 ml\"}],\"price\":\"15.00\",\"sku\":\"001-20\"}}"
+      },
+      "woocommerce": {
+        "name": "Culture",
+        "sku": "001-20",
+        "status": "draft",
+        "description": "",
+        "short_description": "",
+        "images": [],
+        "meta_data": [
+          {
+            "key": "_rootedops_source_key",
+            "value": "ecwid:synthetic:product:1:variation:2"
+          },
+          {
+            "key": "_rootedops_seo_title",
+            "value": ""
+          },
+          {
+            "key": "_rootedops_seo_description",
+            "value": ""
+          }
+        ]
+      },
+      "item": {
+        "item_code": "001-20",
+        "item_name": "Culture",
+        "has_variants": false,
+        "parent_sku": "001"
+      },
+      "mapping": {
+        "provider": "ecwid",
+        "site_key": "synthetic",
+        "item": "001-20",
+        "external_product_id": "1",
+        "external_variation_id": "2",
+        "external_sku": "001-20",
+        "sync_enabled": 0
+      },
+      "price": "15.00",
+      "variant_options": [
+        {
+          "name": "Volume",
+          "value": "20 ml"
+        }
+      ],
+      "category_ids": [
+        3
+      ],
+      "source_enabled": false
+    }
+  ],
+  "archives": [
+    {
+      "doctype": "Commerce Source Archive",
+      "source_key": "ecwid:synthetic:profile:initial",
+      "record_type": "profile",
+      "payload": "{}"
+    }
+  ],
+  "errors": [],
+  "counts": {
+    "products": 1,
+    "customers": 0,
+    "orders": 0,
+    "categories": 0
+  },
+  "limitations": [
+    "ERP Items/variant attributes, price lists, currency and tax mappings require review.",
+    "WooCommerce variable products and variants require an approved attribute mapping before publication.",
+    "Customer/order history is archived only: no live customers, orders, invoices, fulfillment or emails.",
+    "Image URLs are references, not an offline media backup; archive binaries before retiring Ecwid.",
+    "SEO metadata requires a storefront SEO adapter; private meta fields alone do not publish SEO."
+  ]
+}

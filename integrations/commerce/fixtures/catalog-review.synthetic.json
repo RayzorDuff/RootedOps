@@ -1,0 +1,47 @@
+{
+  "source_sha256": "a13a9ee79f9ca274784823a00a2eb1dbd1172b81924689256676deaeba24fd1e",
+  "currency": "USD",
+  "currency_confirmed": true,
+  "selling_price_list": "Synthetic USD",
+  "items": {
+    "001": {
+      "item_code": "ERP-001",
+      "item_group": "Cultures",
+      "stock_uom": "Nos",
+      "tax_key": "standard",
+      "attributes": [
+        "Volume"
+      ]
+    },
+    "001-20": {
+      "item_code": "ERP-001-20",
+      "item_group": "Cultures",
+      "stock_uom": "Nos",
+      "tax_key": "standard",
+      "attributes": [
+        "Volume"
+      ]
+    }
+  },
+  "categories": {
+    "3": {
+      "woocommerce_id": 9
+    }
+  },
+  "attributes": {
+    "Volume": {
+      "erp_attribute": "Volume",
+      "woocommerce_name": "Volume",
+      "values": [
+        "20 ml"
+      ]
+    }
+  },
+  "taxes": {
+    "standard": {
+      "woocommerce_status": "taxable",
+      "woocommerce_class": "",
+      "erp_item_tax_template": "Synthetic Sales Tax"
+    }
+  }
+}
