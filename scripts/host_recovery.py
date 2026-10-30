@@ -96,9 +96,10 @@ def transform(config,source, project):
             if service.get('entrypoint')!=['bash','-lc']:
                 raise ValueError('Unexpected ERP initializer entrypoint: '+name)
             cmd=service.get('command')
-            if not isinstance(cmd,list) or len(cmd)!=1 or not isinstance(cmd[0],str):
+            script=cmd if isinstance(cmd,str) else cmd[0] if isinstance(cmd,list) and len(cmd)==1 and isinstance(cmd[0],str) else None
+            if not script or not script.strip():
                 raise ValueError('Expected one ERP initializer script: '+name)
-            service['entrypoint']=['bash','-lc',cmd[0]]
+            service['entrypoint']=['bash','-lc',script]
             service['command']=[]
         service.pop('container_name',None)
         service.pop('labels',None)
