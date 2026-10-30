@@ -210,9 +210,16 @@ class Recovery:
     rallly_archive=self.backup/'volumes/rallly-selfhosted_db-data.tgz'
     if self.selected(rallly_archive.name) and rallly_archive.exists():
         with tarfile.open(rallly_archive) as archive:
-            version=[m for m in archive if m.name.lstrip('./')=='PG_VERSION']
-            if len(version)!=1:raise ValueError('Cannot determine Rallly cluster version')
-            major=archive.extractfile(version[0]).read().decode().strip()
+            # PostgreSQL 18 official images store clusters under 18/docker/.
+            # Ignore per-database PG_VERSION files in base/*.
+            candidates=[m for m in archive if m.isfile() and (
+                m.name.lstrip('./')=='PG_VERSION' or
+                re.fullmatch(r'([0-9]+)/docker/PG_VERSION',m.name.lstrip('./')))]
+            if len(candidates)!=1:raise ValueError('Cannot determine unique Rallly cluster version')
+            major=archive.extractfile(candidates[0]).read().decode().strip()
+            prefix=candidates[0].name.lstrip('./').split('/')[0]
+            if '/' in candidates[0].name.lstrip('./') and prefix!=major:
+                raise ValueError('Rallly cluster directory/version mismatch')
         if not major.isdigit():raise ValueError('Invalid PostgreSQL major')
         r_env=read_env(self.output/'rallly/.env')
         with tarfile.open(self.backup/'bind_mounts/rallly-selfhosted-env.tgz') as archive:
