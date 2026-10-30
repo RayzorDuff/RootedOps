@@ -470,3 +470,176 @@ fixture SQL against restored production data. The Root integration workflow runs
 - Fresh #22 full restore and reboot/round-trip, ERP/MP/Woo live parity, rendered SEO,
   actual Appsmith UI and Clover validation remain new-host tasks. No historical
   deleted-host test has been represented as reproducible current acceptance.
+
+## New-host rehearsal checkpoint — October 30, 2026
+
+The owner has prepared a new Ubuntu test host and handed over its authenticated
+non-root console. Bootstrap configuration already exists; do not regenerate it.
+Current RootedOps main is d3d5ce29229fe435da14a755368bb06ecc2b89bc (#28 merged),
+MP main is 127bae5769492ee6e653be26e33d00347b00e4a0 (#108 merged). The commerce
+code delta from the tested Root checkpoint is documentation plus upstream payroll
+changes; preserve both. Exact infrastructure identifiers and raw endpoint evidence
+stay private on the host.
+
+Executed new-host evidence: generated configuration passes Compose interpolation,
+internal-network/loopback-port, unique/free-port and bind-source validation. Docker
+has no containers or volumes. All 13 required test domains passed direct A/AAAA
+queries against both Cloudflare authoritative nameservers (26 endpoint checks):
+expected test IPv4, authoritative answers and no AAAA records. The corrected ERP
+and shop records are present. An extraneous DNS record still needs owner review;
+no DNS edits or certificates were issued. The private evidence file is
+`.test-deployment/dns-authoritative-check.json`. DNS success is not HTTP/TLS or
+application acceptance.
+
+**Scope update from owner:** restore only commerce dependencies from the complete
+backup being copied. Do not restore unrelated Rooted Psyche WordPress, scheduling,
+Listmonk, LibreChat, SignatureGate production DB, Documenso or Minecraft. SignatureGate
+browser proof later uses its own artificial fixture DB, not a production DB restore.
+This selected rehearsal does not complete #22's full-stack restore acceptance.
+
+### Selected restore into the existing bootstrap configuration
+
+`full_restore.py --components` selects MushroomProcess, ERPNext, Appsmith, n8n and
+optionally Dank WordPress. Omit the option only when a full-stack rehearsal is
+explicitly intended. No environment re-render is needed. Selected ERP restores
+apps/sites only, not logs or production Redis queue/cache data. No production bind
+archives, unrelated application secrets or source database passwords are copied
+by the selected path. Original Appsmith/n8n encryption keys and the site's ERP
+configuration are retained as required to decrypt restored data. Database users
+are local to isolated projects. Review WordPress DB config against its generated
+test credentials before starting a restored WP volume.
+
+Wait for the operator's explicit **copy complete** notice before any backup scan,
+checksum, version review or restore; an incomplete snapshot must never be accepted.
+Discover the actual backup directory without assuming that a displayed `~` path
+is root's or the deployment account's home. Then:
+
+```sh
+# Use the verified complete snapshot, kept private; never source meta/.env.
+# Review its app/image version metadata before building or marking compatibility.
+sudo python3 scripts/full_restore.py "$PWD/.test-deployment" /PRIVATE/COMPLETE_BACKUP \
+  --source-site ACTUAL_SOURCE_SITE --components mushroomprocess erpnext appsmith n8n --key-file /PRIVATE/restore.keys --check-only
+# Only after all preflight checks and compatibility review succeed:
+sudo python3 scripts/full_restore.py "$PWD/.test-deployment" /PRIVATE/COMPLETE_BACKUP \
+  --source-site ACTUAL_SOURCE_SITE --components mushroomprocess erpnext appsmith n8n --key-file /PRIVATE/restore.keys
+```
+
+Both commands retain full SHA256SUMS validation, fresh-host/project/volume checks,
+archive safety and explicit image compatibility requirements. The first command
+creates no containers, volumes, database records or restore markers. Missing
+selected archives or original encryption keys refuse before mutation. The restore
+receipt records selected components and explicitly distinguishes the limited scope.
+Applications remain stopped for callback/datasource/account review. Do not invoke
+fresh-install `start` afterward.
+
+If the complete backup includes the independent Dank WooCommerce DB/HTML archives,
+add `dank-wordpress` to the selection before the first restore. Otherwise keep it
+out and provision a fresh isolated Dank store only after restore prerequisites are
+satisfied; do not import the Rooted Psyche store into it. Start only explicit reviewed
+service names, keeping ERP workers/scheduler and n8n workflows disabled. Certificate
+and public-access work still waits for initial account/access-control completion.
+
+Pending: backup copy/checksums and image compatibility review, selected native
+restore and data comparisons, application isolation/remapping, live catalog/order
+integration, real Appsmith browser proof and Clover sandbox acceptance. None has
+been marked passed merely because bootstrap or DNS validation succeeded.
+
+### Completed-backup compatibility review
+
+The operator confirmed transfer completion. The full checksum manifest passed on
+the new host. Selected DB/volume archives are present; there is no independent
+Dank WordPress backup, so its staging store must be initialized fresh rather than
+restoring Rooted Psyche WordPress. Archived versions: ERPNext 16.13.0, Frappe 16.14.0,
+HRMS 16.4.7, Employee Self Service 2.2.2, rootedops_payroll 0.4.10. Commerce is not
+installed in that source snapshot and needs the reviewed 0.3.0 app copied/installed
+only after safe restore and datasource/job isolation.
+
+For the custom image use ERPNEXT_IMAGE_TAG=v16.13.0,
+ERPNEXT_HRMS_BRANCH=be4178aa04054ceece66d2c9ea157552962bd663 and
+ERPNEXT_ESS_BRANCH=e13041752c1a218d6954ce9d7a2145031e762fa6. The HRMS tag and ESS
+commit were resolved from their official repositories. `fetch-frappe-app.sh` lets
+these existing build variables select immutable commits as well as branches/tags;
+its local Git test verifies exact checkout and refusal to overwrite a directory.
+Keep restored app source and image dependencies compatible; do not upgrade HRMS/ESS
+or invoke payroll processing just to install commerce.
+
+Appsmith and n8n image availability is being checked against archived registry
+digests before any restore marker/volume is created. Do not substitute current
+`latest` for an unavailable archived n8n image. Record pull/build digests and
+`bench version` after native verification before marking compatibility reviewed.
+
+### Secret-minimal selected recovery
+
+Selected recovery never opens or parses the source production `meta/.env`. MP and
+ERP recovery require no separate source env file. Appsmith/n8n require an explicit
+`--key-file` owned/protected by the operator (mode 0600 or stricter), containing
+exactly the selected original encryption keys: APPSMITH_ENCRYPTION_PASSWORD,
+APPSMITH_ENCRYPTION_SALT and/or N8N_ENCRYPTION_KEY. Extra production credentials
+in that file are rejected. Keep values out of chat, Git and logs. Alternatively,
+leave those encrypted volumes out and initialize fresh test instances from reviewed
+repository app/workflow exports. Do not silently switch encrypted data to new keys.
+
+When the operator has deliberately removed secret metadata from a complete backup,
+`--allow-removed-secret-metadata` acknowledges only absent `meta/.env` and
+`bind_mounts/rallly-selfhosted-env.tgz` during a selected restore. Every other
+manifest entry must still exist and match its original SHA256. Every selected
+payload must be represented in the manifest. Unsafe/duplicate paths and payload
+hash drift refuse; the source manifest is never rewritten. The receipt lists the
+omitted secret metadata explicitly. This is a documented limited recovery, not an
+assertion that the original full snapshot remains unmodified.
+
+Example with no source env or separate encryption secrets needed:
+
+```sh
+sudo python3 scripts/full_restore.py "$PWD/.test-deployment" /PRIVATE/COMPLETE_BACKUP \
+  --source-site ACTUAL_SOURCE_SITE --components mushroomprocess erpnext \
+  --allow-removed-secret-metadata --check-only
+```
+
+The same invocation without `--check-only` performs that selected restore only
+after compatibility and all remaining checks pass. Full-stack recovery without
+component selection retains the original strict complete-manifest/source-key rules.
+
+### Native image verification on the new staging host
+
+The pinned custom ERP image built successfully. Network-isolated disposable image
+probes report all six expected package versions: Frappe 16.14.0, ERPNext 16.13.0,
+HRMS 16.4.7, ESS 2.2.2, rootedops_payroll 0.4.10 and rootedops_commerce 0.3.0.
+Image ID: sha256:650bf324f27b820d9e110bea6e4af90f8246b1cdadb734027ef4613646b75af6
+(local custom image ID, not a public registry manifest). Reproduce after the pinned
+build with `docker run --rm --network none --entrypoint bench
+rootedops-erpnext:v16.13.0 version`; use the image's
+`/home/frappe/frappe-bench/env/bin/python` and importlib.metadata.version for the
+six-package probe because the base image's apps.txt lists only frappe/erpnext.
+
+Archived Appsmith/n8n digests pulled successfully. Private generated configuration
+also pins database/cache images to the archived registry digests. The compatibility
+receipt is based on those pulls, package probes and matching backup metadata; it
+is not database/application acceptance. No production env was parsed. Original
+hashes for all remaining backup files verified with exactly the two documented
+secret-metadata omissions. MP/ERP selected restore preflight is now being exercised;
+Appsmith/n8n credential restoration remains deferred without keys-only input.
+
+### First native restore preparation failure
+
+Selected restore check-only passed on the new host. The first actual attempt then
+failed immediately with `unknown flag: --no-deps`: this Compose version does not
+support that flag on `create`. No containers/volumes or database data were created;
+the failure marker/log remain preserved pending inspection. Do not call that
+attempt a restored database or erase an uncertain partial restore.
+
+The corrected volume preparation uses `up --no-start --no-deps SERVICE`; it creates
+the selected stopped container without starting dependencies or application code.
+The tar helper runs with `--network none`. Both the full/selected and legacy commerce
+paths now use this supported command. Native CI `scripts/restore_volume_ci.py`
+restores exact synthetic file bytes through both implementations, asserts the
+application remains in `created` state and its dependency is not created, and
+cleans only its guarded fresh fixture projects. Do not run that CI fixture on the
+staging/restored database host.
+
+A retry on the existing prepared environment is appropriate only after explicit
+inspection proves that this attempt performed no data/container/volume mutations.
+Archive the original failure marker/log as attempt evidence, keep the generated
+credentials/configuration, revalidate the empty destination and then rerun with
+the corrected tested revision. A genuine partially restored data set still requires
+the documented separate recovery decision rather than this no-op preparation case.

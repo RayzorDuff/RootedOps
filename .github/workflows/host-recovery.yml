@@ -20,6 +20,8 @@ jobs:
       - run: python -m py_compile scripts/host_recovery.py scripts/full_restore.py
       - run: python scripts/host_recovery.py prepare "$RUNNER_TEMP/rootedops-recovery"
       - run: python scripts/host_recovery.py validate "$RUNNER_TEMP/rootedops-recovery"
+      - name: Native stopped-volume restore without dependency startup
+        run: python scripts/restore_volume_ci.py
       - name: Native ERP MariaDB healthcheck
         run: |
           cfg="$RUNNER_TEMP/rootedops-recovery"
