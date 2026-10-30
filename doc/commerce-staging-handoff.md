@@ -643,3 +643,49 @@ Archive the original failure marker/log as attempt evidence, keep the generated
 credentials/configuration, revalidate the empty destination and then rerun with
 the corrected tested revision. A genuine partially restored data set still requires
 the documented separate recovery decision rather than this no-op preparation case.
+
+### Selected restore result on the new staging host (2026-10-30)
+
+The empty-destination inspection was completed and its evidence archived before
+retrying. Selected recovery at `b08bb675f38a4fe9818251449a7902d2c3e45d79`
+completed with exit 0: ERP sites/apps volumes and the ERP database were restored,
+and all 92 PostgreSQL COPY-table counts matched the MushroomProcess dump.
+Only the two database containers run; the ERP application container remains
+created/stopped. No workers, scheduler, Appsmith, n8n, WordPress or unrelated
+applications were started. This is selected recovery evidence, not full-stack
+#22 acceptance or integrated commerce acceptance.
+
+Private `restore-receipt.json` records the four selected payloads, the two deliberate
+secret-metadata omissions and `apps_started=false`. ERP site maintenance and
+scheduler-pause flags and the `erp-test` hostname were verified. Restored Email
+Accounts (incoming/outgoing), Webhooks and Notifications were disabled directly
+in the isolated database before any application startup. Exact commercial record
+counts were saved privately in `restored-database-health.json`; do not publish
+customer records, source database identities or credentials as test artifacts.
+
+`mariadb-check --check` returned 0 (938 output lines). Nine sequence tables report
+the expected engine-does-not-support-check note; all other statuses were OK.
+This database integrity check does not replace Frappe migrations or accounting
+reconciliation. The restored MP schema contains 135 public tables; its forward
+commerce migration inventory is the next acceptance step.
+
+Two rehearsal corrections are now covered by regression tests:
+
+- Full bootstrap generates `MP_BRIDGE_DB_NAME=mushroomprocess_test` and
+  `MP_BRIDGE_DB_USER=mushroomprocess_test`, matching commerce runtime test guards.
+  The still-empty destination was updated to these names before database import;
+  generated passwords were preserved. Existing populated databases must not be
+  renamed merely by editing environment variables.
+- Noninteractive Compose subprocesses close stdin unless explicit SQL input or a
+  stream was supplied. The native restore initially suspended on background
+  terminal input; it was resumed with `fg` and completed, without a second import
+  or marker reset. Both restore paths now retain SQL stdin and suppress credential
+  arguments in exceptions. Run restore in the foreground or redirect stdin from
+  `/dev/null`; never restart a suspended or partially completed restore blindly.
+
+Recovery regression tests: 15 passed locally. `make commerce-test`: 56 tests,
+55 passed and one PHP-dependent test skipped because local PHP is unavailable;
+CI must execute that adapter test. PR #29 native stopped-volume regression passed
+for both recovery implementations in [Actions run 41142467924](https://github.com/RayzorDuff/RootedOps/actions/runs/41142467924).
+The follow-up branch starts from main `9b0d64ddf0619278caed3fe43e8f351e0989e643`
+and retains PR #30's environment-derived target hostname, including `-test2` support.

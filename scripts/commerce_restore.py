@@ -108,7 +108,10 @@ class Restore:
                         str(environment/'.env'), '-f', str(environment/'compose.yml')]
 
     def dc(self, *args, **kwargs):
-        return subprocess.run(self.compose + list(args), check=True, **kwargs)
+        if 'input' not in kwargs and 'stdin' not in kwargs:kwargs['stdin']=subprocess.DEVNULL
+        try:return subprocess.run(self.compose + list(args), check=True, **kwargs)
+        except subprocess.CalledProcessError:
+            raise RuntimeError('Commerce recovery command failed; inspect private service diagnostics') from None
 
     def ready(self, service):
         for _ in range(120):

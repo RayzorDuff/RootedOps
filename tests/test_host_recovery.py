@@ -32,6 +32,8 @@ class HostRecoveryTests(unittest.TestCase):
  def test_distinct_generated_secrets_and_crypto_shapes(self):
     import base64
     a,b=recovery.environment(),recovery.environment()
+    self.assertEqual(a['MP_BRIDGE_DB_NAME'],'mushroomprocess_test')
+    self.assertEqual(a['MP_BRIDGE_DB_USER'],'mushroomprocess_test')
     passwords=[v for k,v in a.items() if k.endswith('_DB_PASSWORD')]
     self.assertEqual(len(passwords),len(set(passwords)))
     self.assertNotEqual(a['N8N_ENCRYPTION_KEY'],b['N8N_ENCRYPTION_KEY'])
@@ -85,17 +87,35 @@ class HostRecoveryTests(unittest.TestCase):
     self.assertFalse((ROOT/'nginx/grav.conf').exists())
 
 class FullRestoreGuards(unittest.TestCase):
+ def test_noninteractive_commands_close_stdin_without_discarding_sql_input(self):
+    import subprocess
+    from unittest.mock import patch
+    import full_restore,commerce_restore
+    with tempfile.TemporaryDirectory() as directory:
+        path=Path(directory)
+        for full in (True,False):
+            obj=full_restore.Recovery(path/'test',path,['erpnext']) if full else commerce_restore.Restore(path/'test',path,{})
+            with patch.object(subprocess,'run') as run:
+                obj.dc(*(('core','run','--rm') if full else ('run','--rm')))
+                self.assertEqual(run.call_args.kwargs['stdin'],subprocess.DEVNULL)
+                obj.dc(*(('core','exec','-T') if full else ('exec','-T')),input=b'synthetic SQL')
+                self.assertNotIn('stdin',run.call_args.kwargs)
+                self.assertEqual(run.call_args.kwargs['input'],b'synthetic SQL')
+
  def test_compose_failure_does_not_expose_credential_arguments(self):
     import subprocess
     from unittest.mock import patch
-    import full_restore
+    import full_restore,commerce_restore
     with tempfile.TemporaryDirectory() as directory:
-        selected=full_restore.Recovery(Path(directory)/'test',Path(directory),['erpnext'])
         secret='synthetic-private-test-password'
-        with patch.object(full_restore.subprocess,'run',side_effect=subprocess.CalledProcessError(1,['docker','exec','MYSQL_PWD='+secret])):
-            with self.assertRaises(RuntimeError) as caught:selected.dc('core','exec','-e','MYSQL_PWD='+secret)
-        self.assertNotIn(secret,str(caught.exception))
-        self.assertTrue(caught.exception.__suppress_context__)
+        for full in (True,False):
+            path=Path(directory)
+            selected=full_restore.Recovery(path/'test',path,['erpnext']) if full else commerce_restore.Restore(path/'test',path,{})
+            args=('core','exec') if full else ('exec',)
+            with patch.object(subprocess,'run',side_effect=subprocess.CalledProcessError(1,['docker','exec','MYSQL_PWD='+secret])):
+                with self.assertRaises(RuntimeError) as caught:selected.dc(*args,'-e','MYSQL_PWD='+secret)
+            self.assertNotIn(secret,str(caught.exception))
+            self.assertTrue(caught.exception.__suppress_context__)
 
  def test_redaction_acknowledgement_never_ignores_missing_or_changed_payloads(self):
     import hashlib

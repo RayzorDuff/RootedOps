@@ -118,6 +118,7 @@ class Recovery:
     expected={('db/' if name.endswith('.sql.gz') else 'volumes/')+name for name in self.selected_files}
     if not verified or not expected<=seen:raise ValueError('Selected payload missing from checksum manifest')
  def dc(self,project,*args,**kw):
+    if 'input' not in kw and 'stdin' not in kw:kw['stdin']=subprocess.DEVNULL
     try:return subprocess.run(self.commands[project]+list(args),check=True,**kw)
     except subprocess.CalledProcessError:
         # Compose exec arguments may contain generated DB credentials. Never put
