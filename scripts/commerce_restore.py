@@ -123,7 +123,7 @@ class Restore:
         raise RuntimeError(f'Database readiness timed out: {service}')
 
     def volume(self, service, destination, archive):
-        self.dc('create', '--no-deps', service)
+        self.dc('up', '--no-start', '--no-deps', service)
         cid = self.dc('ps', '-a', '-q', service, capture_output=True, text=True).stdout.strip()
         mounts = json.loads(subprocess.run(['docker', 'inspect', '--format', '{{json .Mounts}}', cid],
                                          capture_output=True, text=True, check=True).stdout)
@@ -131,7 +131,7 @@ class Restore:
         if len(matches) != 1 or not matches[0]['Name'].startswith('commerce-test_'):
             raise ValueError('Unexpected restore volume')
         # Fresh project only; never remove existing data silently.
-        subprocess.run(['docker', 'run', '--rm', '-v', matches[0]['Name']+':/target',
+        subprocess.run(['docker', 'run', '--rm', '--network', 'none', '-v', matches[0]['Name']+':/target',
                         '-v', str(self.backup/'volumes')+':/backup:ro', 'alpine:3.20',
                         'sh', '-ec', 'test -z "$(ls -A /target)" || { echo "Target volume is not empty" >&2; exit 1; }; tar -xzf "/backup/$1" -C /target',
                         'restore', archive], check=True)

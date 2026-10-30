@@ -619,3 +619,27 @@ is not database/application acceptance. No production env was parsed. Original
 hashes for all remaining backup files verified with exactly the two documented
 secret-metadata omissions. MP/ERP selected restore preflight is now being exercised;
 Appsmith/n8n credential restoration remains deferred without keys-only input.
+
+### First native restore preparation failure
+
+Selected restore check-only passed on the new host. The first actual attempt then
+failed immediately with `unknown flag: --no-deps`: this Compose version does not
+support that flag on `create`. No containers/volumes or database data were created;
+the failure marker/log remain preserved pending inspection. Do not call that
+attempt a restored database or erase an uncertain partial restore.
+
+The corrected volume preparation uses `up --no-start --no-deps SERVICE`; it creates
+the selected stopped container without starting dependencies or application code.
+The tar helper runs with `--network none`. Both the full/selected and legacy commerce
+paths now use this supported command. Native CI `scripts/restore_volume_ci.py`
+restores exact synthetic file bytes through both implementations, asserts the
+application remains in `created` state and its dependency is not created, and
+cleans only its guarded fresh fixture projects. Do not run that CI fixture on the
+staging/restored database host.
+
+A retry on the existing prepared environment is appropriate only after explicit
+inspection proves that this attempt performed no data/container/volume mutations.
+Archive the original failure marker/log as attempt evidence, keep the generated
+credentials/configuration, revalidate the empty destination and then rerun with
+the corrected tested revision. A genuine partially restored data set still requires
+the documented separate recovery decision rather than this no-op preparation case.

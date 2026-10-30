@@ -174,12 +174,12 @@ class Recovery:
     for path in self.bind_archives():
         subprocess.run(['bash','-c','source "$1"; validate_volume_archive "$2"','preflight',str(ROOT/'backup/volume-tools.sh'),str(path)],check=True)
  def volume(self,project,service,destination,archive):
-    self.dc(project,'create','--no-deps',service)
+    self.dc(project,'up','--no-start','--no-deps',service)
     cid=self.dc(project,'ps','-a','-q',service,capture_output=True,text=True).stdout.strip()
     mounts=json.loads(subprocess.check_output(['docker','inspect','-f','{{json .Mounts}}',cid],text=True))
     matches=[m for m in mounts if m['Type']=='volume' and (m['Destination']==destination if destination else m['Destination'].startswith('/var/lib/postgresql'))]
     if len(matches)!=1:raise ValueError('Ambiguous target volume')
-    subprocess.run(['docker','run','--rm','-v',matches[0]['Name']+':/target','-v',str(self.backup/'volumes')+':/backup:ro','alpine:3.20','sh','-ec',
+    subprocess.run(['docker','run','--rm','--network','none','-v',matches[0]['Name']+':/target','-v',str(self.backup/'volumes')+':/backup:ro','alpine:3.20','sh','-ec',
      'find /target -mindepth 1 -maxdepth 1 -exec rm -rf {} +; tar -xzf "/backup/$1" -C /target','restore',archive],check=True)
  def sql(self,project,file,args):
     with gzip.open(self.backup/'db'/file,'rb') as f:
