@@ -170,11 +170,19 @@ def _build_entry(*, account_name: str, routing_number: str, account_number: str,
     if len(prefix) != 8:
         raise ValueError("ODFI Identification must be 8 digits")
     trace = f"{prefix}{trace_sequence:07d}"
+    try:
+        receiver_id = _text_field(individual_id, 15)
+    except ValueError as exc:
+        raise ValueError(f"Individual Identification: {exc}") from exc
+    try:
+        receiver_name = _text_field(account_name, 22)
+    except ValueError as exc:
+        raise ValueError(f"Receiving Name: {exc}") from exc
     return _record([
         "6", transaction, routing[:8], routing[8], _field(account, 17),
         _field(cents, 10, align="right", fill="0"),
-        _text_field(individual_id, 15),
-        _text_field(account_name, 22),
+        receiver_id,
+        receiver_name,
         "00", "0", _field(trace, 15),
     ])
 
