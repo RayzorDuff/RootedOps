@@ -288,15 +288,15 @@ class Recovery:
     env=read_env(self.output/'.env')
     if not resume_test2:
         source=self.encryption_source()
-    keys=set(LOCAL_KEYS) if self.components is None else set().union(*(COMPONENT_KEYS.get(c,set()) for c in self.components))
-    env.update({k:source[k] for k in keys if source.get(k)})
-    # Preserve local database passwords required by restored service configuration.
-    if self.components is None:
-        env.update({k:source[k] for k in env if k.endswith(('_DB_PASSWORD','_DB_ROOT_PASSWORD')) and source.get(k)})
-    write_env(self.output/'.env',env)
+        keys=set(LOCAL_KEYS) if self.components is None else set().union(*(COMPONENT_KEYS.get(c,set()) for c in self.components))
+        env.update({k:source[k] for k in keys if source.get(k)})
+        # Preserve local database passwords required by restored service configuration.
+        if self.components is None:
+            env.update({k:source[k] for k in env if k.endswith(('_DB_PASSWORD','_DB_ROOT_PASSWORD')) and source.get(k)})
+        write_env(self.output/'.env',env)
     # Raw Rallly clusters must retain their PostgreSQL major and encryption/storage keys.
     rallly_archive=self.backup/'volumes/rallly-selfhosted_db-data.tgz'
-    if self.selected(rallly_archive.name) and rallly_archive.exists():
+    if not resume_test2 and self.selected(rallly_archive.name) and rallly_archive.exists():
         with tarfile.open(rallly_archive) as archive:
             # PostgreSQL 18 official images store clusters under 18/docker/.
             # Ignore per-database PG_VERSION files in base/*.
