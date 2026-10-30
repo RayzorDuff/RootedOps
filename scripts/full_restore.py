@@ -255,8 +255,11 @@ class Recovery:
         sql="SET sql_mode='NO_BACKSLASH_ESCAPES'; CREATE DATABASE `"+db+"`; CREATE USER '"+db+"'@'%' IDENTIFIED BY '"+password.replace("'","''")+"'; GRANT ALL ON `"+db+"`.* TO '"+db+"'@'%';"
         self.dc('core','exec','-T','-e','MYSQL_PWD='+env['ERPNEXT_DB_ROOT_PASSWORD'],'erpnext-db','mariadb','-uroot',input=sql.encode())
         self.sql('core',erp.name,['exec','-T','-e','MYSQL_PWD='+env['ERPNEXT_DB_ROOT_PASSWORD'],'erpnext-db','mariadb','-uroot','--one-database',db])
-        script="import json,pathlib,sys;s=pathlib.Path('sites');p=s/sys.argv[1];q=s/'erp-test.danks.store';p.rename(q) if p!=q else None;f=q/'site_config.json';c=json.loads(f.read_text());c.update(db_host='erpnext-db',db_user=c['db_name'],host_name='https://erp-test.danks.store',maintenance_mode=1,pause_scheduler=1);f.write_text(json.dumps(c));f.chmod(0o600)"
-        self.dc('core','run','--rm','--no-deps','--entrypoint','python','erpnext-backend','-c',script,source_site)
+        target_site=env['ERPNEXT_SITE_NAME']
+        if not re.fullmatch(r'[a-zA-Z0-9.-]+',target_site):raise ValueError('Invalid test ERP hostname')
+        if target_site==source_site:raise ValueError('Source ERP hostname must differ from test hostname')
+        script="import json,pathlib,sys;s=pathlib.Path('sites');p=s/sys.argv[1];q=s/sys.argv[2];p.rename(q) if p!=q else None;f=q/'site_config.json';c=json.loads(f.read_text());c.update(db_host='erpnext-db',db_user=c['db_name'],host_name='https://'+sys.argv[2],maintenance_mode=1,pause_scheduler=1);f.write_text(json.dumps(c));f.chmod(0o600)"
+        self.dc('core','run','--rm','--no-deps','--entrypoint','python','erpnext-backend','-c',script,source_site,target_site)
         restored.append(erp.name)
     # Preserve all bind archives privately, never activate backed-up production NGINX.
     quarantine=self.output/'restored-bind-mounts';quarantine.mkdir(mode=0o700)
