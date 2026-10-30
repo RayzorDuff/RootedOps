@@ -90,6 +90,16 @@ def transform(config,source, project):
     config.pop('x-erpnext-image',None)
     config['networks']={'default':{'internal':True}}
     for name,service in list(config['services'].items()):
+        # Compose may tokenize multiline initializer commands during rendering.
+        # Bash must receive the entire script as its single -lc argument.
+        if name in ('erpnext-apps-init','erpnext-configurator'):
+            if service.get('entrypoint')!=['bash','-lc']:
+                raise ValueError('Unexpected ERP initializer entrypoint: '+name)
+            cmd=service.get('command')
+            if not isinstance(cmd,list) or len(cmd)!=1 or not isinstance(cmd[0],str):
+                raise ValueError('Expected one ERP initializer script: '+name)
+            service['entrypoint']=['bash','-lc',cmd[0]]
+            service['command']=[]
         service.pop('container_name',None)
         service.pop('labels',None)
         if isinstance(service.get('environment'),dict):
@@ -210,8 +220,13 @@ def validate(output):
         subprocess.run(command(env,path,profiles)+['config','--quiet'],check=True)
         resolved=json.loads(subprocess.check_output(command(env,path,profiles)+['config','--format','json']))
         for service in resolved['services'].values():
-            if service.get('entrypoint')==['bash','-lc'] and len(service.get('command',[]))!=1:
-                raise ValueError('Shell initializer must receive exactly one script argument')
+            entrypoint=service.get('entrypoint') or []
+            if entrypoint[:2]==['bash','-lc']:
+                # Accepted forms: one shell script in argv[2] with no command,
+                # or a two-item entrypoint with a one-element command.
+                cmd=service.get('command',[])
+                valid=(len(entrypoint)==3 and isinstance(entrypoint[2],str) and not cmd) or (len(entrypoint)==2 and len(cmd)==1)
+                if not valid:raise ValueError('Shell initializer must receive exactly one script argument')
             for port in service.get('ports',[]):
                 key=(port.get('protocol','tcp'),port['published'])
                 if key in used:raise ValueError('Duplicate host port: '+str(key))
