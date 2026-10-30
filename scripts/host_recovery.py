@@ -220,7 +220,7 @@ def validate(output):
         subprocess.run(command(env,path,profiles)+['config','--quiet'],check=True)
         resolved=json.loads(subprocess.check_output(command(env,path,profiles)+['config','--format','json']))
         for service in resolved['services'].values():
-            entrypoint=service.get('entrypoint',[])
+            entrypoint=service.get('entrypoint') or []
             if entrypoint[:2]==['bash','-lc']:
                 # Accepted forms: one shell script in argv[2] with no command,
                 # or a two-item entrypoint with a one-element command.
