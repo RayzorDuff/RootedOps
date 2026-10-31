@@ -731,3 +731,56 @@ sudo docker compose --env-file "$cfg/.env" -f "$cfg/core.yml" run --rm --no-deps
 These commands prepare files/cache only. Commerce install/migrate, catalog/order
 acceptance, TLS, browser E2E and payment acceptance must still be recorded from
 their actual results; none follows from the initializer's success alone.
+
+### ERP health and closed TLS acceptance (2026-10-31)
+
+The post-install native Frappe probe passed: all six apps are installed, eight
+commerce DocTypes exist, and Item, Item Price, Customer, Sales Order, Sales Invoice,
+Payment Entry, Contact and Address counts match the private pre-migration baseline.
+Email, Webhook and Notification enable flags remain zero; maintenance and scheduler
+pause remain enabled. Run Python probes with the bench virtualenv interpreter and
+`os.chdir('/home/frappe/frappe-bench/sites')` before `frappe.init(site=...)`.
+The earlier missing `/home/frappe/logs/database.log` exception was a probe working
+directory error, not evidence of failed database recovery. Private evidence:
+`erp-migration-acceptance.json`. No tests or synthetic accounting postings were run
+against historical ERP records.
+
+Both Cloudflare authorities and public resolvers were rechecked for the four
+commerce test domains. A webroot ACME certificate covers erp-test, appsmith-test,
+n8n-test and shop-test.danks.store; verified HTTPS requests to all four return 403.
+Certbot renewal dry-run passed. NGINX configuration validation and a renewal deploy
+hook (`nginx -t` followed by reload) passed. No application proxy/setup interface
+was published. Private evidence: `tls-acceptance.json`. This does not authorize
+removing the access gate or attaching unrestricted Docker egress.
+
+The fresh Dank shop has no corresponding archive in this snapshot; use a fresh
+synthetic installation, never the Rooted Psyche WordPress backup. The new
+`scripts/commerce_wordpress_offline.py` consumes the existing private `dank.yml`,
+requires a fresh dedicated project and verified WooCommerce ZIP, and mounts a
+staging-only isolation plugin. It refuses production hostnames, public ports,
+external networks/volumes and archive drift before starting containers. Cron,
+automatic updates, external HTTP, email delivery and all checkout gateways stay
+disabled. WordPress 7.1.4 and WooCommerce 11.2.1 match the reviewed official
+[WordPress release](https://wordpress.org/news/2026/10/wordpress-7-1-4/) and
+[WooCommerce release](https://developer.woocommerce.com/2026/10/09/woocommerce-11-2-1-release-notes/).
+
+Download the official plugin ZIP on the host, record/review its SHA256, then use:
+
+```sh
+sudo python3 scripts/commerce_wordpress_offline.py "$PWD/.test-deployment" \
+  /PRIVATE/woocommerce.11.2.1.zip --sha256 REVIEWED_ARCHIVE_SHA256
+```
+
+Pull the reviewed images before running; internal app networks cannot download
+packages. The installer adds a private Compose override at
+`private/wordpress-offline.yml`. Include this override in every later shop/CLI
+command. Credentials and acceptance receipts stay private. Existing containers,
+volumes or installation credentials cause refusal; on failure the application
+stops and evidence remains for inspection rather than silent reinstallation.
+No Clover credentials, merchant enrollment or real payments are involved.
+
+Offline checks at this checkpoint: 16 recovery tests passed; commerce suite ran
+60 tests (59 passed, one local PHP skip). Native shop acceptance and image digests
+must be recorded after actual execution. Appsmith browser proof, reviewed catalog
+parity, integrated order/fulfillment/refund tests and Clover sandbox acceptance
+remain outstanding. Restoration/TLS success alone is not cutover approval.
