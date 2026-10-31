@@ -830,3 +830,50 @@ prices/categories/reviewed no-tax behavior, SEO metadata, stock drift correction
 and ownership refusal. It never changes ERP/MP data, publishes products, transfers
 media or executes checkout. Its receipt must be recorded after actual execution;
 this command is not evidence of restored-catalog parity or financial reconciliation.
+
+### Native catalog, media and SEO results
+
+Synthetic catalog proof passed at `def0dbbd2ca5dc74bfbbd1e758fb30ad3585eb6a`;
+native media/SEO proof passed at `8e7bb7d2a11851fb94ba00ce407b5ba9d6fd309b`.
+Both scripts passed again against the same shop, retaining the same product,
+variation and image IDs. Verified draft-only simple/variable upserts, separate
+variation SKUs, price/category/no-tax fixture projection, SEO metadata, stock
+drift correction and unowned-target refusal. A deterministic 24x24 PNG was uploaded
+through the authenticated WordPress media API and linked by image ID in WooCommerce.
+The installed SEO adapter returned expected values through core/Yoast-compatible
+hooks and emitted the escaped native description tag. **Yoast itself is absent;
+no browser-rendered product page or live checkout was tested.** ERP media transfer,
+actual restored catalog parity and real tax policy remain acceptance gates.
+
+Reproduce after checking protected ingress and the private installation receipts:
+
+```sh
+sudo python3 scripts/commerce_staging_ingress.py "$PWD/.test-deployment" --apply
+sudo python3 scripts/commerce_woo_native_smoke.py "$PWD/.test-deployment"
+sudo python3 scripts/commerce_woo_media_smoke.py "$PWD/.test-deployment"
+```
+
+The ingress helper checks the exact running app/project, reviewed image ID and sole
+internal network, refreshes the host upstream and validates/reloads NGINX. It
+restores the prior configuration on validation/reload failure. It adds no Docker
+egress and leaves root/admin/setup pages closed; only authenticated shop Woo API
+and exact media-upload routes are forwarded. Run it after every WordPress
+container recreation. Fresh offline installs include both staging isolation and
+SEO must-use plugins. No restoration or credential regeneration is needed.
+
+Native pulled image references:
+
+| Component | Image manifest digest |
+| --- | --- |
+| WordPress 7.1.4 / PHP 8.3 Apache | `wordpress@sha256:12ec50e21cb81a5ea964669d434578b7da4a101a45aef83f5f1c2227bcd1b058` |
+| WordPress CLI / PHP 8.3 | `wordpress@sha256:6bcc7bb91f5157c4b915e74ee131873e99c1c1ff48f602e4a6f6cd17827305cb` |
+| Dedicated shop MariaDB 11.4 | `mariadb@sha256:d1891ede5a559f1086f55053bb8cc1569b0298338c4d72d71725a7f74f6ba620` |
+
+Private receipts: `private/woo-native-smoke.json`, `private/woo-native-media.json`,
+`private/woo-native-media-seo.json`. Do not publish credentials or private source
+exports as CI artifacts. Original Ecwid product/order CSVs were located and passed
+private identity/SKU preflight; the plan is explicitly review-only with an
+unconfirmed store namespace. Currency, authoritative store/customer/line identities,
+variant completeness, full galleries, tax mappings and export completeness still
+need review/enrichment. No source catalog, customer or historical financial records
+were applied. The synthetic native proof does not satisfy those source-data gates.

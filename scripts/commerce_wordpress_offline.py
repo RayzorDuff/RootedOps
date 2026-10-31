@@ -83,6 +83,9 @@ def bootstrap(environment, archive, digest):
     mu.mkdir(mode=0o755, exist_ok=True)
     (mu/'rootedops-staging.php').write_text(ISOLATION)
     (mu/'rootedops-staging.php').chmod(0o644)
+    seo=Path(__file__).resolve().parents[1]/'wordpress/rootedops-commerce/rootedops-commerce.php'
+    (mu/'rootedops-commerce-seo.php').write_bytes(seo.read_bytes())
+    (mu/'rootedops-commerce-seo.php').chmod(0o644)
     extra = config['services']['dank-wordpress'].get('environment', {}).get('WORDPRESS_CONFIG_EXTRA', '')
     extra += "\ndefine('DISABLE_WP_CRON', true);\ndefine('WP_HTTP_BLOCK_EXTERNAL', true);\ndefine('AUTOMATIC_UPDATER_DISABLED', true);\n"
     services = {}
