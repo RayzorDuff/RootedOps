@@ -9,6 +9,29 @@ sys.path.insert(0,str(ROOT/'scripts'))
 import host_recovery as recovery
 
 class HostRecoveryTests(unittest.TestCase):
+ def test_all_required_compose_variables_have_example_definitions(self):
+    import re
+    required=set(re.findall(r'\$\{([A-Z][A-Z0-9_]*)\}',(ROOT/'docker/docker-compose.yml').read_text()))
+    self.assertEqual(required-set(recovery.template()),set())
+
+ def test_test2_public_urls_do_not_point_at_other_test_environment(self):
+    from unittest.mock import patch
+    hosts=recovery.hosts_for_suffix('-test2')
+    with patch.dict(recovery.HOSTS,hosts,clear=True):
+        env=recovery.environment()
+    for key,service in {'NC_PUBLIC_URL':'nocodb','ERPNEXT_PUBLIC_URL':'erpnext',
+        'DOCUMENSO_PUBLIC_URL':'documenso','LISTMONK_PUBLIC_URL':'listmonk',
+        'LIBRECHAT_PUBLIC_URL':'librechat','LIBRECHAT_KIDS_PUBLIC_URL':'kids-ai'}.items():
+        self.assertEqual(env[key],'https://'+hosts[service])
+    for key in ('WEBHOOK_URL','N8N_EDITOR_BASE_URL'):
+        self.assertEqual(env[key],'https://'+hosts['n8n']+'/')
+    for key in ('MP_APP_LOTS_URL','MP_APP_PRODUCTS_URL'):
+        self.assertTrue(env[key].startswith('https://'+hosts['appsmith']+'/app/'))
+    self.assertEqual(env['MINECRAFT_BEDWARS_HOST'],'minecraft-test2.danks.store')
+    self.assertEqual(env['DOCUMENSO_PRIVATE_URL'],'http://documenso:3000')
+    self.assertEqual(env['NOCODB_PRIVATE_URL'],'http://nocodb:8080')
+    self.assertEqual(env['LISTMONK_PRIVATE_URL'],'http://listmonk:9000/api')
+
  def test_erp_shell_initializers_receive_one_complete_script(self):
     import yaml,subprocess
     config=yaml.safe_load((ROOT/'docker/docker-compose.yml').read_text())
