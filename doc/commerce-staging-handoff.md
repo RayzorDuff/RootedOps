@@ -877,3 +877,44 @@ unconfirmed store namespace. Currency, authoritative store/customer/line identit
 variant completeness, full galleries, tax mappings and export completeness still
 need review/enrichment. No source catalog, customer or historical financial records
 were applied. The synthetic native proof does not satisfy those source-data gates.
+
+### SignatureGate preparation and Clover review checkpoint
+
+SignatureGate main `40e752f8d73057bf670edb8785772814d74d1998` passed local
+validate/release checks, three harness guard tests and discovery of its two browser
+journeys. A separate fresh `signaturegate-e2e` project was prepared on staging:
+PostgreSQL 16, Appsmith CE 2.4.2 and pinned Playwright 1.64.1 runner. Its private
+`signaturegate-e2e/images.json` records actual pulled digests. Runner dependencies
+installed, and `database.mjs reset`, `database.mjs check` and `database.test.mjs`
+all exited 0 against only the dedicated synthetic `signaturegate_e2e` database.
+Restored operational databases and production accounts were not reset or reused.
+
+**No authenticated Appsmith browser journey has passed.** First setup inspection
+was inconclusive and console administration needs renewal before diagnosis can
+finish. Use a bounded browser probe with unconditional browser close, an outer
+process timeout and a named disposable runner that can be stopped independently.
+Do not reboot or stop restored database services to recover a browser probe.
+Next: inspect actual setup/labels, create purpose-built test accounts, import the
+reviewed clone, rebind all datasources/actions, isolate external services, then run
+the real login/navigation/cash journeys twice with backend/audit assertions and
+private traces/screenshots. SignatureGate #27 remains post-v1.2.0; MushroomProcess
+#109 stays blocked on that reliable proof. Containers/seed success is not UI proof.
+
+RootedOps [PR #42](https://github.com/RayzorDuff/RootedOps/pull/42) contains the
+independent read-only Clover sandbox evidence adapter and gateway compatibility
+review (`doc/clover-sandbox-evidence.md` after merge). It preserves durable inbox
+payloads and requires a reviewed numeric-ID/display-number crosswalk. No Clover
+API request, plugin activation, merchant settings change or payment was executed.
+Merchant credentials, actual response shape, HPOS/checkout, refunds/settlements and
+post-Ecwid entitlements remain acceptance gates. Native commerce/recovery CI passed
+for PR #41 at `b35fb89cf86418df35dfe7ba429736d6ff5e6839` and sandbox-contract
+CI passed for PR #42 at `436bfbfa1b37d53947e6b4cb7a699ce338d1cce0`:
+
+- [Staging native integration](https://github.com/RayzorDuff/RootedOps/actions/runs/41216607630)
+- [Staging recovery](https://github.com/RayzorDuff/RootedOps/actions/runs/41216607624)
+- [Sandbox native integration](https://github.com/RayzorDuff/RootedOps/actions/runs/41217923159)
+- [Sandbox recovery](https://github.com/RayzorDuff/RootedOps/actions/runs/41217922960)
+
+These results remain separate from final staging order-lifecycle and cutover
+acceptance. Ecwid stays active; production deployment, live payment, subscription
+changes and MushroomProcess production-branch retirement remain unauthorized.
