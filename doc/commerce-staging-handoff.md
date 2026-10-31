@@ -784,3 +784,49 @@ Offline checks at this checkpoint: 16 recovery tests passed; commerce suite ran
 must be recorded after actual execution. Appsmith browser proof, reviewed catalog
 parity, integrated order/fulfillment/refund tests and Clover sandbox acceptance
 remain outstanding. Restoration/TLS success alone is not cutover approval.
+
+### Native fresh-shop installation and ingress limitation
+
+At `cfdf6a8129e81b50274f7fd4131b57cf4ef20fa5`, the offline installer completed
+successfully on the isolated staging host. WordPress 7.1.4 and WooCommerce 11.2.1
+initialized from the official ZIP with SHA256
+`5317434cb381b5fdc7c1dd6ee258324f08c390976aaf8d1199f2a0e9a3ab8586`.
+The private receipt verifies disabled cron, blocked HTTP/email and zero enabled
+payment gateways. Only the dedicated Dank database/HTML volumes were created;
+Rooted Psyche was not restored or started. `shop-input-receipt.json` records pulled
+image IDs/digests; `private/wordpress-offline-receipt.json` records installation.
+CI passed at this revision: [commerce](https://github.com/RayzorDuff/RootedOps/actions/runs/41214204153),
+[recovery](https://github.com/RayzorDuff/RootedOps/actions/runs/41214204152),
+and [native integration](https://github.com/RayzorDuff/RootedOps/actions/runs/41214204140).
+
+Docker accepted the loopback publication but the running internal-only WordPress
+container reports `80/tcp: null`; the first authenticated HTTPS API request returned
+502 because no loopback listener existed. Do not fix this by attaching restored
+applications to an unrestricted network. Docker documents host access to bridge
+container addresses; its maintainers also explain the internal-only publication
+behavior in [moby discussion 53256](https://github.com/moby/moby/discussions/53256).
+For this Linux rehearsal, host NGINX now uses the inspected private WordPress
+address after verifying its Compose project and sole internal network. No
+container egress was added. **Refresh this upstream after WordPress container
+recreation**, before testing requests; the address is not a stable deployment ID.
+Private `shop-upstream-receipt.json` records container identity and refresh need.
+Durable automatic upstream refresh remains a deployment acceptance dependency.
+
+Only the shop hostname's `/wp-json/wc/v3/` route is proxied, and requests lacking
+Authorization return 401. WordPress validates supplied application passwords;
+an Authorization header alone does not grant access. Root/admin/setup paths
+remain 403, as does the same API path under the ERP hostname. Credentials are
+held only in the private test credential file. These access checks passed before
+catalog writes. This is an API-only rehearsal, not browser/checkout acceptance.
+
+After authenticated API readiness, exercise synthetic draft catalog behavior:
+
+```sh
+sudo python3 scripts/commerce_woo_native_smoke.py "$PWD/.test-deployment"
+```
+
+The fixture tests simple/variable product upserts, separate SKU/variation identities,
+prices/categories/reviewed no-tax behavior, SEO metadata, stock drift correction
+and ownership refusal. It never changes ERP/MP data, publishes products, transfers
+media or executes checkout. Its receipt must be recorded after actual execution;
+this command is not evidence of restored-catalog parity or financial reconciliation.
