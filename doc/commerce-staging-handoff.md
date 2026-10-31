@@ -731,3 +731,190 @@ sudo docker compose --env-file "$cfg/.env" -f "$cfg/core.yml" run --rm --no-deps
 These commands prepare files/cache only. Commerce install/migrate, catalog/order
 acceptance, TLS, browser E2E and payment acceptance must still be recorded from
 their actual results; none follows from the initializer's success alone.
+
+### ERP health and closed TLS acceptance (2026-10-31)
+
+The post-install native Frappe probe passed: all six apps are installed, eight
+commerce DocTypes exist, and Item, Item Price, Customer, Sales Order, Sales Invoice,
+Payment Entry, Contact and Address counts match the private pre-migration baseline.
+Email, Webhook and Notification enable flags remain zero; maintenance and scheduler
+pause remain enabled. Run Python probes with the bench virtualenv interpreter and
+`os.chdir('/home/frappe/frappe-bench/sites')` before `frappe.init(site=...)`.
+The earlier missing `/home/frappe/logs/database.log` exception was a probe working
+directory error, not evidence of failed database recovery. Private evidence:
+`erp-migration-acceptance.json`. No tests or synthetic accounting postings were run
+against historical ERP records.
+
+Both Cloudflare authorities and public resolvers were rechecked for the four
+commerce test domains. A webroot ACME certificate covers erp-test, appsmith-test,
+n8n-test and shop-test.danks.store; verified HTTPS requests to all four return 403.
+Certbot renewal dry-run passed. NGINX configuration validation and a renewal deploy
+hook (`nginx -t` followed by reload) passed. No application proxy/setup interface
+was published. Private evidence: `tls-acceptance.json`. This does not authorize
+removing the access gate or attaching unrestricted Docker egress.
+
+The fresh Dank shop has no corresponding archive in this snapshot; use a fresh
+synthetic installation, never the Rooted Psyche WordPress backup. The new
+`scripts/commerce_wordpress_offline.py` consumes the existing private `dank.yml`,
+requires a fresh dedicated project and verified WooCommerce ZIP, and mounts a
+staging-only isolation plugin. It refuses production hostnames, public ports,
+external networks/volumes and archive drift before starting containers. Cron,
+automatic updates, external HTTP, email delivery and all checkout gateways stay
+disabled. WordPress 7.1.4 and WooCommerce 11.2.1 match the reviewed official
+[WordPress release](https://wordpress.org/news/2026/10/wordpress-7-1-4/) and
+[WooCommerce release](https://developer.woocommerce.com/2026/10/09/woocommerce-11-2-1-release-notes/).
+
+Download the official plugin ZIP on the host, record/review its SHA256, then use:
+
+```sh
+sudo python3 scripts/commerce_wordpress_offline.py "$PWD/.test-deployment" \
+  /PRIVATE/woocommerce.11.2.1.zip --sha256 REVIEWED_ARCHIVE_SHA256
+```
+
+Pull the reviewed images before running; internal app networks cannot download
+packages. The installer adds a private Compose override at
+`private/wordpress-offline.yml`. Include this override in every later shop/CLI
+command. Credentials and acceptance receipts stay private. Existing containers,
+volumes or installation credentials cause refusal; on failure the application
+stops and evidence remains for inspection rather than silent reinstallation.
+No Clover credentials, merchant enrollment or real payments are involved.
+
+Offline checks at this checkpoint: 16 recovery tests passed; commerce suite ran
+60 tests (59 passed, one local PHP skip). Native shop acceptance and image digests
+must be recorded after actual execution. Appsmith browser proof, reviewed catalog
+parity, integrated order/fulfillment/refund tests and Clover sandbox acceptance
+remain outstanding. Restoration/TLS success alone is not cutover approval.
+
+### Native fresh-shop installation and ingress limitation
+
+At `cfdf6a8129e81b50274f7fd4131b57cf4ef20fa5`, the offline installer completed
+successfully on the isolated staging host. WordPress 7.1.4 and WooCommerce 11.2.1
+initialized from the official ZIP with SHA256
+`5317434cb381b5fdc7c1dd6ee258324f08c390976aaf8d1199f2a0e9a3ab8586`.
+The private receipt verifies disabled cron, blocked HTTP/email and zero enabled
+payment gateways. Only the dedicated Dank database/HTML volumes were created;
+Rooted Psyche was not restored or started. `shop-input-receipt.json` records pulled
+image IDs/digests; `private/wordpress-offline-receipt.json` records installation.
+CI passed at this revision: [commerce](https://github.com/RayzorDuff/RootedOps/actions/runs/41214204153),
+[recovery](https://github.com/RayzorDuff/RootedOps/actions/runs/41214204152),
+and [native integration](https://github.com/RayzorDuff/RootedOps/actions/runs/41214204140).
+
+Docker accepted the loopback publication but the running internal-only WordPress
+container reports `80/tcp: null`; the first authenticated HTTPS API request returned
+502 because no loopback listener existed. Do not fix this by attaching restored
+applications to an unrestricted network. Docker documents host access to bridge
+container addresses; its maintainers also explain the internal-only publication
+behavior in [moby discussion 53256](https://github.com/moby/moby/discussions/53256).
+For this Linux rehearsal, host NGINX now uses the inspected private WordPress
+address after verifying its Compose project and sole internal network. No
+container egress was added. **Refresh this upstream after WordPress container
+recreation**, before testing requests; the address is not a stable deployment ID.
+Private `shop-upstream-receipt.json` records container identity and refresh need.
+Durable automatic upstream refresh remains a deployment acceptance dependency.
+
+Only the shop hostname's `/wp-json/wc/v3/` route is proxied, and requests lacking
+Authorization return 401. WordPress validates supplied application passwords;
+an Authorization header alone does not grant access. Root/admin/setup paths
+remain 403, as does the same API path under the ERP hostname. Credentials are
+held only in the private test credential file. These access checks passed before
+catalog writes. This is an API-only rehearsal, not browser/checkout acceptance.
+
+After authenticated API readiness, exercise synthetic draft catalog behavior:
+
+```sh
+sudo python3 scripts/commerce_woo_native_smoke.py "$PWD/.test-deployment"
+```
+
+The fixture tests simple/variable product upserts, separate SKU/variation identities,
+prices/categories/reviewed no-tax behavior, SEO metadata, stock drift correction
+and ownership refusal. It never changes ERP/MP data, publishes products, transfers
+media or executes checkout. Its receipt must be recorded after actual execution;
+this command is not evidence of restored-catalog parity or financial reconciliation.
+
+### Native catalog, media and SEO results
+
+Synthetic catalog proof passed at `def0dbbd2ca5dc74bfbbd1e758fb30ad3585eb6a`;
+native media/SEO proof passed at `8e7bb7d2a11851fb94ba00ce407b5ba9d6fd309b`.
+Both scripts passed again against the same shop, retaining the same product,
+variation and image IDs. Verified draft-only simple/variable upserts, separate
+variation SKUs, price/category/no-tax fixture projection, SEO metadata, stock
+drift correction and unowned-target refusal. A deterministic 24x24 PNG was uploaded
+through the authenticated WordPress media API and linked by image ID in WooCommerce.
+The installed SEO adapter returned expected values through core/Yoast-compatible
+hooks and emitted the escaped native description tag. **Yoast itself is absent;
+no browser-rendered product page or live checkout was tested.** ERP media transfer,
+actual restored catalog parity and real tax policy remain acceptance gates.
+
+Reproduce after checking protected ingress and the private installation receipts:
+
+```sh
+sudo python3 scripts/commerce_staging_ingress.py "$PWD/.test-deployment" --apply
+sudo python3 scripts/commerce_woo_native_smoke.py "$PWD/.test-deployment"
+sudo python3 scripts/commerce_woo_media_smoke.py "$PWD/.test-deployment"
+```
+
+The ingress helper checks the exact running app/project, reviewed image ID and sole
+internal network, refreshes the host upstream and validates/reloads NGINX. It
+restores the prior configuration on validation/reload failure. It adds no Docker
+egress and leaves root/admin/setup pages closed; only authenticated shop Woo API
+and exact media-upload routes are forwarded. Run it after every WordPress
+container recreation. Fresh offline installs include both staging isolation and
+SEO must-use plugins. No restoration or credential regeneration is needed.
+
+Native pulled image references:
+
+| Component | Image manifest digest |
+| --- | --- |
+| WordPress 7.1.4 / PHP 8.3 Apache | `wordpress@sha256:12ec50e21cb81a5ea964669d434578b7da4a101a45aef83f5f1c2227bcd1b058` |
+| WordPress CLI / PHP 8.3 | `wordpress@sha256:6bcc7bb91f5157c4b915e74ee131873e99c1c1ff48f602e4a6f6cd17827305cb` |
+| Dedicated shop MariaDB 11.4 | `mariadb@sha256:d1891ede5a559f1086f55053bb8cc1569b0298338c4d72d71725a7f74f6ba620` |
+
+Private receipts: `private/woo-native-smoke.json`, `private/woo-native-media.json`,
+`private/woo-native-media-seo.json`. Do not publish credentials or private source
+exports as CI artifacts. Original Ecwid product/order CSVs were located and passed
+private identity/SKU preflight; the plan is explicitly review-only with an
+unconfirmed store namespace. Currency, authoritative store/customer/line identities,
+variant completeness, full galleries, tax mappings and export completeness still
+need review/enrichment. No source catalog, customer or historical financial records
+were applied. The synthetic native proof does not satisfy those source-data gates.
+
+### SignatureGate preparation and Clover review checkpoint
+
+SignatureGate main `40e752f8d73057bf670edb8785772814d74d1998` passed local
+validate/release checks, three harness guard tests and discovery of its two browser
+journeys. A separate fresh `signaturegate-e2e` project was prepared on staging:
+PostgreSQL 16, Appsmith CE 2.4.2 and pinned Playwright 1.64.1 runner. Its private
+`signaturegate-e2e/images.json` records actual pulled digests. Runner dependencies
+installed, and `database.mjs reset`, `database.mjs check` and `database.test.mjs`
+all exited 0 against only the dedicated synthetic `signaturegate_e2e` database.
+Restored operational databases and production accounts were not reset or reused.
+
+**No authenticated Appsmith browser journey has passed.** First setup inspection
+was inconclusive and console administration needs renewal before diagnosis can
+finish. Use a bounded browser probe with unconditional browser close, an outer
+process timeout and a named disposable runner that can be stopped independently.
+Do not reboot or stop restored database services to recover a browser probe.
+Next: inspect actual setup/labels, create purpose-built test accounts, import the
+reviewed clone, rebind all datasources/actions, isolate external services, then run
+the real login/navigation/cash journeys twice with backend/audit assertions and
+private traces/screenshots. SignatureGate #27 remains post-v1.2.0; MushroomProcess
+#109 stays blocked on that reliable proof. Containers/seed success is not UI proof.
+
+RootedOps [PR #42](https://github.com/RayzorDuff/RootedOps/pull/42) contains the
+independent read-only Clover sandbox evidence adapter and gateway compatibility
+review (`doc/clover-sandbox-evidence.md` after merge). It preserves durable inbox
+payloads and requires a reviewed numeric-ID/display-number crosswalk. No Clover
+API request, plugin activation, merchant settings change or payment was executed.
+Merchant credentials, actual response shape, HPOS/checkout, refunds/settlements and
+post-Ecwid entitlements remain acceptance gates. Native commerce/recovery CI passed
+for PR #41 at `b35fb89cf86418df35dfe7ba429736d6ff5e6839` and sandbox-contract
+CI passed for PR #42 at `436bfbfa1b37d53947e6b4cb7a699ce338d1cce0`:
+
+- [Staging native integration](https://github.com/RayzorDuff/RootedOps/actions/runs/41216607630)
+- [Staging recovery](https://github.com/RayzorDuff/RootedOps/actions/runs/41216607624)
+- [Sandbox native integration](https://github.com/RayzorDuff/RootedOps/actions/runs/41217923159)
+- [Sandbox recovery](https://github.com/RayzorDuff/RootedOps/actions/runs/41217922960)
+
+These results remain separate from final staging order-lifecycle and cutover
+acceptance. Ecwid stays active; production deployment, live payment, subscription
+changes and MushroomProcess production-branch retirement remain unauthorized.
