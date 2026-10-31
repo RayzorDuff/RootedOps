@@ -105,12 +105,12 @@ def reconcile_clover(order, evidence):
         raise ValueError('Order/site evidence mismatch')
     if not order.get('processor_payment_id') or evidence['payment_id'] != order['processor_payment_id']:
         raise ValueError('Exact processor transaction identity required')
-    if evidence['currency'] != order['currency'] or money(evidence['captured_amount']) != money(order['total']):
+    if evidence['currency'] != order['currency'] or Decimal(money(evidence['captured_amount'])) != Decimal(money(order['total'])):
         raise ValueError('Capture currency/amount mismatch')
     if evidence['state'] != 'captured':
         raise ValueError('Authorization/pending/failure is not captured payment')
     refunds = sum(Decimal(money(r['amount'])) for r in order['refunds'])
-    if money(evidence['refunded_amount']) != money(refunds):
+    if Decimal(money(evidence['refunded_amount'])) != refunds:
         raise ValueError('Refund reconciliation mismatch')
     return {'status': 'matched', 'processor': 'clover', 'payment_id': evidence['payment_id'],
             'captured_amount': money(evidence['captured_amount']), 'refunded_amount': money(refunds),
