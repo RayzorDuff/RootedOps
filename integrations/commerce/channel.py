@@ -6,6 +6,7 @@ WooCommerce attribute assignments and parent target ID.
 """
 from ecwid_migrate import api
 from urllib.parse import urlencode
+from staging_origin import staging_origin
 
 
 def draft_payload(record, parent_id=None, attributes=None):
@@ -29,9 +30,7 @@ def draft_payload(record, parent_id=None, attributes=None):
 
 
 def upsert_draft(base_url, authorization, record, parent_id=None, attributes=None, request=api):
-    from urllib.parse import urlsplit, quote
-    if urlsplit(base_url).hostname != 'shop-test.danks.store':
-        raise ValueError('Adapter restricted to shop-test.danks.store')
+    base_url = staging_origin(base_url, 'shop')
     body = draft_payload(record, parent_id, attributes)
     root = base_url.rstrip('/') + '/wp-json/wc/v3/'
     if record.get('expected_currency'):

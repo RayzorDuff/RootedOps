@@ -10,6 +10,7 @@ from pathlib import Path
 from urllib.parse import urlsplit
 from urllib.request import Request, HTTPRedirectHandler, build_opener
 from ecwid_migrate import private_write
+from staging_origin import staging_pair
 
 
 def verified_blob(root, row):
@@ -40,10 +41,7 @@ def upload_request(url,authorization,body,headers):
 
 
 def upload(manifest,blob_dir,receipt_path,erp_url,shop_url,erp_auth,shop_auth,request=upload_request):
-    for url,host in ((erp_url,'erp-test.danks.store'),(shop_url,'shop-test.danks.store')):
-        p=urlsplit(url)
-        if p.scheme!='https' or p.hostname!=host or p.port not in (None,443) or p.username or p.password or p.query or p.fragment or p.path not in ('','/'):
-            raise ValueError('Uploads require exact approved HTTPS staging origins')
+    erp_url,shop_url=staging_pair(erp_url,shop_url)
     verified=[(row,*verified_blob(blob_dir,row)) for row in manifest] # Preflight all files.
     path=Path(receipt_path)
     receipts=json.loads(path.read_text()) if path.exists() else {}

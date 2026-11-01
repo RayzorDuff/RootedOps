@@ -8,6 +8,7 @@ sys.path.insert(0,str(Path(__file__).resolve().parents[1]/'integrations/commerce
 from ecwid_migrate import api
 from channel import upsert_draft
 from commerce_live_sync_smoke import verify_product
+from commerce_staging_targets import targets
 
 
 def run(environment):
@@ -20,7 +21,7 @@ def run(environment):
         raise ValueError('Isolated shop receipt required')
     c=json.loads((private/'wordpress-credentials.json').read_text())
     auth='Basic '+base64.b64encode((c['username']+':'+c['application_password']).encode()).decode()
-    root='https://shop-test.danks.store'
+    root=targets(environment)['shop']
     category=api(root+'/wp-json/wc/v3/products/categories?slug=rootedops-synthetic',auth)
     category=category[0] if category else api(root+'/wp-json/wc/v3/products/categories',auth,'POST',{'name':'RootedOps synthetic','slug':'rootedops-synthetic'})
     def record(suffix,quantity=2):

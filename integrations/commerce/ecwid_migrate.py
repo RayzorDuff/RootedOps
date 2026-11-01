@@ -206,8 +206,10 @@ def main():
         print(json.dumps({'counts': result['counts'], 'errors': result['errors'], 'limitations': result['limitations']}))
         return 1 if result['errors'] else 0
     else:
-        if not args.allow_staging_write or urlsplit(args.base_url).hostname != 'erp-test.danks.store':
-            parser.error('Writes require --allow-staging-write and erp-test.danks.store')
+        from staging_origin import staging_origin
+        if not args.allow_staging_write:parser.error('Writes require --allow-staging-write')
+        try:args.base_url=staging_origin(args.base_url,'erp')
+        except ValueError:parser.error('Approved HTTPS staging origin required')
         apply_erp(json.loads(Path(args.plan).read_text()), args.base_url, os.environ['ERP_AUTHORIZATION'], json.loads(Path(args.item_map).read_text()))
     return 0
 

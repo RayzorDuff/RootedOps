@@ -126,7 +126,11 @@ def deliver_one(inbox, mp_target, erp_target, *, max_attempts=5, retry_seconds=3
 
 
 class PostgresInventory:
-    def __init__(self,connect):self.connect=connect
+    def __init__(self,connect,erp_site='erp-test.danks.store'):
+        from staging_origin import staging_origin
+        from urllib.parse import urlsplit
+        self.erp_site=urlsplit(staging_origin('https://'+erp_site,'erp')).hostname
+        self.connect=connect
     def __call__(self,event):
         with self.connect() as db:
             status=db.execute('SELECT public.mp_commerce_ingest(%s::jsonb)',(json.dumps(event),)).fetchone()[0]
@@ -135,7 +139,7 @@ class PostgresInventory:
 
     def link_erp(self,event,receipt):
         payload={k:event[k] for k in ('provider','site_key','external_order_id')}
-        payload.update(erp_site='erp-test.danks.store',sales_order=receipt['sales_order'],
+        payload.update(erp_site=self.erp_site,sales_order=receipt['sales_order'],
                        sales_invoice=receipt.get('sales_invoice'),payment_entry=receipt.get('payment_entry'))
         with self.connect() as db:
             return db.execute('SELECT public.mp_commerce_link_erp(%s::jsonb)',(json.dumps(payload),)).fetchone()[0]
@@ -144,11 +148,8 @@ class PostgresInventory:
 class ReviewedERP:
     """Transport adapter: order-specific commercial draft must be reviewed first."""
     def __init__(self,base,authorization,approved,request):
-        from urllib.parse import urlsplit
-        p=urlsplit(base)
-        if p.scheme!='https' or p.hostname!='erp-test.danks.store' or p.username or p.password or p.port not in (None,443):
-            raise ValueError('ERP adapter requires approved staging origin')
-        self.base=base.rstrip('/');self.authorization=authorization;self.approved=approved;self.request=request
+        from staging_origin import staging_origin
+        self.base=staging_origin(base,'erp');self.authorization=authorization;self.approved=approved;self.request=request
     def __call__(self,event,mp_receipt):
         key='|'.join([event['provider'],event['site_key'],event['external_order_id']])
         draft=self.approved[key]

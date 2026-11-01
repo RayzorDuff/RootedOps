@@ -11,6 +11,7 @@ import zlib
 sys.path.insert(0,str(Path(__file__).resolve().parents[1]/'integrations/commerce'))
 from ecwid_migrate import api
 from media_upload import upload_request
+from commerce_staging_targets import targets
 
 
 def fixture_png():
@@ -27,7 +28,7 @@ def run(environment):
     if baseline.get('fixture_only') is not True:raise ValueError('Synthetic catalog receipt required')
     c=json.loads((private/'wordpress-credentials.json').read_text())
     auth='Basic '+base64.b64encode((c['username']+':'+c['application_password']).encode()).decode()
-    root='https://shop-test.danks.store';blob=fixture_png();sha=hashlib.sha256(blob).hexdigest()
+    root=targets(p)['shop'];blob=fixture_png();sha=hashlib.sha256(blob).hexdigest()
     receipt=private/'woo-native-media.json'
     old=json.loads(receipt.read_text()) if receipt.exists() else None
     found=api(root+'/wp-json/wp/v2/media?slug=rootedops-synthetic-fixture',auth)

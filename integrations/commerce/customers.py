@@ -1,12 +1,11 @@
 """Exact-source Woo customer identity adapter; staging mail sink is mandatory."""
 from urllib.parse import urlencode,urlsplit
 from ecwid_migrate import api,digest
+from staging_origin import staging_origin
 
 
 def upsert_customer(base,authorization,source_key,reviewed,*,mail_sink_verified=False,request=api):
-    origin=urlsplit(base)
-    if origin.scheme!='https' or origin.hostname!='shop-test.danks.store' or origin.username or origin.password or origin.port not in (None,443):
-        raise ValueError('Exact staging origin required')
+    base=staging_origin(base,'shop')
     if mail_sink_verified is not True:raise ValueError('Verify test-only email/external isolation before account creation')
     allowed={'email','first_name','last_name','billing','shipping'}
     if set(reviewed)-allowed or not reviewed.get('email') or not source_key:raise ValueError('Reviewed source/customer fields required')

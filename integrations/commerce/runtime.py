@@ -51,9 +51,9 @@ def main():
         with make_server('127.0.0.1',8100,application(inbox,sites)) as server:server.serve_forever()
     else:
         if not a.config:p.error('--config required')
-        approved=json.loads(a.config.read_text())['approved_erp_drafts']
-        erp=ReviewedERP('https://erp-test.danks.store',os.environ['ERP_AUTHORIZATION'],approved,api)
-        mp=PostgresInventory(connect_test(os.environ['MP_TEST_DSN']))
+        config=json.loads(a.config.read_text());approved=config['approved_erp_drafts']
+        erp=ReviewedERP(config.get('erp_base_url','https://erp-test.danks.store'),os.environ['ERP_AUTHORIZATION'],approved,api)
+        mp=PostgresInventory(connect_test(os.environ['MP_TEST_DSN']),erp_site=urlsplit(erp.base).hostname)
         if a.command=='reconcile-order':
             if not a.order_key:p.error('reconcile-order requires --order-key PROVIDER SITE ORDER_ID')
             print(json.dumps(reconcile_order(inbox,mp,erp,tuple(a.order_key))))
