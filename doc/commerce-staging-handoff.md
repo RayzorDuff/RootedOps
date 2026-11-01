@@ -1,5 +1,7 @@
 # Commerce staging handoff — maintained during offline development
 
+Installed-app procedure and real CSV audit: [commerce-installed-031.md](commerce-installed-031.md). Native installed acceptance remains pending.
+
 Latest new Test2 evidence: [2026-11-01 HTTPS and native catalog checkpoint](commerce-test2-2026-11-01.md). Full commerce acceptance remains open.
 
 Current commerce target work is recorded in

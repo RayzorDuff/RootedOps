@@ -56,10 +56,15 @@ def run(environment, candidate_api=None, candidate_sha256=None):
         if not candidate_sha256 or hashlib.sha256(candidate_api.read_bytes()).hexdigest()!=candidate_sha256:
             raise ValueError('Reviewed candidate API hash required')
     elif candidate_sha256 is not None:raise ValueError('Candidate source required')
-    setup={'candidate_api':candidate_source,'site':resolved['erp'].split('://')[1],'group':GROUP,'price_list':PRICE_LIST,'payload':payload}
-    code='''import sys,json,frappe
+    setup={'expected_api_sha256':hashlib.sha256((ROOT/'erpnext/apps/rootedops_commerce/rootedops_commerce/api.py').read_bytes()).hexdigest(),'candidate_api':candidate_source,'site':resolved['erp'].split('://')[1],'group':GROUP,'price_list':PRICE_LIST,'payload':payload}
+    code='''import sys,json,frappe,hashlib,pathlib,importlib.metadata,rootedops_commerce
+import rootedops_commerce.api as installed_api
 from rootedops_commerce.api import import_product,catalog
 a=json.load(sys.stdin);frappe.init(site=a['site']);frappe.connect();frappe.set_user('Administrator')
+installed={'module_version':rootedops_commerce.__version__,'package_version':importlib.metadata.version('rootedops_commerce'),'api_sha256':hashlib.sha256(pathlib.Path(installed_api.__file__).read_bytes()).hexdigest()}
+if not a.get('candidate_api'):
+ assert installed['module_version']==installed['package_version']=='0.3.1'
+ assert installed['api_sha256']==a['expected_api_sha256']
 if a.get('candidate_api'):
  namespace={'__name__':'rootedops_commerce_candidate_api'}
  exec(compile(a['candidate_api'],'reviewed_candidate_api.py','exec'),namespace)
@@ -80,7 +85,7 @@ try:
  assert frappe.db.count('Item',{'item_code':first['item']})==1
  assert frappe.db.count('Commerce Channel Mapping',{'name':first['mapping']})==1
  assert result['mappings'][0]['sync_enabled']==0
- frappe.db.commit();print(json.dumps(result,default=str))
+ frappe.db.commit();print(json.dumps({'catalog':result,'installed':installed},default=str))
 except Exception:
  frappe.db.rollback();raise
 finally:frappe.destroy()
@@ -90,7 +95,7 @@ finally:frappe.destroy()
     if process.returncode:
         log=private/'erp-catalog-fixture-failure.log';log.write_text(process.stdout+process.stderr);log.chmod(0o600)
         raise RuntimeError('Native ERP fixture failed; inspect private diagnostics; do not restore/reset')
-    catalog=json.loads(process.stdout);private_write(private/'erp-native-catalog-fixture.json',catalog)
+    native=json.loads(process.stdout);catalog=native['catalog'];private_write(private/'erp-native-catalog-fixture.json',catalog)
     credentials=json.loads((private/'wordpress-credentials.json').read_text())
     auth='Basic '+base64.b64encode((credentials['username']+':'+credentials['application_password']).encode()).decode()
     shop=resolved['shop']
@@ -108,7 +113,7 @@ finally:frappe.destroy()
     assert Decimal(two['regular_price'])==Decimal('12.50') and two['tax_status']=='none'
     report={'synthetic_only':True,'sku':SKU,'product_id':two['id'],'erp_item_price':'12.50','erp_service_layer_import_and_read':True,
         'erp_http_auth_tested':False,'candidate_api_sha256':candidate_sha256,
-        'installed_application_upgrade_tested':False,'canonical_content_status':'Draft','channel_mapping_sync_enabled':False,
+        'installed_application_upgrade_tested':candidate_source is None,'installed_app':native['installed'],'canonical_content_status':'Draft','channel_mapping_sync_enabled':False,
         'approval_fixture_only':True,'quantity_fixture_only':True,'mp_inventory_tested':False,
         'woocommerce_draft_idempotent':True,'financial_documents_created':False,'checkout_tested':False}
     private_write(private/'erp-woo-native-fixture-report.json',report);print(json.dumps(report))
