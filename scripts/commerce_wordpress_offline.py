@@ -11,6 +11,7 @@ import time
 import zipfile
 import yaml
 from commerce_restore import read_env
+from host_recovery import deployment_hosts
 
 WP_VERSION = '7.1.4'
 WOO_VERSION = '11.2.1'
@@ -40,8 +41,9 @@ def inspect(environment, archive, digest):
     if config['services']['dank-wordpress']['image'] != 'wordpress:'+WP_VERSION+'-php8.3-apache':
         raise ValueError('Review the pinned WordPress image before installation')
     env = read_env(environment/'.env')
-    if env.get('ERPNEXT_SITE_NAME') != 'erp-test.danks.store':
-        raise ValueError('Authorized -test staging hostname required')
+    hosts = deployment_hosts(environment)
+    if hosts['erpnext'] not in ('erp-test.danks.store', 'erp-test2.danks.store') or env.get('ERPNEXT_SITE_NAME') != hosts['erpnext']:
+        raise ValueError('Authorized receipt-matched staging hostname required')
     for key in ('DANK_WP_DB_PASSWORD', 'DANK_WP_DB_ROOT_PASSWORD'):
         if len(env.get(key, '')) < 24 or env[key].startswith('replace-'):
             raise ValueError('Independent generated test credentials required')
@@ -66,9 +68,20 @@ def private_json(path, value):
         json.dump(value, f, indent=2)
 
 
+def container_plugin_archive(archive, private):
+    # Bind-mounted public package must be readable by the CLI container UID.
+    # Keep the source's permissions and the private parent directory unchanged.
+    target = private/'woocommerce-container.zip'
+    with target.open('xb') as out:
+        out.write(archive.read_bytes())
+    target.chmod(0o644)
+    return target
+
+
 def bootstrap(environment, archive, digest):
     environment, archive = environment.resolve(), archive.resolve()
     config = inspect(environment, archive, digest)
+    shop_url = 'https://'+deployment_hosts(environment)['dank-wordpress']
     private = environment/'private'
     private.mkdir(mode=0o700, exist_ok=True)
     receipt = private/'wordpress-offline-receipt.json'
@@ -79,8 +92,10 @@ def bootstrap(environment, archive, digest):
     if subprocess.check_output(base+['ps', '-aq'], text=True).strip() or subprocess.check_output(
         ['docker','volume','ls','-q','--filter','label=com.docker.compose.project=dank-store-test'], text=True).strip():
         raise ValueError('Fresh empty Dank project required; restored ERP/MP projects are retained')
+    container_archive = container_plugin_archive(archive, private)
     mu = environment/'wordpress-isolation'
     mu.mkdir(mode=0o755, exist_ok=True)
+    mu.chmod(0o755)  # A restrictive operator umask must not hide the mounted plugins.
     (mu/'rootedops-staging.php').write_text(ISOLATION)
     (mu/'rootedops-staging.php').chmod(0o644)
     seo=Path(__file__).resolve().parents[1]/'wordpress/rootedops-commerce/rootedops-commerce.php'
@@ -91,7 +106,7 @@ def bootstrap(environment, archive, digest):
     services = {}
     for name in ('dank-wordpress', 'dank-wordpress-cli'):
         services[name] = {'environment': {'WORDPRESS_CONFIG_EXTRA': extra}, 'volumes': [str(mu)+':/var/www/html/wp-content/mu-plugins:ro']}
-    services['dank-wordpress-cli']['volumes'].append(str(archive)+':/opt/woocommerce.zip:ro')
+    services['dank-wordpress-cli']['volumes'].append(str(container_archive)+':/opt/woocommerce.zip:ro')
     override = private/'wordpress-offline.yml'
     override.write_text(yaml.safe_dump({'services': services}, sort_keys=False)); override.chmod(0o600)
     compose = base+['-f', str(override)]
@@ -103,6 +118,8 @@ def bootstrap(environment, archive, digest):
         a = subprocess.run(compose+['run','--rm','--no-deps','dank-wordpress-cli',*args],
                            stdin=subprocess.DEVNULL, capture_output=True, text=True)
         if required and a.returncode:
+            log = private/'wordpress-operation-failure.log'
+            log.write_text(a.stdout+a.stderr); log.chmod(0o600)
             raise RuntimeError('Private WordPress operation failed; inspect isolated project; do not reinstall')
         return a
     try:
@@ -117,7 +134,7 @@ def bootstrap(environment, archive, digest):
             raise ValueError('Unexpected existing installation')
         if wp('core','version').stdout.strip() != WP_VERSION:
             raise ValueError('Unexpected WordPress core version')
-        wp('core','install','--url=https://shop-test.danks.store','--title=Dank Mushrooms Test',
+        wp('core','install','--url='+shop_url,'--title=Dank Mushrooms Test',
            '--admin_user='+data['username'],'--admin_password='+data['password'],
            '--admin_email=staging@example.invalid','--skip-email')
         wp('option','update','blog_public','0')

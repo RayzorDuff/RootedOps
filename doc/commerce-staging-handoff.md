@@ -924,3 +924,11 @@ CI passed for PR #42 at `436bfbfa1b37d53947e6b4cb7a699ce338d1cce0`:
 These results remain separate from final staging order-lifecycle and cutover
 acceptance. Ecwid stays active; production deployment, live payment, subscription
 changes and MushroomProcess production-branch retirement remain unauthorized.
+
+### Shared test2 continuation
+
+See [test2-shared-readiness.md](test2-shared-readiness.md) for the new synthetic
+SignatureGate schema/role, 42/47 native SQL results, ERP image repair and executed
+commerce installation/migration. These are new host results, separate from the
+retired `-test` evidence above. UI bindings, five SQL regressions, test2 storefront
+and integrated order/payment acceptance remain open; do not infer release readiness.
