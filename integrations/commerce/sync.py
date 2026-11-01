@@ -16,6 +16,7 @@ from rootedops_commerce.contract import compose_projection
 from ecwid_migrate import api, private_write
 from reviewed_catalog import money
 from channel import upsert_draft
+from staging_origin import staging_pair
 
 
 def prepare(row, catalog, reviewed):
@@ -72,8 +73,8 @@ def main():
     p.add_argument('snapshot',type=Path);p.add_argument('reviewed_map',type=Path);p.add_argument('--output',type=Path,required=True)
     p.add_argument('--erp-url',default='https://erp-test.danks.store');p.add_argument('--shop-url',default='https://shop-test.danks.store')
     p.add_argument('--apply-staging',action='store_true');a=p.parse_args()
-    if urlsplit(a.erp_url).hostname!='erp-test.danks.store' or urlsplit(a.shop_url).hostname!='shop-test.danks.store':
-        p.error('Only authorized test hostnames are supported')
+    try:a.erp_url,a.shop_url=staging_pair(a.erp_url,a.shop_url)
+    except ValueError:p.error('Matching authorized staging origins required')
     rows=json.loads(a.snapshot.read_text());reviewed=json.loads(a.reviewed_map.read_text());results=[]
     for row in rows:
         m=reviewed.get(str(row['ecommerce_id']))

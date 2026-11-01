@@ -1,5 +1,9 @@
 # Commerce staging handoff — maintained during offline development
 
+Current commerce target work is recorded in
+[commerce-test2-integration.md](commerce-test2-integration.md). Test2 adapter
+support is distinct from the older retired host's native evidence below.
+
 **Current shared test2 intake:** see [service-url-routing.md](service-url-routing.md)
 for the new host's datasource audit and readiness limitations. Earlier `-test`
 native results below are historical; that host is retired. No credentials or
