@@ -3,6 +3,7 @@
 import argparse
 import base64
 import copy
+import hashlib
 import json
 from pathlib import Path
 import subprocess
@@ -21,7 +22,7 @@ PRICE_LIST='RootedOps Test2 USD'
 SOURCE='synthetic:test2:erp-catalog:v1'
 
 
-def run(environment):
+def run(environment, candidate_api=None, candidate_sha256=None):
     p=environment.resolve();resolved=targets(p)
     if resolved['erp']!='https://erp-test2.danks.store':raise ValueError('This synthetic fixture is Test2 only')
     private=p/'private'
@@ -48,10 +49,20 @@ def run(environment):
             'source_key':SOURCE,'source_payload':'{"fixture":"test2-erp-catalog-v1"}'},
         'mapping':{'item':SKU,'provider':'woocommerce','site_key':'synthetic-test2','external_product_id':'erp-fixture-v1','external_sku':SKU},
         'price':{'price_list':PRICE_LIST,'currency':'USD','item_price_rate':'12.50'}}
-    setup={'site':resolved['erp'].split('://')[1],'group':GROUP,'price_list':PRICE_LIST,'payload':payload}
+    candidate_source=None
+    if candidate_api is not None:
+        candidate_source=candidate_api.read_text()
+        if not candidate_sha256 or hashlib.sha256(candidate_api.read_bytes()).hexdigest()!=candidate_sha256:
+            raise ValueError('Reviewed candidate API hash required')
+    elif candidate_sha256 is not None:raise ValueError('Candidate source required')
+    setup={'candidate_api':candidate_source,'site':resolved['erp'].split('://')[1],'group':GROUP,'price_list':PRICE_LIST,'payload':payload}
     code='''import sys,json,frappe
 from rootedops_commerce.api import import_product,catalog
 a=json.load(sys.stdin);frappe.init(site=a['site']);frappe.connect();frappe.set_user('Administrator')
+if a.get('candidate_api'):
+ namespace={'__name__':'rootedops_commerce_candidate_api'}
+ exec(compile(a['candidate_api'],'reviewed_candidate_api.py','exec'),namespace)
+ import_product,catalog=namespace['import_product'],namespace['catalog']
 try:
  assert frappe.conf.get('maintenance_mode') and frappe.conf.get('pause_scheduler')
  assert frappe.db.count('Email Account',{'enable_outgoing':1})==0
@@ -95,7 +106,8 @@ finally:frappe.destroy()
     assert one['id']==two['id'];verify_product(two,record,2)
     assert two['regular_price']=='12.50' and two['tax_status']=='none'
     report={'synthetic_only':True,'sku':SKU,'product_id':two['id'],'erp_item_price':'12.50','erp_service_layer_import_and_read':True,
-        'erp_http_auth_tested':False,'canonical_content_status':'Draft','channel_mapping_sync_enabled':False,
+        'erp_http_auth_tested':False,'candidate_api_sha256':candidate_sha256,
+        'installed_application_upgrade_tested':False,'canonical_content_status':'Draft','channel_mapping_sync_enabled':False,
         'approval_fixture_only':True,'quantity_fixture_only':True,'mp_inventory_tested':False,
         'woocommerce_draft_idempotent':True,'financial_documents_created':False,'checkout_tested':False}
     private_write(private/'erp-woo-native-fixture-report.json',report);print(json.dumps(report))
@@ -103,4 +115,6 @@ finally:frappe.destroy()
 
 if __name__=='__main__':
     p=argparse.ArgumentParser(description=__doc__);p.add_argument('environment',type=Path)
-    run(p.parse_args().environment)
+    p.add_argument('--candidate-api',type=Path,help='Explicit native service-layer preview; does not replace installed app')
+    p.add_argument('--candidate-api-sha256')
+    a=p.parse_args();run(a.environment,a.candidate_api,a.candidate_api_sha256)
