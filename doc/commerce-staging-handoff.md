@@ -1,5 +1,11 @@
 # Commerce staging handoff — maintained during offline development
 
+**Current shared test2 intake:** see [service-url-routing.md](service-url-routing.md)
+for the new host's datasource audit and readiness limitations. Earlier `-test`
+native results below are historical; that host is retired. No credentials or
+runtime evidence from it are assumed recoverable. Shared test2 must complete its
+own ERP/Woo and SignatureGate acceptance before either workstream is called ready.
+
 Status: offline implementation ready for owner PR review; staging acceptance remains open. The previous development Linode is
 deleted. Do not contact its IP, reuse its credentials, or infer recoverable state.
 This document is the execution record for a **new explicitly authorized** staging
