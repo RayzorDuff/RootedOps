@@ -57,6 +57,36 @@ class TestCatalog(IntegrationTestCase):
         payload['content']['source_payload']='{"id":"changed"}'
         with self.assertRaises(frappe.ValidationError):import_product(json.dumps(payload))
 
+    def test_native_item_price_import_catalog_retry_and_drift(self):
+        from rootedops_commerce.api import import_product
+        price_list = '_Test Commerce Native USD'
+        if not frappe.db.exists('Price List', price_list):
+            frappe.get_doc({'doctype':'Price List','price_list_name':price_list,
+                            'currency':'USD','selling':1,'enabled':1}).insert()
+        code = '_Test Commerce Native Price'
+        payload = {
+            'item': {'item_code':code,'item_name':'Native price fixture',
+                     'item_group':'_Test Commerce Group','stock_uom':'Nos'},
+            'content': {'item':code,'public_title':'Native price fixture',
+                        'source_key':'synthetic:native-price','source_payload':'{"fixture":"native-price"}'},
+            'mapping': {'item':code,'provider':'woocommerce','site_key':'synthetic',
+                        'external_product_id':'native-price','external_sku':code},
+            'price': {'price_list':price_list,'currency':'USD','item_price_rate':'12.50'}}
+        first = import_product(payload)
+        self.assertEqual(first, import_product(payload))
+        filters = {'item_code':code,'price_list':price_list,'currency':'USD','uom':'Nos'}
+        self.assertEqual(frappe.db.count('Item Price', filters), 1)
+        self.assertEqual(float(frappe.db.get_value('Item Price',filters,'price_list_rate')), 12.5)
+        response = catalog(code, price_list)
+        self.assertEqual(len(response['prices']), 1)
+        self.assertEqual(float(response['prices'][0]['item_price_rate']), 12.5)
+        self.assertNotIn('price_list_rate', response['prices'][0])
+        payload['price']['item_price_rate'] = '13.00'
+        with self.assertRaises(frappe.ValidationError):
+            import_product(payload)
+        self.assertEqual(float(frappe.db.get_value('Item Price',filters,'price_list_rate')), 12.5)
+        self.assertEqual(frappe.db.get_value('Item', code, 'is_stock_item'), 0)
+
     def test_source_archive_identity_and_payload_are_immutable(self):
         doc = frappe.get_doc({'doctype':'Commerce Source Archive',
             'source_key':'ecwid:test:order:archive','record_type':'order','payload':'{"id":"archive"}'}).insert()
