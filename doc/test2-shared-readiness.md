@@ -113,8 +113,65 @@ Dank projects or credentials still refuse reinstallation. This does **not** yet
 adapt the HTTPS catalog/media/ingress tools, which remain `-test`-specific.
 Do not run those tools against test2 or fake their TLS/image receipts.
 
-WooCommerce installation, catalog parity, webhook/order lifecycle and Clover
-checkout on this host remain acceptance gates. Never restore Rooted Psyche WP
+### Native fresh-shop result
+
+The dedicated Dank project was verified empty (no containers, volumes or previous
+credentials) before running installer code `ba81b56a90fe68af94f825abeaa0b3a0bda67c12`
+from `/home/rootedops/RootedOps-commerce-test2`, against the existing generated
+configuration. The official Woo11.2.1 ZIP matched SHA256
+`5317434cb381b5fdc7c1dd6ee258324f08c390976aaf8d1199f2a0e9a3ab8586`.
+
+A restrictive operator umask exposed two permission edges: the source ZIP was
+0600 and the mounted MU-plugin directory was700. The installer stopped the web
+container on failure. Inspection confirmed WordPress was already installed;
+no reset or installer replay occurred. Retained the original admin credential,
+staged a verified container-readable ZIP copy under the private parent, repaired
+only the plugin directory traversal mode, and resumed plugin installation/options.
+The source ZIP remains0600 and private deployment parents remain700. Code now
+handles both edges and retains a private operation error log on failure.
+
+Native assertions passed: WordPress7.1.4, WooCommerce11.2.1, home URL
+`https://shop-test2.danks.store`, disabled cron, blocked external HTTP/email and
+zero available gateways. The web/database containers are running on their sole
+internal network. Created a staging application password privately; authenticated
+Woo REST currency/products GETs returned200 through the inspected private bridge
+address with the correct Host/proxy headers. CurrencyUSD and empty products are
+synthetic installation defaults, not reviewed Ecwid mapping evidence. This did
+not test public TLS, storefront browser rendering or checkout.
+
+Evidence: `private/wordpress-offline-receipt.json`,
+`test2-readiness/woo-internal-rest.json`, `shop-input-receipt.json` (actual image
+IDs/digests), private failure/resume logs. The original detached job's failed
+state is historical; the verified installation receipt records the completed
+resume. Do not rerun the fresh installer against this populated project.
+
+For later non-destructive CLI checks, include the isolation override:
+
+```sh
+sudo docker compose --env-file "$cfg/.env" -f "$cfg/dank.yml" \
+  -f "$cfg/private/wordpress-offline.yml" run --rm --no-deps \
+  dank-wordpress-cli core version
+sudo docker compose --env-file "$cfg/.env" -f "$cfg/dank.yml" \
+  -f "$cfg/private/wordpress-offline.yml" run --rm --no-deps \
+  dank-wordpress-cli plugin get woocommerce --field=version
+```
+
+Both Cloudflare authorities returned the approved test2 IPv4 and no AAAA for
+ERP/Appsmith/n8n/shop test2 names, with authoritative flags. Private evidence:
+`test2-readiness/dns-authoritative.json`. No DNS edits or certificates issued in
+this continuation. Native Compose interpolation of PR43's three private URL
+variables also passed unset/blank/explicit cases without starting probe containers;
+receipt `test2-readiness/compose-url-check.json` supersedes the incomplete attempt.
+
+At `ba81b56`, all three CI workflows passed:
+[commerce](https://github.com/RayzorDuff/RootedOps/actions/runs/41257425037),
+[recovery](https://github.com/RayzorDuff/RootedOps/actions/runs/41257425110),
+[native contracts](https://github.com/RayzorDuff/RootedOps/actions/runs/41257425063).
+The archive-permission regression increases local commerce coverage to74 tests
+(73 passed, one local PHP skip); latest commit checks must pass before merge.
+
+Public Woo access, catalog parity, webhook/order lifecycle and Clover checkout
+on this host remain acceptance gates. Never restore Rooted Psyche WP
 into the Dank project. Preserve all internal networks; no public admin/setup
 exposure, outbound integrations, merchant changes or payments are authorized.
 

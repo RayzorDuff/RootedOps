@@ -68,6 +68,16 @@ def private_json(path, value):
         json.dump(value, f, indent=2)
 
 
+def container_plugin_archive(archive, private):
+    # Bind-mounted public package must be readable by the CLI container UID.
+    # Keep the source's permissions and the private parent directory unchanged.
+    target = private/'woocommerce-container.zip'
+    with target.open('xb') as out:
+        out.write(archive.read_bytes())
+    target.chmod(0o644)
+    return target
+
+
 def bootstrap(environment, archive, digest):
     environment, archive = environment.resolve(), archive.resolve()
     config = inspect(environment, archive, digest)
@@ -82,8 +92,10 @@ def bootstrap(environment, archive, digest):
     if subprocess.check_output(base+['ps', '-aq'], text=True).strip() or subprocess.check_output(
         ['docker','volume','ls','-q','--filter','label=com.docker.compose.project=dank-store-test'], text=True).strip():
         raise ValueError('Fresh empty Dank project required; restored ERP/MP projects are retained')
+    container_archive = container_plugin_archive(archive, private)
     mu = environment/'wordpress-isolation'
     mu.mkdir(mode=0o755, exist_ok=True)
+    mu.chmod(0o755)  # A restrictive operator umask must not hide the mounted plugins.
     (mu/'rootedops-staging.php').write_text(ISOLATION)
     (mu/'rootedops-staging.php').chmod(0o644)
     seo=Path(__file__).resolve().parents[1]/'wordpress/rootedops-commerce/rootedops-commerce.php'
@@ -94,7 +106,7 @@ def bootstrap(environment, archive, digest):
     services = {}
     for name in ('dank-wordpress', 'dank-wordpress-cli'):
         services[name] = {'environment': {'WORDPRESS_CONFIG_EXTRA': extra}, 'volumes': [str(mu)+':/var/www/html/wp-content/mu-plugins:ro']}
-    services['dank-wordpress-cli']['volumes'].append(str(archive)+':/opt/woocommerce.zip:ro')
+    services['dank-wordpress-cli']['volumes'].append(str(container_archive)+':/opt/woocommerce.zip:ro')
     override = private/'wordpress-offline.yml'
     override.write_text(yaml.safe_dump({'services': services}, sort_keys=False)); override.chmod(0o600)
     compose = base+['-f', str(override)]
@@ -106,6 +118,8 @@ def bootstrap(environment, archive, digest):
         a = subprocess.run(compose+['run','--rm','--no-deps','dank-wordpress-cli',*args],
                            stdin=subprocess.DEVNULL, capture_output=True, text=True)
         if required and a.returncode:
+            log = private/'wordpress-operation-failure.log'
+            log.write_text(a.stdout+a.stderr); log.chmod(0o600)
             raise RuntimeError('Private WordPress operation failed; inspect isolated project; do not reinstall')
         return a
     try:

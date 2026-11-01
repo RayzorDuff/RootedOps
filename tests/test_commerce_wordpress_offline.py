@@ -8,7 +8,7 @@ import zipfile
 import yaml
 
 sys.path.insert(0,str(Path(__file__).resolve().parents[1]/'scripts'))
-from commerce_wordpress_offline import inspect
+from commerce_wordpress_offline import inspect, container_plugin_archive
 
 class OfflineWordPressTests(unittest.TestCase):
     def setUp(self):
@@ -47,5 +47,15 @@ class OfflineWordPressTests(unittest.TestCase):
         (self.root/'receipt.json').write_text(json.dumps({'hostname_suffix':''}))
         p.write_text(p.read_text().replace('erp-test2.danks.store','erp.danks.store'))
         with self.assertRaisesRegex(ValueError,'hostname'):inspect(self.root,self.archive,self.digest)
+
+    def test_private_source_archive_staged_for_unprivileged_container(self):
+        self.archive.chmod(0o600)
+        private=self.root/'private';private.mkdir(mode=0o700)
+        target=container_plugin_archive(self.archive,private)
+        self.assertEqual(target.read_bytes(),self.archive.read_bytes())
+        self.assertEqual(target.stat().st_mode & 0o777,0o644)
+        self.assertEqual(self.archive.stat().st_mode & 0o777,0o600)
+        self.assertEqual(private.stat().st_mode & 0o777,0o700)
+        with self.assertRaises(FileExistsError):container_plugin_archive(self.archive,private)
 
 if __name__=='__main__':unittest.main()
