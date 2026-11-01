@@ -5,6 +5,7 @@ import base64
 import copy
 import hashlib
 import json
+from decimal import Decimal
 from pathlib import Path
 import subprocess
 import sys
@@ -104,7 +105,7 @@ finally:frappe.destroy()
     record=prepare(inventory,fixture,reviewed)
     one=upsert_draft(shop,auth,record);two=upsert_draft(shop,auth,record)
     assert one['id']==two['id'];verify_product(two,record,2)
-    assert two['regular_price']=='12.50' and two['tax_status']=='none'
+    assert Decimal(two['regular_price'])==Decimal('12.50') and two['tax_status']=='none'
     report={'synthetic_only':True,'sku':SKU,'product_id':two['id'],'erp_item_price':'12.50','erp_service_layer_import_and_read':True,
         'erp_http_auth_tested':False,'candidate_api_sha256':candidate_sha256,
         'installed_application_upgrade_tested':False,'canonical_content_status':'Draft','channel_mapping_sync_enabled':False,
