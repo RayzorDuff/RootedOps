@@ -12,7 +12,10 @@ def catalog(item, price_list=None):
     prices = []
     if price_list:
         prices = frappe.get_list("Item Price", filters={"item_code": item, "price_list": price_list},
-            fields=["name", "price_list", "currency", "item_price_rate", "uom", "valid_from", "valid_upto"])
+            fields=["name", "price_list", "currency", "price_list_rate", "uom", "valid_from", "valid_upto"])
+    # Keep the provider-neutral response stable while reading ERPNext's native field.
+    for price in prices:
+        price['item_price_rate'] = price.pop('price_list_rate')
     return {"schema_version": 1, "as_of_date": frappe.utils.today(), "content": content.as_dict(),
             "item": {"item_code": erp_item.item_code, "disabled": erp_item.disabled,
                      "stock_uom": erp_item.stock_uom, "variant_of": erp_item.variant_of,
@@ -110,11 +113,11 @@ def import_product(payload):
         filters = {"item_code":code, "price_list":price["price_list"],
                    "currency":price["currency"], "uom":erp_data["stock_uom"]}
         matches = frappe.get_list("Item Price", filters=filters,
-                                  fields=["name", "item_price_rate", "valid_from", "valid_upto"])
-        if len(matches) > 1 or (matches and Decimal(str(matches[0].item_price_rate)) != rate):
+                                  fields=["name", "price_list_rate", "valid_from", "valid_upto"])
+        if len(matches) > 1 or (matches and Decimal(str(matches[0].price_list_rate)) != rate):
             frappe.throw("Price ambiguity/drift requires explicit reconciliation")
         if not matches:
-            frappe.get_doc(dict(filters, doctype="Item Price", item_price_rate=str(rate))).insert()
+            frappe.get_doc(dict(filters, doctype="Item Price", price_list_rate=str(rate))).insert()
     return {"item":code, "content":code, "mapping":key, "status":"imported_or_existing"}
 
 
