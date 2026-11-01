@@ -82,3 +82,26 @@ New read-only DNS evidence, 2026-11-01: queried both authoritative servers
 disabled. ERP, Appsmith, n8n and shop `-test2` each return A `23.92.26.193` on
 both authorities, with no AAAA answers. This verifies DNS only; it does not verify
 port reachability, TLS issuance or browser routing.
+
+## Review checkpoints and CI evidence
+
+- RootedOps PR [#45](https://github.com/RayzorDuff/RootedOps/pull/45):
+  tested implementation commit `9c9a7258f92e96552c753e58f4b0b417538171ba`, branch
+  `feature/commerce-test2-e2e`. [Foundation CI](https://github.com/RayzorDuff/RootedOps/actions/runs/41268034253)
+  and [recovery CI](https://github.com/RayzorDuff/RootedOps/actions/runs/41268034219)
+  succeeded. [Native disposable integration CI](https://github.com/RayzorDuff/RootedOps/actions/runs/41268034242)
+  was still running at this checkpoint; inspect its final result before merge.
+- MushroomProcess PR [#111](https://github.com/RayzorDuff/MushroomProcess/pull/111):
+  `2c23b11c8c15ee30e76476c070ad28879e5afe87`, branch
+  `feature/ecwid-paid-at-creation-regression`, based on main
+  `074367383af32e968886b12680020bcea5f9acad`. Ecwid order, catalog and fulfillment
+  visibility Node smoke tests pass locally. The changed executable test is already
+  included by commerce-postgres CI. No workflow/export/production branch changes.
+- SignatureGate remains at the separately documented readiness baseline. This
+  checkpoint neither changes its database/schema/role nor establishes browser E2E.
+
+These review commits are not deployed Test2 acceptance SHAs. Preserve the native
+image IDs, installed versions and private override commands in
+[test2-shared-readiness.md](test2-shared-readiness.md). Native integration evidence
+must record the actual source/image state at execution, not substitute these CI
+results for a staging run.
