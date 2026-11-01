@@ -17,7 +17,7 @@ import sys
 ROOT=Path(__file__).resolve().parents[1]
 sys.path.insert(0,str(ROOT/'integrations/commerce'))
 sys.path.insert(0,str(ROOT/'scripts'))
-from commerce_restore import read_env
+from commerce_staging_targets import targets
 from ecwid_migrate import api, private_write
 from channel import upsert_draft
 from sync import prepare
@@ -52,15 +52,14 @@ def verify_product(product,record,quantity):
 
 def run(environment):
     environment=environment.resolve()
-    if read_env(environment/'.env').get('ERPNEXT_SITE_NAME')!='erp-test.danks.store':
-        raise ValueError('Only the authorized test environment is supported')
+    resolved=targets(environment)
     private=environment/'private'
     rows=json.loads((private/'native-inventory.json').read_text())
     catalogs=json.loads((private/'erp-test-catalogs.json').read_text())
     credentials=json.loads((private/'wordpress-credentials.json').read_text())
     token=base64.b64encode((credentials['username']+':'+credentials['application_password']).encode()).decode()
     authorization='Basic '+token
-    shop='https://shop-test.danks.store'
+    shop=resolved['shop']
     source_hash=hashlib.sha256((private/'native-inventory.json').read_bytes()).hexdigest()
     results=[]
     for source in rows:
@@ -75,7 +74,7 @@ def run(environment):
         catalog['content']['publication_status']='Published'
         catalog['content']['gallery']=[]
         row['erp_item_code']=code
-        reviewed={'item':code,'provider':'woocommerce','site_key':'shop-test','external_sku':code}
+        reviewed={'item':code,'provider':'woocommerce','site_key':shop.split('://',1)[1].split('.',1)[0],'external_sku':code}
         record=prepare(row,catalog,reviewed)
         product=upsert_draft(shop,authorization,record)
         repeated=upsert_draft(shop,authorization,record)
