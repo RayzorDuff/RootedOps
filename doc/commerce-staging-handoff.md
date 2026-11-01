@@ -1,5 +1,7 @@
 # Commerce staging handoff — maintained during offline development
 
+Latest new Test2 evidence: [2026-11-01 HTTPS and native catalog checkpoint](commerce-test2-2026-11-01.md). Full commerce acceptance remains open.
+
 Current commerce target work is recorded in
 [commerce-test2-integration.md](commerce-test2-integration.md). Test2 adapter
 support is distinct from the older retired host's native evidence below.
