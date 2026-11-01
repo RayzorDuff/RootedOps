@@ -34,11 +34,12 @@ def decimal_text(value):
 
 def convert(products_path,orders_path,store_id):
     products=read_rows(products_path,{'name','sku','product_id','description','price'})
-    rows=read_rows(orders_path,{'order_number','email','sku','name','quantity','order_total'})
+    rows=read_rows(orders_path,{'order_number','email','sku','name','quantity','order_total'}) if orders_path else []
     output={'schema_version':1,'store_id':str(store_id),'products':[], 'orders':[], 'customers':[], 'categories':[],
             'profile':{'source_format':'ecwid_csv','currency':None},
             '_csv_manifest':{'product_rows':len(products),'order_line_rows':len(rows),
-                'files':{Path(p).name:hashlib.sha256(Path(p).read_bytes()).hexdigest() for p in (products_path,orders_path)},
+                'orders_export_supplied':orders_path is not None,
+                'files':{Path(p).name:hashlib.sha256(Path(p).read_bytes()).hexdigest() for p in (products_path,orders_path) if p is not None},
                 'limitations':['Product variation/option definitions are absent; CSV cannot prove combination completeness.',
                   'Image field is only exported media; gallery originals require API/media export.',
                   'CSV customers are derived email identities, not authoritative Ecwid customer IDs.',
@@ -85,7 +86,7 @@ def convert(products_path,orders_path,store_id):
     return output
 
 if __name__=='__main__':
-    p=argparse.ArgumentParser(description=__doc__);p.add_argument('--products',required=True);p.add_argument('--orders',required=True)
+    p=argparse.ArgumentParser(description=__doc__);p.add_argument('--products',required=True);p.add_argument('--orders',help='Optional for catalog-only migration; omission does not establish zero historical orders')
     p.add_argument('--store-id',required=True);p.add_argument('--output',required=True);p.add_argument('--plan-output',required=True)
     a=p.parse_args();source=convert(a.products,a.orders,a.store_id);private_write(a.output,source)
     result=plan(source);result['csv_manifest']=source['_csv_manifest'];private_write(a.plan_output,result)
