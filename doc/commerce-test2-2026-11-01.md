@@ -41,7 +41,7 @@ The private receipt also records Appsmith/n8n identities and networks.
 
 Native ERP versions: Frappe 16.14.0, ERPNext 16.13.0, HRMS 16.4.7,
 Employee Self Service 2.2.2, rootedops_payroll 0.4.10, rootedops_commerce 0.3.0.
-Read-only counts: Item/Item Price/Customer/Sales Order/Sales Invoice/Payment Entry
+Before the candidate fixture below, read-only counts: Item/Item Price/Customer/Sales Order/Sales Invoice/Payment Entry
 all zero, Contact 9, Address 5. These are not migrated Ecwid records.
 WordPress 7.1.4 / WooCommerce 11.2.1 retain the previously verified installation;
 this checkpoint uses that existing shop, not a second installation.
@@ -51,6 +51,7 @@ this checkpoint uses that existing shop, not a second installation.
 Run from `/home/rootedops/RootedOps`, after reviewing source and private overrides:
 
 ```bash
+~/bin/test2-console-lock commerce
 sudo -v
 sudo python3 scripts/commerce_staging_ingress.py .test-deployment
 sudo python3 scripts/commerce_staging_ingress.py .test-deployment --apply --browser-shop
@@ -58,6 +59,7 @@ sudo python3 scripts/commerce_woo_native_smoke.py .test-deployment
 sudo python3 scripts/commerce_woo_media_smoke.py .test-deployment
 sudo certbot renew --cert-name commerce-staging-test2 --dry-run --run-deploy-hooks
 sudo nginx -t
+exit # release the locking shell
 ```
 
 The ingress refresh requires existing certificate/verified TLS and installation
@@ -127,3 +129,66 @@ Synthetic fixtures can remain drafts for repeatability; do not delete unrelated
 products/media. Ecwid retirement remains **no-go** until the above gates and the
 staging handoff's cutover checklist pass. SignatureGate browser E2E remains its
 separate workstream.
+
+## Native ERP priced-catalog preview and defect found
+
+The initial native fixture (`c363a699efd160ba5fe424208d8525d1404f7802`)
+reproduced `Item Price MandatoryError: price_list_rate` against installed commerce
+0.3.0. Its transaction rolled back. The importer incorrectly used the integration
+field `item_price_rate` as a native ERPNext field. PR
+[#47](https://github.com/RayzorDuff/RootedOps/pull/47), commit
+`198a207b0a3f34c918552a88cca37ffc355af8c6`, corrects native reads/writes to
+`price_list_rate`, preserves `item_price_rate` in the API contract and bumps the
+app to 0.3.1. Its new priced-import/retry/catalog/drift native Frappe regression
+passed [disposable CI](https://github.com/RayzorDuff/RootedOps/actions/runs/41321093029);
+foundation/recovery passed too.
+
+A hash-verified candidate service-layer preview then passed against Test2's native
+ERP database and real authenticated Woo REST. This does **not** replace the
+installed app or validate its HTTP authentication/upgrade. No container restart,
+shared volume overwrite or ERP configuration change was made. The helper invokes
+the candidate API in a short-lived native Frappe process, checks permissions and
+commits only the uniquely identified synthetic catalog fixture.
+
+Successful harness source: `73080f4db893696a3021b842c9fb0f0b3aaa6181`, branch
+`feature/commerce-test2-validation`. Candidate API SHA256:
+`c6b348c56641aeba47d17cd1866a1ae65f204c6bcf3b91a3bbb70eb5f78ea91b`.
+
+- SKU `SYN-TEST2-ERP-CATALOG`: one ERP Item, one Item Price, one Commercial Product
+  Content and one channel mapping. Synthetic Item Group/Price List are dedicated.
+- Woo draft product ID 16 preserves its ID across reruns; description, SEO metadata,
+  category, tax-none fixture and USD 12.50 price match the ERP projection.
+- Woo returns this price as `12.5`; an initial harness assertion overconstrained
+  string formatting. The corrected assertion compares exact Decimal values.
+- Canonical ERP content stays Draft; mapping sync stays disabled. Publication
+  approval and quantity 2 are in-memory fixtures. MP inventory and HTTP ERP auth
+  are not covered, and no Customer/sales/accounting document is created.
+- Private evidence: `erp-native-catalog-fixture.json` and
+  `erp-woo-native-fixture-report.json`. These new synthetic records intentionally
+  change ERP catalog counts from the earlier zero baseline, not historical data.
+
+Existing isolated source worktrees on Test2 contain those exact tested commits:
+
+```bash
+~/bin/test2-console-lock commerce
+sudo -v
+sudo python3 /home/rootedops/RootedOps-commerce-validation/scripts/commerce_erp_native_fixture.py \
+  /home/rootedops/RootedOps/.test-deployment \
+  --candidate-api /home/rootedops/RootedOps-item-price-candidate/erpnext/apps/rootedops_commerce/rootedops_commerce/api.py \
+  --candidate-api-sha256 c6b348c56641aeba47d17cd1866a1ae65f204c6bcf3b91a3bbb70eb5f78ea91b
+exit
+```
+
+Acquire the console lock before any Lish operation. If unavailable, do repository
+work instead; never delete its file, bypass flock or take over SignatureGate's
+Screen session. Exit the locking shell promptly when server operations finish.
+The lock does not authorize changes to shared infrastructure or other databases.
+
+Before claiming installed ERP acceptance, review/deploy 0.3.1 with version/hash
+and rollback evidence, then run the helper **without** the candidate flag.
+The restored apps volume masks image application files, and the current initializer
+copies commerce only if absent. An image switch alone therefore does not establish
+an app upgrade: use an explicitly reviewed app-volume update and preserve its
+prior source. Do not rerun a restore, reinstall the site or overwrite all apps.
+The missing MP ledger migration/test database and complete order lifecycle remain
+separate unresolved gates.
