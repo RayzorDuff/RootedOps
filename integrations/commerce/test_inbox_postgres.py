@@ -21,16 +21,20 @@ class NativeInboxTests(unittest.TestCase):
             db.execute('CREATE TABLE erp_draft_probe(source_key text PRIMARY KEY)')
             cls.item=db.execute("INSERT INTO items(item_id,name,category,active) VALUES('INBOX-SYNTHETIC','Synthetic','grain',true) RETURNING nocopk").fetchone()[0]
             loc=db.execute("INSERT INTO locations(name,active,type) VALUES('Inbox synthetic',true,'Storage') RETURNING nocopk").fetchone()[0]
+            cls.storage=loc
             db.execute('INSERT INTO products(item_id,storage_location_id,use_by) VALUES(%s,%s,CURRENT_DATE+1),(%s,%s,CURRENT_DATE+1)',(cls.item,loc,cls.item,loc))
             cls.ecommerce=db.execute("INSERT INTO ecommerce(name,item_id,provider,site_key,external_sku,erp_item_code,sync_enabled,status) VALUES('Inbox synthetic',%s,'woocommerce','synthetic','SYN-1','ERP-SYN-1',true,'Sterilized') RETURNING nocopk",(cls.item,)).fetchone()[0]
     def setUp(self):
         with self.connect() as db:
-            for table in ['commerce_delivery','commerce_inbox','erp_draft_probe','mp_commerce_erp_links','mp_commerce_payment_matches','mp_commerce_events','mp_commerce_reservations','mp_commerce_orders']:
+            for table in ['mp_commerce_shipped_products','mp_commerce_shipments','commerce_delivery','commerce_inbox','erp_draft_probe','mp_commerce_erp_links','mp_commerce_payment_matches','mp_commerce_events','mp_commerce_reservations','mp_commerce_orders']:
                 db.execute('DELETE FROM '+table)
+            db.execute('UPDATE products SET storage_location_id=%s WHERE item_id=%s',(self.storage,self.item))
         self.inbox=Inbox(self.connect);self.mp=PostgresInventory(self.connect)
-    def receive(self):
-        raw=json.dumps({'id':10,'status':'processing','currency':'USD','total':'12.00','date_modified_gmt':'2026-10-30T10:00:00',
-            'payment_method':'clover_test','transaction_id':'fixture-capture','line_items':[{'id':1,'product_id':1,'variation_id':0,'sku':'SYN-1','quantity':1}],'refunds':[]}).encode()
+    def receive(self, **changes):
+        order={'id':10,'status':'processing','currency':'USD','total':'12.00','date_modified_gmt':'2026-10-30T10:00:00',
+            'payment_method':'clover_test','transaction_id':'fixture-capture','line_items':[{'id':1,'product_id':1,'variation_id':0,'sku':'SYN-1','quantity':1}],'refunds':[]}
+        order.update(changes)
+        raw=json.dumps(order).encode()
         secret='synthetic-native-webhook-fixture-secret'
         signature=base64.b64encode(hmac.digest(secret.encode(),raw,'sha256')).decode()
         return self.inbox.receive(raw,signature,secrets=[secret],site='synthetic',
@@ -75,5 +79,65 @@ class NativeInboxTests(unittest.TestCase):
             self.assertEqual(db.execute('SELECT sales_invoice,payment_entry FROM mp_commerce_erp_links').fetchone(),('SYNTHETIC-SI','SYNTHETIC-PE'))
             raw=db.execute('SELECT raw_body FROM commerce_inbox').fetchone()[0]
             self.assertEqual(json.loads(raw)['id'],10)
+
+
+    def available(self):
+        with self.connect() as db:
+            # The existing channel snapshot joins gross stock to reservation-adjusted
+            # stock. Never replace its raw inventory function or subtract twice.
+            return db.execute("SELECT r.available_quantity FROM mp_ecommerce_catalog_inventory() c JOIN mp_commerce_inventory() r USING(ecommerce_id) WHERE c.ecommerce_id=%s",(self.ecommerce,)).fetchone()[0]
+
+    def test_paid_at_creation_and_pending_both_reserve_then_cancel_releases(self):
+        for initial in ('processing','pending'):
+            with self.subTest(initial=initial):
+                self.setUp()
+                self.assertEqual(self.available(),2)
+                first=self.receive(status=initial)
+                self.assertTrue(deliver_one(self.inbox,self.mp,lambda event,mp:{'sales_order':'SYNTHETIC-SO'}))
+                self.assertEqual(self.available(),1)
+                self.assertTrue(self.receive(status=initial)['duplicate'])
+                self.assertFalse(deliver_one(self.inbox,self.mp,lambda *_:self.fail('Duplicate delivered')))
+                self.receive(status='cancelled',date_modified_gmt='2026-10-30T10:00:02')
+                deliver_one(self.inbox,self.mp,lambda event,mp:{'sales_order':'SYNTHETIC-SO'})
+                self.assertEqual(self.available(),2)
+                with self.connect() as db:
+                    self.assertEqual(db.execute('SELECT count(*) FROM mp_commerce_orders').fetchone()[0],1)
+                    self.assertEqual(db.execute('SELECT count(*) FROM mp_commerce_events').fetchone()[0],2)
+                    self.assertEqual(db.execute('SELECT storage_location_id FROM products WHERE item_id=%s LIMIT 1',(self.item,)).fetchone()[0],self.storage)
+
+    def test_partial_shipment_then_cancel_preserves_physical_history(self):
+        lines=[{'id':1,'product_id':1,'variation_id':0,'sku':'SYN-1','quantity':2}]
+        self.receive(line_items=lines)
+        # ERP references and payment evidence below are explicit contract mocks,
+        # not proof of submitted ERP documents or Clover sandbox transactions.
+        deliver_one(self.inbox,self.mp,lambda event,mp:{'sales_order':'SYNTHETIC-SO','sales_invoice':'SYNTHETIC-SI','payment_entry':'SYNTHETIC-PE'})
+        self.assertEqual(self.available(),0)
+        evidence={'provider':'woocommerce','site_key':'synthetic','external_order_id':'10','processor':'clover','verification':'verified_adapter','state':'captured','payment_id':'fixture-capture','currency':'USD','captured_amount':'12.00','refunded_amount':'0'}
+        with self.connect() as db:
+            db.execute('SELECT mp_commerce_match_payment(%s::jsonb)',(json.dumps(evidence),))
+            db.execute("SELECT mp_commerce_confirm_reservation('woocommerce','synthetic','10')")
+            product=db.execute('SELECT nocopk FROM products WHERE item_id=%s ORDER BY nocopk LIMIT 1',(self.item,)).fetchone()[0]
+            shipped=db.execute("INSERT INTO locations(name,active,type) VALUES('Shipped',true,'Terminal') RETURNING nocopk").fetchone()[0]
+        ack=json.dumps([{'line_id':'1','product_ids':[product]}])
+        with self.assertRaisesRegex(Exception,'physically shipped'):
+            with self.connect() as db:db.execute("SELECT mp_commerce_acknowledge_products('woocommerce','synthetic','10','fixture-movement',%s::jsonb)",(ack,))
+        with self.connect() as db:
+            # Explicit operator movement in this empty synthetic database, outside
+            # webhook ingestion; storefront events never perform this update.
+            db.execute('UPDATE products SET storage_location_id=%s WHERE nocopk=%s',(shipped,product))
+            for expected in ('partial','duplicate'):
+                self.assertEqual(db.execute("SELECT mp_commerce_acknowledge_products('woocommerce','synthetic','10','fixture-movement',%s::jsonb)",(ack,)).fetchone()[0],expected)
+        self.receive(line_items=lines,date_modified_gmt='2026-10-30T10:00:01')
+        deliver_one(self.inbox,self.mp,lambda event,mp:{'sales_order':'SYNTHETIC-SO','sales_invoice':'SYNTHETIC-SI','payment_entry':'SYNTHETIC-PE'})
+        self.assertEqual(self.available(),0)
+        self.receive(status='cancelled',line_items=lines,date_modified_gmt='2026-10-30T10:00:02')
+        deliver_one(self.inbox,self.mp,lambda event,mp:{'sales_order':'SYNTHETIC-SO','sales_invoice':'SYNTHETIC-SI','payment_entry':'SYNTHETIC-PE'})
+        self.assertEqual(self.available(),1)
+        with self.connect() as db:
+            self.assertEqual(db.execute('SELECT count(*) FROM mp_commerce_shipped_products').fetchone()[0],1)
+            self.assertEqual(db.execute('SELECT storage_location_id FROM products WHERE nocopk=%s',(product,)).fetchone()[0],shipped)
+            self.assertEqual(db.execute('SELECT count(*) FROM mp_commerce_reservations').fetchone()[0],0)
+            self.assertEqual(db.execute('SELECT count(*) FROM mp_commerce_orders').fetchone()[0],1)
+            self.assertEqual(db.execute('SELECT count(*) FROM mp_commerce_erp_links').fetchone()[0],1)
 
 if __name__=='__main__':unittest.main()
