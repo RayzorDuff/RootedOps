@@ -11,6 +11,7 @@ import time
 import zipfile
 import yaml
 from commerce_restore import read_env
+from host_recovery import deployment_hosts
 
 WP_VERSION = '7.1.4'
 WOO_VERSION = '11.2.1'
@@ -40,8 +41,9 @@ def inspect(environment, archive, digest):
     if config['services']['dank-wordpress']['image'] != 'wordpress:'+WP_VERSION+'-php8.3-apache':
         raise ValueError('Review the pinned WordPress image before installation')
     env = read_env(environment/'.env')
-    if env.get('ERPNEXT_SITE_NAME') != 'erp-test.danks.store':
-        raise ValueError('Authorized -test staging hostname required')
+    hosts = deployment_hosts(environment)
+    if hosts['erpnext'] not in ('erp-test.danks.store', 'erp-test2.danks.store') or env.get('ERPNEXT_SITE_NAME') != hosts['erpnext']:
+        raise ValueError('Authorized receipt-matched staging hostname required')
     for key in ('DANK_WP_DB_PASSWORD', 'DANK_WP_DB_ROOT_PASSWORD'):
         if len(env.get(key, '')) < 24 or env[key].startswith('replace-'):
             raise ValueError('Independent generated test credentials required')
@@ -69,6 +71,7 @@ def private_json(path, value):
 def bootstrap(environment, archive, digest):
     environment, archive = environment.resolve(), archive.resolve()
     config = inspect(environment, archive, digest)
+    shop_url = 'https://'+deployment_hosts(environment)['dank-wordpress']
     private = environment/'private'
     private.mkdir(mode=0o700, exist_ok=True)
     receipt = private/'wordpress-offline-receipt.json'
@@ -117,7 +120,7 @@ def bootstrap(environment, archive, digest):
             raise ValueError('Unexpected existing installation')
         if wp('core','version').stdout.strip() != WP_VERSION:
             raise ValueError('Unexpected WordPress core version')
-        wp('core','install','--url=https://shop-test.danks.store','--title=Dank Mushrooms Test',
+        wp('core','install','--url='+shop_url,'--title=Dank Mushrooms Test',
            '--admin_user='+data['username'],'--admin_password='+data['password'],
            '--admin_email=staging@example.invalid','--skip-email')
         wp('option','update','blog_public','0')

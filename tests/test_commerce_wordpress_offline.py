@@ -1,4 +1,5 @@
 import hashlib
+import json
 from pathlib import Path
 import sys
 import tempfile
@@ -14,6 +15,7 @@ class OfflineWordPressTests(unittest.TestCase):
         self.temp=tempfile.TemporaryDirectory();self.addCleanup(self.temp.cleanup)
         self.root=Path(self.temp.name)
         (self.root/'TEST_ENVIRONMENT').write_text('rootedops-full-test')
+        (self.root/'receipt.json').write_text(json.dumps({'hostname_suffix':'-test'}))
         (self.root/'.env').write_text('ERPNEXT_SITE_NAME=erp-test.danks.store\nDANK_WP_DB_PASSWORD='+('a'*32)+'\nDANK_WP_DB_ROOT_PASSWORD='+('b'*32)+'\n')
         self.config={'name':'dank-store-test','networks':{'default':{'internal':True}},'services':{'dank-wordpress':{'image':'wordpress:7.1.4-php8.3-apache','ports':['127.0.0.1:8097:80']},'dank-wordpress-db':{},'dank-wordpress-cli':{}}}
         self.write_config()
@@ -36,6 +38,14 @@ class OfflineWordPressTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError,'internal'):inspect(self.root,self.archive,self.digest)
     def test_production_hostname_refuses_before_container_commands(self):
         p=self.root/'.env';p.write_text(p.read_text().replace('erp-test.danks.store','erp.danks.store'))
+        with self.assertRaisesRegex(ValueError,'hostname'):inspect(self.root,self.archive,self.digest)
+    def test_test2_requires_matching_receipt_and_environment(self):
+        (self.root/'receipt.json').write_text(json.dumps({'hostname_suffix':'-test2'}))
+        with self.assertRaisesRegex(ValueError,'hostname'):inspect(self.root,self.archive,self.digest)
+        p=self.root/'.env';p.write_text(p.read_text().replace('erp-test.danks.store','erp-test2.danks.store'))
+        inspect(self.root,self.archive,self.digest)
+        (self.root/'receipt.json').write_text(json.dumps({'hostname_suffix':''}))
+        p.write_text(p.read_text().replace('erp-test2.danks.store','erp.danks.store'))
         with self.assertRaisesRegex(ValueError,'hostname'):inspect(self.root,self.archive,self.digest)
 
 if __name__=='__main__':unittest.main()
