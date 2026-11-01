@@ -87,3 +87,44 @@ Remaining native gates: installed update and repeated fixture, a separate synthe
 MP ledger test database, actual authoritative stock projection, durable order/
 reservation/fulfillment/financial lifecycle, and sandbox Clover evidence. Existing
 restored MP and SignatureGate databases remain untouched. Ecwid retirement is no-go.
+
+## Installed Test2 acceptance — 2026-11-01
+
+The guarded upgrade was executed from commit
+`90d672bdc791376bf6b45a269274d00ef7251597` after explicit Commerce Screen sudo
+authentication. Initial preflight stopped before app mutation because flit_core
+was absent. The official PyPI flit_core 3.12.0 wheel was staged on the host,
+SHA256-verified, copied into ERP and installed with `--no-index --no-deps`.
+Wheel SHA256: `e7a0304069ea895172e3c7bb703292e992c5d1555dd1233ab7b5621b5b69e62c`.
+Private provenance receipt: `.test-deployment/private/commerce-flit-wheel.json`.
+Application network isolation remained unchanged.
+
+Upgrade result: **PASS**. Both installed module and package metadata are 0.3.1;
+API SHA256 is `c6b348c56641aeba47d17cd1866a1ae65f204c6bcf3b91a3bbb70eb5f78ea91b`.
+All protected record fingerprints are unchanged. No schema migration or database
+restore occurred. The only restarted service was the ERP backend; its existing
+image `sha256:908a38651afd93e0e2823cfee7ce4c07db02293c072f6c006d2ea26c311d3438`
+was retained. Private code backup/before/after/receipt/package log:
+`.test-deployment/private/commerce-upgrade-031-20261101T202024Z/`.
+
+The installed native fixture was then executed twice, **without candidate flags**.
+Both runs report installed acceptance true, module/package 0.3.1, identical API
+hash, SKU `SYN-TEST2-ERP-CATALOG`, stable Woo draft product 16 and USD 12.50.
+The helper verifies one ERP Item/Price, repeat import identity, and stable Woo
+upserts. Canonical content stays Draft; mapping sync stays disabled. No financial
+document was created. Quantity remains fixture-only, so MP inventory and the
+complete order lifecycle are **not** claimed. ERP HTTP authentication is also a
+separate remaining gate.
+
+CI for that exact source commit passed:
+[foundation](https://github.com/RayzorDuff/RootedOps/actions/runs/41345960247),
+[recovery](https://github.com/RayzorDuff/RootedOps/actions/runs/41345960266),
+[integration contracts](https://github.com/RayzorDuff/RootedOps/actions/runs/41345960282).
+Local tests: 88 run, 87 passed, one PHP-dependent skip.
+
+The full existing MushroomProcess commercial snapshot workflow already joins
+`mp_ecommerce_catalog_inventory()` with `mp_commerce_inventory()` and projects
+reservation-adjusted `available_quantity` as `desired_quantity`, retaining the raw
+quantity as `gross_quantity`. No replacement SQL function is needed. The remaining
+gate is native verification against an isolated synthetic ledger database; the
+restored MP database remains untouched.

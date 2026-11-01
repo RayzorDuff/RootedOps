@@ -1,6 +1,6 @@
 # Commerce staging handoff — maintained during offline development
 
-Installed-app procedure and real CSV audit: [commerce-installed-031.md](commerce-installed-031.md). Native installed acceptance remains pending.
+Installed-app procedure and real CSV audit: [commerce-installed-031.md](commerce-installed-031.md). Installed 0.3.1 and repeated native ERP-to-Woo fixture passed; see the dated acceptance section. Full order/cutover acceptance remains open.
 
 Latest new Test2 evidence: [2026-11-01 HTTPS and native catalog checkpoint](commerce-test2-2026-11-01.md). Full commerce acceptance remains open.
 
