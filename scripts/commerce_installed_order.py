@@ -43,7 +43,7 @@ with Connection() as db:
 action=a['action'];out={}
 if action=='seed':
  with Connection() as db:
-  assert not db.execute('select exists(select 1 from products) or exists(select 1 from items)').fetchone()[0], 'Fixture already seeded; use stored receipt'
+  assert not db.execute("select exists(select 1 from products) or exists(select 1 from items where item_id='TEST2-TAX-MERCH')").fetchone()[0], 'Fixture already seeded; use stored receipt'
   item=db.execute("insert into items(item_id,name,category,active) values('TEST2-TAX-MERCH','Synthetic installed order','grain',true) returning nocopk").fetchone()[0]
   loc=db.execute("insert into locations(name,active,type) values('Commerce isolated fixture',true,'Storage') returning nocopk").fetchone()[0]
   db.execute('insert into products(item_id,storage_location_id,use_by) values(%s,%s,current_date+7),(%s,%s,current_date+7)',(item,loc,item,loc))
