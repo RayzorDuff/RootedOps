@@ -117,8 +117,9 @@ def prepare(source):
     command = ['docker','exec','-i',MP,'sh','-c','psql -X -U "$POSTGRES_USER" -d commerce_integration_test -v ON_ERROR_STOP=1 -q']
     # Creation refuses an existing database; there is intentionally no reset path.
     subprocess.run(['docker','exec',MP,'sh','-c','createdb -U "$POSTGRES_USER" commerce_integration_test'],check=True)
+    subprocess.run(['docker','cp',str(source/'schema/pgsql'),MP+':/tmp/commerce-order-schema'],check=True)
     for path in sorted((source/'schema/pgsql').glob('0*.sql')):
-        p=subprocess.run(command,input=path.read_text(),capture_output=True,text=True)
+        p=subprocess.run(command+['-f','/tmp/commerce-order-schema/'+path.name],capture_output=True,text=True)
         if p.returncode:raise RuntimeError('Isolated schema migration failed: '+path.name+' '+p.stderr[-800:])
     sql=Path(__file__).resolve().parents[1]/'integrations/commerce/inbox.sql'
     subprocess.run(command,input=sql.read_text()+"\ncreate table rootedops_commerce_fixture(marker text primary key);insert into rootedops_commerce_fixture values('installed-order-v1');",text=True,check=True,capture_output=True)
@@ -160,6 +161,7 @@ def exercise(environment):
     event=received['claim']['payload'];approved={'|'.join([event['provider'],event['site_key'],event['external_order_id']]):draft}
     erp=ReviewedERP(target['erp'],'operator-native-transport',approved,
         lambda url,authorization,method,payload:{'message':native(ERP,json.loads(payload['payload']))})
+    private_write(work/'approved.json',draft)
     result=erp(event,received['mp']);private_write(work/'erp.json',result)
     finished=runner({'action':'finish','claim':received['claim'],'erp':result})
     eligibility=runner({'action':'eligibility','order':order['id']})
@@ -169,8 +171,35 @@ def exercise(environment):
     private_write(work/'result.json',report);print(json.dumps(report))
 
 
+def cancel(environment):
+    target,private=guarded_environment(environment);work=private/'installed-order'
+    report=json.loads((work/'result.json').read_text())
+    if report.get('cancelled'):
+        print(json.dumps(report));return
+    c=json.loads((private/'wordpress-credentials.json').read_text())
+    auth='Basic '+base64.b64encode((c['username']+':'+c['application_password']).encode()).decode()
+    root=target['shop']+'/wp-json/wc/v3/orders/'+str(report['woo_order'])
+    old=api(root,auth)
+    assert old['status']=='pending' and not old['date_paid'] and not old['transaction_id']
+    order=api(root,auth,'PUT',{'status':'cancelled'})
+    assert order['date_modified_gmt']>old['date_modified_gmt'], 'Refetch later if revision has not advanced'
+    seed=report['seed'];product=report['woo_product']
+    mappings={str(product):{'sku':'TEST2-TAX-MERCH','ecommerce_id':seed['ecommerce_id'],'erp_item_code':'TEST2-TAX-MERCH'}}
+    received=runner({'action':'receive','order':order,'mappings':mappings})
+    private_write(work/'cancel-received.json',received)
+    draft=json.loads((work/'approved.json').read_text())
+    erp=native(ERP,{'event':received['claim']['payload'],'reviewed_draft':draft})
+    finished=runner({'action':'finish','claim':received['claim'],'erp':erp})
+    assert finished['orders']==finished['erp_links']==1 and finished['reserved']==0 and finished['events']==2
+    report.update(cancelled=True,cancellation_erp=erp,cancellation_mp=finished)
+    private_write(work/'result.json',report);print(json.dumps(report))
+
+
 if __name__=='__main__':
     p=argparse.ArgumentParser(description=__doc__);p.add_argument('environment',type=Path)
-    p.add_argument('--prepare-schema',type=Path);a=p.parse_args()
+    group=p.add_mutually_exclusive_group();group.add_argument('--prepare-schema',type=Path)
+    group.add_argument('--cancel',action='store_true');a=p.parse_args()
     guarded_environment(a.environment)
-    prepare(a.prepare_schema) if a.prepare_schema else exercise(a.environment)
+    if a.prepare_schema:prepare(a.prepare_schema)
+    elif a.cancel:cancel(a.environment)
+    else:exercise(a.environment)
