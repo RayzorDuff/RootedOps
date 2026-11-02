@@ -935,6 +935,12 @@ changes and MushroomProcess production-branch retirement remain unauthorized.
 
 ### Shared test2 continuation
 
+The next commerce priority is the [real Ecwid catalog pilot](commerce-real-catalog-pilot.md).
+It records three selected real products, source hashes, field gaps and incremental
+reconciliation commands. Its current destination coverage is zero because the
+exclusive Lish lock was unavailable. Do not repeat installed 0.3.1/catalog or native
+ledger predecessor tests solely to resume; proceed to unpublished real imports.
+
 See [test2-shared-readiness.md](test2-shared-readiness.md) for the new synthetic
 SignatureGate schema/role, 42/47 native SQL results, ERP image repair and executed
 commerce installation/migration. These are new host results, separate from the
