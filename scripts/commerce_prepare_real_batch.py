@@ -63,7 +63,9 @@ def run(environment, batch, archive_only=False):
     work = private / 'catalog-expansion' / ('batch-' + str(batch)); work.mkdir(mode=0o700, parents=True, exist_ok=True)
     source_bytes = (SOURCE / 'public-products.json').read_bytes()
     source = json.loads(source_bytes)
-    candidates = json.loads((SOURCE / 'batch-candidates.json').read_text())['batches'][batch-1]
+    candidates = json.loads((SOURCE / 'batch-candidates.json').read_text())['batches'][batch-1] if batch else [
+        {'source_key': r['source_key'], 'sku': r['content']['item'], 'category_ids': r['category_ids']}
+        for r in json.loads((SOURCE / 'pilot-api-plan.json').read_text())['products']]
     keys = [r['source_key'] for r in candidates]
     selected = []
     for row in source['products']:
@@ -154,5 +156,7 @@ def run(environment, batch, archive_only=False):
 
 if __name__ == '__main__':
     p = argparse.ArgumentParser(description=__doc__); p.add_argument('environment', type=Path)
-    p.add_argument('--batch', type=int, choices=range(1, 5), required=True); p.add_argument('--archive-only', action='store_true')
+    p.add_argument('--batch', type=int, choices=range(0, 5), required=True,
+                   help='1–4 prepared expansion batches; 0 prepares existing pilot gallery media only')
+    p.add_argument('--archive-only', action='store_true')
     a = p.parse_args(); run(a.environment, a.batch, a.archive_only)
