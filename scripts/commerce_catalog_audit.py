@@ -19,12 +19,15 @@ from commerce_catalog_batch import guarded_environment, verify_woo, records_for_
 MEDIA_NATIVE = '''import json,sys,hashlib,frappe
 a=json.load(sys.stdin);frappe.init(site='erp-test2.danks.store');frappe.connect()
 try:
+ aliases={}
  for row in a:
-  files=frappe.get_all('File',filters={'file_url':row['erp_file_url']},fields=['name']);assert len(files)==1
-  blob=frappe.get_doc('File',files[0].name).get_content()
-  if isinstance(blob,str):blob=blob.encode()
-  assert hashlib.sha256(blob).hexdigest()==row['sha256']
- print(json.dumps({'erp_originals_verified':len(a)}))
+  files=frappe.get_all('File',filters={'file_url':row['erp_file_url']},fields=['name']);assert files
+  aliases[row['erp_file_url']]=len(files)
+  for f in files:
+   blob=frappe.get_doc('File',f.name).get_content()
+   if isinstance(blob,str):blob=blob.encode()
+   assert hashlib.sha256(blob).hexdigest()==row['sha256']
+ print(json.dumps({'erp_originals_verified':len(a),'erp_file_alias_counts':aliases}))
 finally:frappe.db.rollback();frappe.destroy()
 '''
 
