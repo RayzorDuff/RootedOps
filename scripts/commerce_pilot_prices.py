@@ -109,7 +109,9 @@ def run(environment,apply=False):
     from urllib.parse import urlencode
     old={}
     for r in records:
-        sku=r['content']['item'];matches=api(shop+'/wp-json/wc/v3/products?'+urlencode({'sku':sku}),auth)
+        # PUT returns edit-context content. GET view context applies WordPress
+        # paragraph formatting and cannot be compared byte-for-byte with it.
+        sku=r['content']['item'];matches=api(shop+'/wp-json/wc/v3/products?'+urlencode({'sku':sku,'context':'edit'}),auth)
         if len(matches)!=1:raise ValueError('Exact existing Woo pilot required')
         product=matches[0];meta={m['key']:m['value'] for m in product['meta_data']}
         if (product['sku']!=sku or product['status']!='draft' or product['type']!='simple' or product['catalog_visibility']!='hidden'
