@@ -14,7 +14,7 @@ from ecwid_migrate import private_write
 
 NATIVE = r'''
 import json, frappe
-from frappe.utils import today, add_days
+from frappe.utils import today
 from erpnext.accounts.doctype.tax_rule.tax_rule import get_tax_template
 frappe.init(site='erp-test2.danks.store'); frappe.connect(); frappe.set_user('Administrator')
 try:
@@ -64,7 +64,7 @@ try:
    'customer_group':'Individual','territory':'All Territories'})
  results=[]
  for labels,expected in [(['GROCERY'],3.5),(['MERCH'],6.4),(['GROCERY','MERCH'],9.9)]:
-  invoice=frappe.get_doc({'doctype':'Sales Invoice','company':company,'customer':customer.name,
+  invoice=frappe.get_doc({'doctype':'Sales Invoice','docstatus':0,'company':company,'customer':customer.name,
    'posting_date':today(),'due_date':today(),'currency':'USD','conversion_rate':1,
    'tax_category':cat.name,'taxes_and_charges':template.name,'is_pos':0,
    'remarks':'TEST2 incomplete jurisdiction components only. NOT a destination quote.',
@@ -72,7 +72,7 @@ try:
    'taxes':[{'charge_type':'On Net Total','account_head':a,'description':a,'rate':r} for a,r in accounts]})
   invoice.set_missing_values(); invoice.calculate_taxes_and_totals()
   assert round(invoice.total_taxes_and_charges,2)==expected, invoice.as_dict()
-  assert invoice.docstatus==0 and invoice.is_new()
+  assert invoice.docstatus==0 and not invoice.name
   results.append({'items':labels,'net':invoice.net_total,'component_tax':invoice.total_taxes_and_charges,
    'components':[{'account':x.account_head,'amount':x.tax_amount} for x in invoice.taxes],
    'saved':False,'submitted':False})
