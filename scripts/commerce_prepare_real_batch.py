@@ -29,6 +29,7 @@ CDN = 'd2j6dbq0eux0bg.cloudfront.net'
 
 FILE_NATIVE = '''import sys,json,base64,hashlib,frappe
 from frappe.utils.file_manager import save_file,get_content_hash
+from frappe.core.doctype.file.file import strip_exif_data
 a=json.load(sys.stdin);frappe.init(site='erp-test2.danks.store');frappe.connect();frappe.set_user('Administrator')
 try:
  assert frappe.conf.get('maintenance_mode') and frappe.conf.get('pause_scheduler')
@@ -37,11 +38,12 @@ try:
  # Frappe may rename an attachment while retaining a deduplicated physical URL.
  # Match its installed content hash, then verify SHA-256, rather than creating
  # another File alias because an expected filename was normalized.
- files=frappe.get_all('File',filters={'content_hash':get_content_hash(blob),'is_private':0},fields=['name','file_url'],order_by='creation asc')
+ normalized=strip_exif_data(blob,'image/jpeg') if a['filename'].endswith('.jpg') and frappe.get_system_settings('strip_exif_metadata_from_uploaded_images') else blob
+ files=frappe.get_all('File',filters={'content_hash':get_content_hash(normalized),'is_private':0},fields=['name','file_url'],order_by='creation asc')
  if files:
   content=frappe.get_doc('File',files[0].name).get_content()
   if isinstance(content,str):content=content.encode()
-  assert hashlib.sha256(content).hexdigest()==sha
+  assert hashlib.sha256(content).hexdigest()==hashlib.sha256(normalized).hexdigest()
   url=files[0].file_url
  else:url=save_file(a['filename'],blob,None,None,is_private=0).file_url
  frappe.db.commit();print(json.dumps({'message':{'file_url':url}}))

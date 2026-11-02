@@ -16,18 +16,23 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'integrations/comme
 from ecwid_migrate import api, private_write
 from commerce_catalog_batch import guarded_environment, verify_woo, records_for_batch
 
-MEDIA_NATIVE = '''import json,sys,hashlib,frappe
+MEDIA_NATIVE = '''import json,sys,hashlib,base64,frappe
+from frappe.core.doctype.file.file import strip_exif_data
 a=json.load(sys.stdin);frappe.init(site='erp-test2.danks.store');frappe.connect()
 try:
- aliases={}
+ aliases={};normalized=[]
  for row in a:
+  original=base64.b64decode(row['original_blob']);assert hashlib.sha256(original).hexdigest()==row['sha256']
+  content=strip_exif_data(original,'image/jpeg') if row['content_type'].split(';')[0]=='image/jpeg' and frappe.get_system_settings('strip_exif_metadata_from_uploaded_images') else original
+  expected_sha=hashlib.sha256(content).hexdigest()
+  normalized.append({'source_sha256':row['sha256'],'erp_sha256':expected_sha,'jpeg_exif_stripped':expected_sha!=row['sha256']})
   files=frappe.get_all('File',filters={'file_url':row['erp_file_url']},fields=['name']);assert files
   aliases[row['erp_file_url']]=len(files)
   for f in files:
    blob=frappe.get_doc('File',f.name).get_content()
    if isinstance(blob,str):blob=blob.encode()
-   assert hashlib.sha256(blob).hexdigest()==row['sha256']
- print(json.dumps({'erp_originals_verified':len(a),'erp_file_alias_counts':aliases}))
+   assert hashlib.sha256(blob).hexdigest()==expected_sha
+ print(json.dumps({'erp_media_verified':len(a),'erp_file_alias_counts':aliases,'erp_normalization':normalized}))
 finally:frappe.db.rollback();frappe.destroy()
 '''
 
@@ -64,14 +69,14 @@ def run(environment, media_batch=None):
     if media_batch is not None:
         work = private / 'catalog-expansion' / ('batch-' + str(media_batch))
         rows = json.loads((work / 'uploaded-media.json').read_text())
-        erp = native(MEDIA_NATIVE, rows)
+        erp = native(MEDIA_NATIVE, [dict(r, original_blob=base64.b64encode((work / 'media' / r['sha256']).read_bytes()).decode()) for r in rows])
         expected = {str(r['woocommerce_media_id']): r['sha256'] for r in rows}
         php = """require '/var/www/html/wp-load.php';$expected=json_decode(base64_decode('%s'),true);$out=[];
 foreach($expected as $id=>$sha){$path=wp_get_original_image_path((int)$id);if(!$path || !is_file($path) || hash_file('sha256',$path)!==$sha){throw new Exception('Original media checksum mismatch');}$out[]=['id'=>(int)$id,'sha256'=>$sha,'original_preserved'=>true];}echo json_encode($out);""" % base64.b64encode(json.dumps(expected).encode()).decode()
         woo = json.loads(subprocess.check_output(['docker', 'exec', 'dank-store-test-dank-wordpress-1', 'php', '-r', php]))
         report = dict(erp, woo_originals=woo, batch=media_batch)
         private_write(work / 'media-binary-audit.json', report)
-        print(json.dumps({'batch': media_batch, 'erp_originals': erp['erp_originals_verified'], 'woo_originals': len(woo)})); return
+        print(json.dumps({'batch': media_batch, 'erp_media': erp['erp_media_verified'], 'erp_jpeg_normalizations': sum(r['jpeg_exif_stripped'] for r in erp['erp_normalization']), 'woo_originals': len(woo)})); return
     expected, compiled = [], []
     for batch in range(1, 5):
         path = private / 'catalog-expansion' / ('batch-' + str(batch)) / 'compiled.json'
