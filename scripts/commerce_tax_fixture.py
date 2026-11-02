@@ -90,6 +90,7 @@ finally: frappe.destroy()
 
 def run(environment):
     _, private = guarded_environment(environment)
+    (private / 'tax-readiness').mkdir(mode=0o700, exist_ok=True)
     result = native(NATIVE, {})
     private_write(private / 'tax-readiness/native-components.json', result)
     print(json.dumps(result))
