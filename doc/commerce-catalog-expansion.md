@@ -1,5 +1,10 @@
 # Real catalog expansion checkpoint
 
+**Superseded by installed execution:** all nineteen candidates subsequently
+imported. See [commerce-catalog-expanded-test2.md](commerce-catalog-expanded-test2.md)
+for 22-product acceptance, completed galleries and command-scoped lock usage.
+The blocked/prepared checkpoint below is historical evidence.
+
 Continuation baseline: RootedOps main `a6f8d447893ec548981b3c75b429ed2dcb31f471`
 (merged #52). MushroomProcess main inspected at
 `451393c621b64c5bd4ca7d03b1525c6253f641ae`; no MP changes.

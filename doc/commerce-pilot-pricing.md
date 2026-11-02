@@ -1,5 +1,10 @@
 # Real catalog pilot pricing and source reconciliation
 
+**Later execution:** [commerce-catalog-expanded-test2.md](commerce-catalog-expanded-test2.md)
+records all nineteen additional imports and completed original pilot galleries.
+Use its command-scoped lock syntax; interactive locking instructions below are
+historical and obsolete.
+
 Continuation baseline: main `fe8cf451f67a09de77d6d81420037506e53749e4`, including
 PRs #48–#51. Preserve the actual three-product content/media evidence in
 [commerce-real-pilot-executed.md](commerce-real-pilot-executed.md).
