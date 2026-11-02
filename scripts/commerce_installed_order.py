@@ -60,19 +60,28 @@ elif action=='receive':
  claim=inbox.claim();assert claim is not None
  receipt=mp(claim['payload']);inbox.record(claim,'mp',receipt)
  out={'claim':dict(claim,key=list(claim['key'])),'mp':receipt,'duplicate':True,'invalid_signature_rejected':True}
-elif action=='finish':
- claim=a['claim'];receipt=a['erp'];inbox.record(claim,'erp',receipt);mp.link_erp(claim['payload'],receipt);inbox.finish(claim)
- assert inbox.claim() is None
+elif action in ('finish','status'):
+ if action=='finish':
+  claim=a['claim'];receipt=a['erp'];inbox.record(claim,'erp',receipt);mp.link_erp(claim['payload'],receipt);inbox.finish(claim)
+ assert not any(x[0]!='done' for x in inbox.status())
  with Connection() as db:
   out={'orders':db.execute('select count(*) from mp_commerce_orders').fetchone()[0],
-   'reserved':db.execute('select coalesce(sum(quantity),0) from mp_commerce_reservations').fetchone()[0],
+   'reserved':int(db.execute('select coalesce(sum(quantity),0) from mp_commerce_reservations').fetchone()[0]),
    'erp_links':db.execute('select count(*) from mp_commerce_erp_links').fetchone()[0],
    'events':db.execute('select count(*) from mp_commerce_events').fetchone()[0],'delivery':inbox.status()}
 elif action=='eligibility':
  try:
   with Connection() as db:db.execute("select mp_commerce_confirm_reservation('woocommerce','shop-test2.danks.store',%s)",(str(a['order']),))
- except Exception:out={'unpaid_fulfillment_rejected':True}
+ except psycopg2.errors.NoDataFound:out={'unpaid_fulfillment_rejected':True}
  else:raise AssertionError('Unpaid order became fulfillment eligible')
+ try:
+  with Connection() as db:
+   pid=db.execute('select nocopk from products order by nocopk limit 1').fetchone()[0]
+   line=db.execute('select line_id from mp_commerce_reservations limit 1').fetchone()[0]
+   db.execute("select mp_commerce_acknowledge_products('woocommerce','shop-test2.danks.store',%s,'synthetic-unpaid-blocked',%s::jsonb)",(str(a['order']),json.dumps([{'line_id':line,'product_ids':[pid]}])))
+ except psycopg2.errors.RaiseException as exc:
+  assert 'Confirmed active reservation required' in str(exc);out['unpaid_shipment_ack_rejected']=True
+ else:raise AssertionError('Unpaid shipment accepted')
 else:raise ValueError('Unknown fixture action')
 print(json.dumps(out))
 '''
@@ -171,6 +180,17 @@ def exercise(environment):
     private_write(work/'result.json',report);print(json.dumps(report))
 
 
+def recover_receipt(environment):
+    _,private=guarded_environment(environment);work=private/'installed-order'
+    state=json.loads((work/'state.json').read_text());erp=json.loads((work/'erp.json').read_text())
+    finished=runner({'action':'status'});assert finished['orders']==finished['erp_links']==1 and finished['reserved']==1 and finished['events']==1
+    eligibility=runner({'action':'eligibility','order':state['woo_order']})
+    report=dict(state,erp=erp,mp=finished,**eligibility,duplicate_webhook=True,invalid_signature_rejected=True,
+        tax_total='0.00',destination_tax_validated=False,automatic_webhook_route=False,clover_capture_tested=False,
+        physical_fulfillment_tested=False,transport='operator-relayed actual Woo REST snapshot; native ERP callback')
+    private_write(work/'result.json',report);print(json.dumps(report))
+
+
 def cancel(environment):
     target,private=guarded_environment(environment);work=private/'installed-order'
     report=json.loads((work/'result.json').read_text())
@@ -198,8 +218,9 @@ def cancel(environment):
 if __name__=='__main__':
     p=argparse.ArgumentParser(description=__doc__);p.add_argument('environment',type=Path)
     group=p.add_mutually_exclusive_group();group.add_argument('--prepare-schema',type=Path)
-    group.add_argument('--cancel',action='store_true');a=p.parse_args()
+    group.add_argument('--cancel',action='store_true');group.add_argument('--recover-receipt',action='store_true');a=p.parse_args()
     guarded_environment(a.environment)
     if a.prepare_schema:prepare(a.prepare_schema)
     elif a.cancel:cancel(a.environment)
+    elif a.recover_receipt:recover_receipt(a.environment)
     else:exercise(a.environment)
