@@ -4,6 +4,15 @@ from ecwid_migrate import api,digest
 from staging_origin import staging_origin
 
 
+def owned_customer(row, source_key, fingerprint):
+    meta={m['key']:m['value'] for m in row.get('meta_data',[])}
+    # Woo 11 filters protected (underscore-prefixed) user meta on REST writes.
+    # Read legacy identities where available; never adopt an unowned email.
+    pairs=[(meta.get(prefix+'rootedops_source_key'),meta.get(prefix+'rootedops_customer_hash'))
+           for prefix in ('','_') if prefix+'rootedops_source_key' in meta or prefix+'rootedops_customer_hash' in meta]
+    return bool(pairs) and all(pair==(source_key,fingerprint) for pair in pairs)
+
+
 def upsert_customer(base,authorization,source_key,reviewed,*,mail_sink_verified=False,request=api):
     base=staging_origin(base,'shop')
     if mail_sink_verified is not True:raise ValueError('Verify test-only email/external isolation before account creation')
@@ -20,11 +29,13 @@ def upsert_customer(base,authorization,source_key,reviewed,*,mail_sink_verified=
     if len(rows)>1:raise ValueError('Ambiguous customer email')
     fingerprint=digest(reviewed)
     if rows:
-        meta={m['key']:m['value'] for m in rows[0].get('meta_data',[])}
-        if meta.get('_rootedops_source_key')!=source_key or meta.get('_rootedops_customer_hash')!=fingerprint:
+        if not owned_customer(rows[0],source_key,fingerprint):
             raise ValueError('Existing account is unowned or changed; explicit identity reconciliation required')
         return {'external_customer_id':rows[0]['id'],'source_key':source_key,'created':False}
     body=dict(reviewed,username='ro-'+digest(source_key)[:24],
-              meta_data=[{'key':'_rootedops_source_key','value':source_key},{'key':'_rootedops_customer_hash','value':fingerprint}])
+              meta_data=[{'key':'rootedops_source_key','value':source_key},{'key':'rootedops_customer_hash','value':fingerprint}])
     result=request(root,authorization,'POST',body)
+    stored=request(root+'/'+str(result['id'])+'?context=edit',authorization)
+    if not owned_customer(stored,source_key,fingerprint):
+        raise ValueError('Created customer identity was not persisted; reconcile before retry')
     return {'external_customer_id':result['id'],'source_key':source_key,'created':True}
