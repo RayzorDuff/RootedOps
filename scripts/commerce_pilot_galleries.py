@@ -20,6 +20,7 @@ from commerce_catalog_batch import guarded_environment
 from commerce_pilot_prices import pilot_records
 
 NATIVE = '''import json,sys,frappe
+from copy import deepcopy
 a=json.load(sys.stdin);frappe.init(site='erp-test2.danks.store');frappe.connect();frappe.set_user('Administrator')
 try:
  assert frappe.conf.get('maintenance_mode') and frappe.conf.get('pause_scheduler')
@@ -36,8 +37,8 @@ try:
   for g in desired:assert frappe.db.exists('File',{'file_url':g['image']})
   for replay in range(2):
    current=[{'image':g.image,'source_url':g.source_url} for g in c.gallery]
-   if current!=desired:c.set('gallery',desired);c.save()
-   c.reload();assert [{ 'image':g.image,'source_url':g.source_url} for g in c.gallery]==desired
+   if current!=desired:c.set('gallery',deepcopy(desired));c.save()
+   c.reload();assert [{ 'image':g.image,'source_url':g.source_url} for g in c.gallery]==desired,{'expected':desired,'actual':[{ 'image':g.image,'source_url':g.source_url} for g in c.gallery]}
    assert preserve=={k:c.get(k) for k in preserve}
    if not replay:children=[g.name for g in c.gallery]
    else:assert children==[g.name for g in c.gallery]
