@@ -36,11 +36,11 @@ settings are preserved and publication/payment controls remain disabled.
 
 Read-only Ecwid API catalog access succeeded using the public catalog token from
 the supplied control-panel export; no secret token or merchant-setting changes.
-The export also independently confirms store ID 95802503. The API returned 132
-products, 38 enabled, with zero products reporting options or combinations. Do not
-manufacture a variation to satisfy a testing target. Dedicated combination checks
-and fuller gallery reconciliation should determine whether any variation work is
-applicable to this actual catalog.
+The export also independently confirms store ID 95802503. The API returned 132 identities: 38 enabled full records and 94 disabled
+placeholders. All 38 enabled records reported empty options/combinations; each
+pilot combination endpoint independently returned an empty list. Disabled variation
+completeness remains unknown. No actual pilot variations exist to migrate; do not
+manufacture variations to satisfy a testing target.
 
 The grow kit has two gallery entries, exceeding the CSV's single image. API source
 also distinguishes original images from resized primary images. The planner now
@@ -69,3 +69,59 @@ The public catalog snapshot is not evidence of private-field completeness.
 Use the lock briefly for server tasks. If unavailable, continue repository work
 and retry at a task boundary. Detach only Commerce Screen and explicitly exit the
 locking shell before stopping.
+
+## Executed installed acceptance
+
+Pricing command commit `7d6f0345ded2bd8e0bb1dab162c125f02b880047` ran on test2
+from `/home/rootedops/RootedOps-price-run`. Read-only preflight, apply and subsequent
+read-only reconciliation passed. The apply itself repeats both ERP import and Woo
+upsert. Each Item has exactly one matching Item Price; Woo identities stayed stable.
+
+| SKU | ERP Item Price ID | Woo ID | USD rate |
+| --- | --- | --- | --- |
+| M5P9B1D6Q8R2S | 51dh7jssbr | 18 | 14.95 |
+| cdbd6f64-2637-488c-b9fc-0a5a47bb7322 | 51dd36tc1u | 20 | 9.95 |
+| E3ZY47P9K64TT | 51e8nrhi2a | 22 | 9.95 |
+
+An initial Woo comparison stopped after the first price update because GET view
+context paragraph formatting differed from PUT edit context. Existing ERP prices
+had already committed. Correcting GET to authenticated edit context allowed strict
+content equality checks and a safe repeat; no content-recovery overwrite occurred.
+The final pass preserved descriptions, short descriptions, images, categories,
+draft/hidden visibility and managed stock zero. No new Item or financial documents.
+
+Private application receipts: `.test-deployment/private/ecwid-pilot/prices-applied.json`
+and `prices-preflight.json`. Use the absolute script path above for the documented
+commands until the owner merges this PR; the main host checkout/configuration was
+preserved. No shared service restart or infrastructure/security setting change.
+
+Live API profile independently verified store 95802503 and currency USD. Public
+catalog file SHA-256:
+`6599f6cbc4603641ced586b7e1811977e71cf725478ff42b34a3a6a2c6952993`.
+It is a later live snapshot, not the original October CSV. The full API planner
+flags missing SKUs on all 94 disabled placeholders; do not overwrite original CSV
+identities with those absent fields or treat the public response as a full private
+export. Enabled products retain 24 default and 14 zero tax-class labels. All three
+pilot API tax objects report taxable=true, no enabled manual taxes and included
+rate zero; these fields do not authorize an invented destination tax policy.
+
+API gallery inventory has 21 entries. Corrected pilot planning retains seven
+original media URLs across the three products (LC 2, grow kit 3, freeze dried 2),
+archived successfully under `commerce-ecwid-read/pilot-original-media/`. These seven
+originals are **not yet applied** to destination galleries; the previously imported
+three primary images remain. API subtitle mapping is also corrected in the planner
+for future batches; this source change is regression-tested but not yet applied
+to a new destination batch. Original CSV payloads remain immutable.
+
+Enabled category inventory: 14 Grow Kits and Mycology Supplies, eight Gourmet
+Mushrooms, 12 Disabled, four uncategorized. After excluding the three existing
+pilot products, 19 candidates are recorded in private `batch-candidates.json` as
+5/5/5/4 records. This is preparation, not import acceptance. Hold the 12 Disabled
+category and four uncategorized records for review; retain 94 disabled CSV records
+as archives until an adequately scoped source export is available.
+
+Current verified migration coverage remains **three products / three prices / zero
+actual pilot variations**. Full original galleries, reviewed taxes and subsequent
+batches remain open. Installed order-flow and Clover sandbox acceptance did not
+run in this session. All source calls were GET-only; no Ecwid changes. Commerce
+Screen was detached and the locking shell explicitly exited after server work.

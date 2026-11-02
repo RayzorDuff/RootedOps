@@ -121,7 +121,7 @@ def plan(data):
             images = list(dict.fromkeys(images))
             content = {'doctype': 'Commercial Product Content', 'item': sku,
                 'public_title': row.get('name') or sku, 'publication_status': 'Draft',
-                'short_description': row.get('shortDescription', ''),
+                'short_description': row.get('shortDescription') or row.get('subtitle', ''),
                 'full_description': row.get('description', ''),
                 'seo_title': row.get('seoTitle', ''), 'seo_description': row.get('seoDescription', ''),
                 'gallery': [{'image': u, 'source_url': u} for u in images],

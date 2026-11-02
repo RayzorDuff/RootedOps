@@ -17,11 +17,12 @@ def fixture():
 
 class PilotPriceTests(unittest.TestCase):
     def test_original_gallery_images_deduplicate_resized_primary(self):
-        product={'id':1,'sku':'SYN','imageUrl':'https://cdn.example/resized.jpg',
+        product={'id':1,'sku':'SYN','subtitle':'Actual API subtitle','imageUrl':'https://cdn.example/resized.jpg',
             'originalImageUrl':'https://cdn.example/original.png',
             'galleryImages':[{'url':'https://cdn.example/original.png'},
                              {'originalImageUrl':'https://cdn.example/second.png','url':'https://cdn.example/second-small.jpg'}]}
         result=plan({'store_id':'synthetic','products':[product]})
+        self.assertEqual(result['products'][0]['content']['short_description'],'Actual API subtitle')
         self.assertEqual([r['source_url'] for r in result['products'][0]['content']['gallery']],
                          ['https://cdn.example/original.png','https://cdn.example/second.png'])
 
