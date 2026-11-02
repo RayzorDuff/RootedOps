@@ -109,11 +109,15 @@ def plan(data):
             if len(str(row.get('name') or sku)) > 140 or len(str(row.get('seoTitle') or '')) > 140:
                 errors.append('Title exceeds ERP Data field length; review: ' + key)
             images = []
-            if row.get('imageUrl'):
-                images.append(row['imageUrl'])
-            images += [i['url'] for i in row.get('galleryImages', []) if i.get('url')]
-            if variant is not None and source.get('imageUrl'):
-                images.insert(0, source['imageUrl'])
+            primary = row.get('originalImageUrl') or row.get('imageUrl')
+            if primary:
+                images.append(primary)
+            images += [i.get('originalImageUrl') or i.get('url') or i.get('imageUrl')
+                       for i in row.get('galleryImages', [])
+                       if i.get('originalImageUrl') or i.get('url') or i.get('imageUrl')]
+            variant_image = source.get('originalImageUrl') or source.get('imageUrl')
+            if variant is not None and variant_image:
+                images.insert(0, variant_image)
             images = list(dict.fromkeys(images))
             content = {'doctype': 'Commercial Product Content', 'item': sku,
                 'public_title': row.get('name') or sku, 'publication_status': 'Draft',
