@@ -53,14 +53,25 @@ def compile_catalog(plan, review, media_manifest=()):
         for category in product['category_ids']:
             category_map = review['categories'][str(category)]
             wc['categories'].append({'id': int(category_map['woocommerce_id'])})
-        tax = review['taxes'][r['tax_key']]
-        if tax['woocommerce_status'] not in ('taxable', 'none', 'shipping'):
-            raise ValueError('Unsupported Woo tax status')
-        wc.update(tax_status=tax['woocommerce_status'], tax_class=tax['woocommerce_class'])
-        if tax.get('erp_item_tax_template'):
-            item['taxes'] = [{'item_tax_template': tax['erp_item_tax_template']}]
-        elif not tax.get('reviewed_no_item_tax'):
-            raise ValueError('Review ERP tax treatment explicitly')
+        tax_pending = review.get('defer_tax_mapping') is True
+        if tax_pending:
+            # Tax policy must not block non-sellable draft preservation. Do not
+            # silently translate Ecwid class labels into rates or exemptions.
+            # The installed runner also requires live tax collection disabled.
+            if review.get('draft_only') is not True:
+                raise ValueError('Deferred taxes require explicit draft-only review')
+            wc['meta_data'].extend([
+                {'key': '_rootedops_tax_mapping_pending', 'value': 'yes'},
+                {'key': '_rootedops_ecwid_tax', 'value': json.loads(content['source_payload'])['product'].get('tax', {})}])
+        else:
+            tax = review['taxes'][r['tax_key']]
+            if tax['woocommerce_status'] not in ('taxable', 'none', 'shipping'):
+                raise ValueError('Unsupported Woo tax status')
+            wc.update(tax_status=tax['woocommerce_status'], tax_class=tax['woocommerce_class'])
+            if tax.get('erp_item_tax_template'):
+                item['taxes'] = [{'item_tax_template': tax['erp_item_tax_template']}]
+            elif not tax.get('reviewed_no_item_tax'):
+                raise ValueError('Review ERP tax treatment explicitly')
         parent_sku = product['item'].get('parent_sku')
         is_template = bool(product['item'].get('has_variants'))
         attributes, woo_attributes = [], []
@@ -110,5 +121,6 @@ def compile_catalog(plan, review, media_manifest=()):
         records.append({'source_key': product['source_key'], 'expected_currency':currency, 'item': item, 'content': content,
                         'mapping': mapping, 'price': price, 'woocommerce': wc,
                         'variant_attributes': woo_attributes, 'parent_sku': parent_sku})
+        records[-1]['tax_mapping_pending'] = tax_pending
     return {'schema_version': 1, 'source_sha256': plan['source_sha256'], 'records': records,
             'review_sha256': hashlib.sha256(json.dumps(review, sort_keys=True).encode()).hexdigest()}

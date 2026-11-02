@@ -199,6 +199,9 @@ def run(environment, compiled_path, expected_sha256, apply=False):
         raise ValueError('USD store required')
     if api(root + 'webhooks?status=active&per_page=100', auth):
         raise ValueError('Active Woo webhooks are forbidden for catalog batches')
+    if any(r.get('tax_mapping_pending') for r in records):
+        if api(root + 'settings/general/woocommerce_calc_taxes', auth)['value'] != 'no':
+            raise ValueError('Deferred tax mapping requires live tax calculation disabled')
     old = {}
     for r in records:
         found = api(root + 'products?' + urlencode({'sku': r['woocommerce']['sku'], 'context': 'edit', 'per_page': 100}), auth)

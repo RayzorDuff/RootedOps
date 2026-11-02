@@ -44,6 +44,24 @@ class CatalogBatchTests(unittest.TestCase):
         d = fixture(); d['records'] *= 2
         with self.assertRaises(ValueError): records_for_batch(d)
 
+    def test_deferred_taxes_do_not_invent_a_destination_mapping(self):
+        source = plan({'store_id': '95802503', 'products': [
+            {'id': 7, 'sku': '00001', 'enabled': True, 'price': 9.95,
+             'options': [], '_combinations': [], 'tax': {'taxable': True, 'taxClassCode': 'zero'}}]})
+        review = {'source_sha256': source['source_sha256'], 'currency': 'USD', 'currency_confirmed': True,
+                  'selling_price_list': 'Reviewed USD', 'categories': {}, 'defer_tax_mapping': True,
+                  'items': {'00001': {'item_code': '00001', 'item_group': 'Products', 'stock_uom': 'Nos'}}}
+        with self.assertRaisesRegex(ValueError, 'draft-only'):
+            compile_catalog(source, review)
+        review['draft_only'] = True
+        record = compile_catalog(source, review)['records'][0]
+        self.assertNotIn('tax_status', record['woocommerce'])
+        self.assertNotIn('tax_class', record['woocommerce'])
+        self.assertNotIn('taxes', record['item'])
+        self.assertTrue(record['tax_mapping_pending'])
+        metadata = {m['key']: m['value'] for m in record['woocommerce']['meta_data']}
+        self.assertEqual(metadata['_rootedops_ecwid_tax'], {'taxable': True, 'taxClassCode': 'zero'})
+
     def test_missing_variation_evidence_is_not_zero_variations(self):
         for change in ('missing', 'option'):
             d = fixture(); source = json.loads(d['records'][0]['content']['source_payload'])
