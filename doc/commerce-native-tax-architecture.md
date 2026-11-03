@@ -86,6 +86,62 @@ calculation acceptance, showing taxable supplies and food treatment separately.
 Do not activate any default or broad checkout rule until that acceptance
 passes.
 
+## Installed inventory findings and narrow foundation change
+
+The owner ran `scripts/commerce_tax_inventory.py` against
+`erp.danks.store` and confirmed the live company is **Dank Mushrooms, LLC
+(DML)**, with **132** imported Items and **zero** Sales Orders, Sales
+Invoices, Payment Entries, Stock Entries or Bins. Its Chart of Accounts
+already includes `Sales Tax Payable - DML` (a leaf current liability),
+`Duties and Taxes - DML` (a group Tax liability), `Payroll Tax Payable -
+DML` (must not be changed), and three legacy Tax accounts labeled 4%,
+6.25%, and 6%. There are three matching legacy Sales Taxes and Charges
+Templates and Item Tax Templates, but no Tax Categories and no Tax Rules.
+
+**Unsafe default discovered:** `US ST 6% - DML` is the live company's
+default Sales Taxes and Charges Template, despite having no verified
+jurisdiction logic. The default setting `determine_address_tax_category_from`
+is currently `Billing Address`, while
+`add_taxes_from_item_tax_template=1` and
+`add_taxes_from_taxes_and_charges_template=0`. These existing settings
+must be considered when the installed order-flow mapping is connected.
+
+The script `scripts/commerce_tax_foundation.py` proposes the smallest
+reversible native configuration:
+
+- Create **Colorado State Sales Tax Payable - DML** and **Johnstown
+  Municipal Sales Tax Payable - DML** as separate leaf Tax liability
+  accounts under `Duties and Taxes - DML`.
+- Create two **disabled**, **nondefault** Sales Taxes and Charges Templates
+  for the official **2.9% Colorado state** and **3.5% Johnstown town**
+  components. These are explicitly labeled **Incomplete** and are **not**
+  the full destination rate.
+- Clear the legacy **6% sales template default**, preserving the original
+  4%, 6%, and 6.25% accounts and tax templates in place. It changes no
+  historical accounts or posted entries.
+- Create **no active tax rules**, change no Accounts Settings, and assign
+  no Item Tax Templates to the 132 products.
+- Never touch payroll, submitted sales, bank reconciliations or stock.
+
+The default read-only mode inspects this exact native state:
+
+```sh
+sudo python3 scripts/commerce_tax_foundation.py \
+  --repo-root "$HOME/RootedOps"
+```
+
+After reviewing the read-only result, the operator may execute the guarded
+configuration with `--apply`. All component inserts and removal of the
+legacy default are performed in **one Frappe database transaction** with
+idempotent read-back assertions and protected document count guards.
+
+This **foundation** is not tax activation. Prior to enabling any template
+or Tax Rule for actual transactions, resolve the exact destination via the
+Colorado Department of Revenue's GIS, verify the county and special district
+components and each component's food exemption policy, then use the real
+destination shipping address to select correct native ERPNext rules.
+The installed WooCommerce storefront remains unpublished.
+
 ## Boundaries
 
 - Imported 132 Items and 132 draft Woo products are already accepted. No
