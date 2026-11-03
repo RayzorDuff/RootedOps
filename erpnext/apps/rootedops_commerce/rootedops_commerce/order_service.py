@@ -34,6 +34,34 @@ def validate_draft(values,event):
     for row in values.get('taxes',[]):
         if set(row)-{'charge_type','account_head','description','tax_amount'} or row['charge_type']!='Actual':
             raise ValueError('Explicit actual tax/shipping accounts required')
+    quote = event.get('tax_quote')
+    if quote is None:
+        if frappe.conf.get('commerce_tax_quote_required'):
+            raise ValueError('Approved jurisdiction tax quote required')
+    else:
+        from rootedops_commerce.tax_contract import validate_quote, validate_erp_taxes
+        if quote.get('source_order') != str(event['external_order_id']):
+            raise ValueError('Tax quote external order identity mismatch')
+        expected_taxes = validate_quote(quote, values['items'], values['currency'],
+                                        event['total'])
+        validate_erp_taxes(expected_taxes, values.get('taxes', []))
+        # Providers are responsible for determining jurisdiction, nexus and
+        # taxability, NOT for choosing our ledger accounts. Exact account
+        # assignments must be approved in ERPNext site configuration.
+        accounts = frappe.conf.get('commerce_tax_account_map') or {}
+        if not isinstance(accounts, dict):
+            raise ValueError('ERPNext trusted tax account mapping is required')
+        for component in quote['components']:
+            key = component['authority'] + '|' + component['jurisdiction_id']
+            account = component['account_head']
+            if accounts.get(key) != account:
+                raise ValueError('Unapproved jurisdiction-to-liability-account mapping')
+            ledger = frappe.get_doc('Account', account)
+            if (ledger.company != values['company'] or ledger.is_group or ledger.disabled or
+                ledger.root_type != 'Liability' or
+                ledger.account_type not in ('Tax', 'Current Liability') or
+                'payroll' in (ledger.account_name or '').lower()):
+                raise ValueError('Invalid tax liability account for order company')
     net=sum(Decimal(str(x['qty']))*Decimal(str(x['rate'])) for x in values['items'])
     net+=sum(Decimal(str(x['tax_amount'])) for x in values.get('taxes',[]))
     if not net.is_finite() or net!=Decimal(event['total']):raise ValueError('Reviewed order total mismatch')
@@ -44,7 +72,9 @@ def stage_order(payload):
     _authorized();data=frappe.parse_json(payload);event=data['event'];values=deepcopy(data['reviewed_draft'])
     validate_draft(values,event)
     key=mapping_key(event['provider'],event['site_key'],event['external_order_id'])
-    fingerprint=hashlib.sha256(json.dumps(values,sort_keys=True,separators=(',',':')).encode()).hexdigest()
+    fingerprint=hashlib.sha256(json.dumps({
+        'draft':values,'tax_quote':event.get('tax_quote')},
+        sort_keys=True,separators=(',',':')).encode()).hexdigest()
     if frappe.db.exists('Commerce Order State',key):
         # Lock state before checking revision and writing ERP status/identities.
         frappe.db.sql('SELECT name FROM `tabCommerce Order State` WHERE name=%s FOR UPDATE',(key,))
