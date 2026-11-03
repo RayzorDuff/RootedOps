@@ -22,7 +22,7 @@ cannot connect to that host or populate its `.env` remotely.
 cd ~/RootedOps
 git pull --ff-only origin main
 # Assert private .env stays 0600 and MP_SYNC_WOO_ENABLED=false.
-stat -c '%a %n' .env
+stat -Lc '%a %n' .env
 python3 scripts/commerce_woo_provision_auth.py
 ```
 
