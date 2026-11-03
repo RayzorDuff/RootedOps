@@ -82,12 +82,12 @@ class DraftImportTests(unittest.TestCase):
             (root/".env").write_text("")
             (root/"docker").mkdir()
             (root/"docker/docker-compose.yml").write_text("")
-            receipt=root/"receipt.json"
+            receipt=root/"pilot-01-import-receipt.json"
             receipt.write_text(json.dumps({"scope":"wrong","compiled_sha256":importer.FIRST_BATCH_SHA}))
             with patch.object(importer,"verify_compiled",return_value=[{"source_key":str(i)} for i in range(5)]),\
                  patch.object(importer,"guard_live") as guard:
                 with self.assertRaisesRegex(ValueError,"scope/hash drift"):
-                    importer.import_batch(root,root/"batch.json","a"*64,receipt,False)
+                    importer.import_batch(root,root/"batch.json",importer.FIRST_BATCH_SHA,receipt,False)
                 guard.assert_not_called()
 
 
