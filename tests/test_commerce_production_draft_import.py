@@ -37,6 +37,22 @@ class DraftImportTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 importer.verify_compiled(path,importer.FIRST_BATCH_SHA)
 
+    def test_all_approved_batch_ids_and_counts(self):
+        expected=[5,5,5,5,2]
+        self.assertEqual([len(importer.BATCHES[n][1]) for n in range(1,6)],expected)
+        self.assertEqual(len(set().union(*(ids for _,ids in importer.BATCHES.values()))),22)
+        for n,(sha,ids) in importer.BATCHES.items():
+            number,actual=importer.batch_for_sha(sha)
+            self.assertEqual((number,actual),(n,ids))
+        with self.assertRaisesRegex(ValueError,"approved pilot batch SHA"):
+            importer.batch_for_sha("a"*64)
+
+    def test_batch_two_requires_first_receipt(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path=Path(directory)/"pilot-02-import-receipt.json"
+            with self.assertRaisesRegex(ValueError,"Prior pilot import receipt missing"):
+                importer.require_prior_receipts(2,path)
+
     def test_json_native_failure_is_not_suppressed(self):
         with patch.object(importer.subprocess,"run") as run:
             run.return_value.returncode=1
@@ -50,11 +66,11 @@ class DraftImportTests(unittest.TestCase):
             (root/".env").write_text("")
             (root/"docker").mkdir()
             (root/"docker/docker-compose.yml").write_text("")
-            receipt=root/"receipt.json"
+            receipt=root/"pilot-01-import-receipt.json"
             with patch.object(importer,"verify_compiled",return_value=[{"source_key":str(i),"woocommerce":{"sku":str(i)}} for i in range(5)]),\
                  patch.object(importer,"guard_live") as guard,\
                  patch.object(importer,"run_json") as request:
-                output=importer.import_batch(root,root/"batch.json","a"*64,receipt,False)
+                output=importer.import_batch(root,root/"batch.json",importer.FIRST_BATCH_SHA,receipt,False)
                 self.assertFalse(output["writes"])
                 guard.assert_called_once_with(root)
                 request.assert_not_called()
@@ -67,7 +83,7 @@ class DraftImportTests(unittest.TestCase):
             (root/"docker").mkdir()
             (root/"docker/docker-compose.yml").write_text("")
             receipt=root/"receipt.json"
-            receipt.write_text(json.dumps({"scope":"wrong","compiled_sha256":"a"*64}))
+            receipt.write_text(json.dumps({"scope":"wrong","compiled_sha256":importer.FIRST_BATCH_SHA}))
             with patch.object(importer,"verify_compiled",return_value=[{"source_key":str(i)} for i in range(5)]),\
                  patch.object(importer,"guard_live") as guard:
                 with self.assertRaisesRegex(ValueError,"scope/hash drift"):
