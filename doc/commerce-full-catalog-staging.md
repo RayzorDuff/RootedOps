@@ -39,6 +39,42 @@ the actual media hosts. After reviewing those hosts, use the existing
 with explicit `--allow-host` values. Never upload unverified binaries or commit
 private source/receipts to Git.
 
+## Verified first-cohort media destination transport
+
+The owner prepared all 37 required media URLs and verified 11 unique archived
+binaries. The upload manifest is private and its file SHA-256 is
+`447302ab4fda29297d4c3e12060d2546ba529432997c0f9e6445239ba445c46f`.
+
+`scripts/commerce_production_media.py` is the separately guarded transport:
+it verifies every archived blob with the existing media validator, requires
+exactly 37 source URLs and 11 binaries, and reuses Frappe's File deduplication
+and WordPress's checksum attachment metadata. It keeps a private receipt
+scoped to `erp.danks.store|shop-test.danks.store`. It does not create Items,
+orders, payments or inventory transactions. The default mode performs no
+remote writes.
+
+From a separate review worktree containing PR #57, with `--repo-root`
+pointing to the installed production RootedOps checkout:
+
+```sh
+python3 scripts/commerce_production_media.py \
+  --repo-root "$HOME/RootedOps" \
+  --manifest "$HOME/commerce-migration/media-preparation-1/upload-manifest.json" \
+  --blob-dir "$HOME/commerce-migration/media-archive" \
+  --receipt "$HOME/commerce-migration/media-preparation-1/media-upload-receipt.json" \
+  --sha256 447302ab4fda29297d4c3e12060d2546ba529432997c0f9e6445239ba445c46f
+```
+
+**Do not use `--apply` until installed-container inspection, backup and
+credential-free native transport compatibility are reviewed and approved.**
+Writes are explicit via `sudo ... --apply`. The native ERP upload uses
+`docker compose exec -T`, while the Woo upload runs inside the staging
+WordPress container; no public ERP authentication token is needed. Frappe may
+normalize JPEG metadata; receipt retains its normalized File URL and the
+original source sha. Repeat runs use existing Frappe content hashes and
+WordPress source-sha metadata to avoid duplicates. Preserve all receipts and
+source images in private local state.
+
 ## Production-staging runner — guarded first cohort
 
 - Existing `scripts/commerce_catalog_batch.py` remains test2-only. The new
