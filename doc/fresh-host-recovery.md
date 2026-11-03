@@ -206,3 +206,55 @@ Use Docker Compose service DNS and container ports for **server-to-server calls*
 Appsmith API datasources, n8n workflow nodes and credentials can store URLs **in restored application data**, not in Compose environment variables. An environment-level change does **not** rewrite them. Inventory those saved destinations, classify whether a request executes server-side or in the browser, and migrate only same-network API requests. Preserve query strings, credentials, workflow IDs and public callback/link URLs. If services are in distinct Compose projects or networks, DNS service names alone will not resolve; explicitly provision and validate a dedicated shared internal network before using them. No automatic production migration or test2 application startup is authorized by these defaults.
 
 For test2, update only generated `.test-deployment/core.yml` n8n server-side URL values after recording a private backup. Validate Compose and the internal network, audit restored Appsmith/n8n connections, and keep background automation disabled during acceptance.
+
+## Test2 scheduling restore closeout (2026-11-03)
+
+The clean-Linode test2 exercise used the original 2026-10-30 02:30:01 backup
+at `~/backups/20261030-023001`. `sha256sum -c SHA256SUMS` passed,
+including both Tymeslot volumes and the three Rallly PostgreSQL/Garage volumes.
+Restoration into separate `tymeslot-test_*` and `rallly-test_*` volumes
+was already complete; **never rerun a destructive volume extraction against
+those populated volumes**. The database versions on disk were Tymeslot
+PostgreSQL 17 (`pgdata/PG_VERSION`) and Rallly PostgreSQL 18
+(`18/docker/PG_VERSION`). Both Tymeslot data encryption values and the five
+reviewed Rallly storage/DB secrets matched their private source backup.
+No secrets should be printed or copied into published host configuration.
+
+The isolated generated Compose files validated with internal-only networks and
+loopback-only declared/preserved host bindings. Tymeslot 1.6.0 recognized its
+restored DB, completed migrations and started Phoenix; an in-network HTTP GET
+at `http://tymeslot:4000/` served an HTML page. Its SMTP probe could not
+resolve `mailpit` because the separate local sink was not running; do not
+switch to production SMTP for acceptance. Start the isolated test Mailpit service
+if email-sink validation is ever required.
+
+Rallly PostgreSQL 18 and Garage v2.3.0 started and were healthy; Garage opened
+its restored SQLite metadata. Rallly web v4 found 166 migrations with none
+pending. Initially the web failed validation due to a missing `SUPPORT_EMAIL`.
+Generated test Rallly environment now supplies `SUPPORT_EMAIL=support@example.invalid`.
+After a test-only manual addition, the web container started, but in-network
+`http://web:3000/` returned HTTP 500. This remains **unaccepted** application
+recovery and should be inspected for a specific runtime error in private logs
+before any future full-stack acceptance claim. No restored poll-level data check
+or authenticated scheduling journey was completed.
+
+A host `curl` to 127.0.0.1:4000 or 127.0.0.1:3003 returned connection refused
+although Docker HostConfig reported correct loopback port bindings. Docker
+`compose ps` displaying `4000/tcp` / `3000/tcp` alone does not establish
+missing bindings. Prefer in-network HTTP probes for recovery diagnosis, then
+separately debug host-network access if public ingress is needed. In-network
+probes must not be treated as proof of external DNS/TLS routing.
+
+The SSH session dropped during the operator exercise. Shell variables/Compose
+arrays did not persist across reconnect, so subsequent shell commands on the
+operator's local Mac did **not** inspect or stop test2. Always confirm hostname,
+`TEST_ENVIRONMENT`, and restore-specific Compose project before commands;
+reconstruct shell variables after reconnect. Private evidence was saved at
+`~/test2-closeout-20261103-203604`; scheduling service stop and any final
+shutdown must be checked on the **test2 Linode**, not the local workstation.
+
+This is a documented partial full-stack restore rehearsal, not proof that
+LibreChat, every WordPress/scheduling service, public DNS/TLS, reboot or backup
+round-trip were fully accepted. Future recovery work must explicitly verify
+these if required; do not reuse production OAuth/SMTP/payment credentials or
+run the unrestricted production `backup/restore-stack.sh` on test2.
