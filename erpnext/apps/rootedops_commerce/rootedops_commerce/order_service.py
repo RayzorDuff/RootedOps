@@ -72,9 +72,12 @@ def stage_order(payload):
     _authorized();data=frappe.parse_json(payload);event=data['event'];values=deepcopy(data['reviewed_draft'])
     validate_draft(values,event)
     key=mapping_key(event['provider'],event['site_key'],event['external_order_id'])
-    fingerprint=hashlib.sha256(json.dumps({
-        'draft':values,'tax_quote':event.get('tax_quote')},
-        sort_keys=True,separators=(',',':')).encode()).hexdigest()
+    # Preserve pre-existing order fingerprints when no tax quote was supplied.
+    # Once a quote is supplied, its immutable identity binds every replay.
+    hash_input = values if event.get('tax_quote') is None else {
+        'draft':values, 'tax_quote':event['tax_quote']}
+    fingerprint=hashlib.sha256(json.dumps(
+        hash_input,sort_keys=True,separators=(',',':')).encode()).hexdigest()
     if frappe.db.exists('Commerce Order State',key):
         # Lock state before checking revision and writing ERP status/identities.
         frappe.db.sql('SELECT name FROM `tabCommerce Order State` WHERE name=%s FOR UPDATE',(key,))
