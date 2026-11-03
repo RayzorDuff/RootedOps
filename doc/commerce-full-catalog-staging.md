@@ -21,6 +21,24 @@ validated/other_enabled/disabled cohorts, and flags unresolved categories,
 missing images, prices and descriptions. This script makes **no destination
 writes** and does not replace the reviewed product compiler.
 
+## Reproducible first-cohort media and taxonomy staging
+
+From the operator's private full Ecwid source (SHA
+`0b4eec40a1cfd1d62551e2ac951a42dac21984f34ffb2d03f9aea697d1d713a8`):
+
+```sh
+python3 scripts/commerce_staging_media_inventory.py \
+  "$HOME/commerce-migration/ecwid-full-catalog-source.json" \
+  --output-dir "$HOME/commerce-migration/media-preparation-1"
+```
+
+This performs no network calls and creates restricted
+`pilot-media-source.json` and `pilot-media-inventory.json`. The latter lists
+the actual media hosts. After reviewing those hosts, use the existing
+`integrations/commerce/media.py` archiver against the selected media source
+with explicit `--allow-host` values. Never upload unverified binaries or commit
+private source/receipts to Git.
+
 ## Production-staging runner — guarded first cohort
 
 - Existing `scripts/commerce_catalog_batch.py` remains test2-only. The new
