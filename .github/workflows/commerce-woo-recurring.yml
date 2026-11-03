@@ -1,0 +1,29 @@
+name: Commerce Woo recurring adapter checks
+
+on:
+  pull_request:
+    paths:
+      - 'scripts/commerce_woo_recurring.py'
+      - 'scripts/commerce_woo_initial_stock.py'
+      - 'scripts/commerce_mp_reverse_link.py'
+      - 'tests/test_commerce_woo_recurring.py'
+      - '.github/workflows/commerce-woo-recurring.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  offline:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Compile helpers
+        run: |
+          python -m py_compile scripts/commerce_woo_recurring.py scripts/commerce_woo_initial_stock.py
+      - name: Offline state and replay tests
+        run: |
+          python -m unittest discover -s tests -p 'test_commerce_woo_recurring.py' -v
