@@ -58,7 +58,7 @@ class CatalogContentProjectionTests(unittest.TestCase):
         self.assertIn("len(rows) != expected_count", source)
         self.assertIn("frappe.db.rollback()", source)
         self.assertIn("frappe.db.commit()", source)
-        self.assertNotIn("Sales Invoice\").insert", source)
+        self.assertNotIn('frappe.get_doc("Sales Invoice"', source)
         self.assertNotIn('frappe.db.set_value("Item"', source)
 
 
