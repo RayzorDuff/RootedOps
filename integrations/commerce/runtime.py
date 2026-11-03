@@ -60,11 +60,17 @@ def main():
     else:
         if not a.config:p.error('--config required')
         config=json.loads(a.config.read_text());approved=config['approved_erp_drafts']
+        from tax_policy import load_policy
+        tax_policies={}
+        for site,row in config['sites'].items():
+            if not row.get('tax_classification_file'):
+                raise ValueError('Approved tax classification file required for order delivery')
+            tax_policies[site]=load_policy(row['tax_classification_file'])
         erp=ReviewedERP(config.get('erp_base_url','https://erp-test.danks.store'),os.environ['ERP_AUTHORIZATION'],approved,api)
         mp=PostgresInventory(connect_test(os.environ['MP_TEST_DSN']),erp_site=urlsplit(erp.base).hostname)
         if a.command=='reconcile-order':
             if not a.order_key:p.error('reconcile-order requires --order-key PROVIDER SITE ORDER_ID')
             print(json.dumps(reconcile_order(inbox,mp,erp,tuple(a.order_key))))
-        else:print(json.dumps({'worked':deliver_one(inbox,mp,erp)}))
+        else:print(json.dumps({'worked':deliver_one(inbox,mp,erp,tax_policies=tax_policies)}))
 
 if __name__=='__main__':main()
