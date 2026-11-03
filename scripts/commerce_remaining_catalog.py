@@ -244,6 +244,9 @@ def fetch_missing(urls,archive,existing,receipt_path,extra_hosts):
         else:
             flags=os.O_WRONLY|os.O_CREAT|os.O_EXCL|os.O_NOFOLLOW
             fd=os.open(path,flags,0o600)
+            if os.geteuid()==0:
+                parent=archive.stat()
+                os.fchown(fd,parent.st_uid,parent.st_gid)
             with os.fdopen(fd,'wb') as file:file.write(data)
         media_file(archive,row)
         by_url[url]=row
@@ -254,8 +257,12 @@ def fetch_missing(urls,archive,existing,receipt_path,extra_hosts):
     return by_url
 
 def require_private_dir(path):
+    created=not path.exists()
     path.mkdir(mode=0o700,parents=True,exist_ok=True)
     if path.stat().st_mode & 0o077:raise ValueError('Private state directory must be 0700')
+    if created and os.geteuid()==0:
+        owner=path.parent.stat()
+        os.chown(path,owner.st_uid,owner.st_gid)
 
 def check_pilot_receipts(root):
     directory=root/'media-preparation-1'
