@@ -182,6 +182,7 @@ services:
       ECWID_CLIENT_SECRET: ${ECWID_CLIENT_SECRET}
       # MP-authoritative inventory projections; disabled independently by default.
       MP_SYNC_ECWID_ENABLED: ${MP_SYNC_ECWID_ENABLED:-true}
+      MP_SYNC_SNAPSHOT_ENABLED: ${MP_SYNC_SNAPSHOT_ENABLED:-false}
       MP_SYNC_ERP_ENABLED: ${MP_SYNC_ERP_ENABLED:-false}
       MP_SYNC_WOO_ENABLED: ${MP_SYNC_WOO_ENABLED:-false}
       MP_SYNC_ERP_BASE_URL: ${MP_SYNC_ERP_BASE_URL:-http://erpnext-backend:8000}
