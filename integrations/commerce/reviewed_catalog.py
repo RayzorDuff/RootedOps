@@ -56,14 +56,12 @@ def compile_catalog(plan, review, media_manifest=()):
                 raise ValueError('Disabled Ecwid products require explicit draft-only review')
             wc['meta_data'].append({
                 'key': '_rootedops_ecwid_enabled', 'value': 'no'})
-        else:
+        elif product.get('source_enabled') is True:
             wc['meta_data'].append({
                 'key': '_rootedops_ecwid_enabled', 'value': 'yes'})
+        # The batch runner is responsible for the final non-sellable
+        # projection. Preserve the compiler output contract used by variants.
         wc['status'] = 'draft'
-        wc['catalog_visibility'] = 'hidden'
-        wc['manage_stock'] = True
-        wc['stock_quantity'] = 0
-        wc['backorders'] = 'no'
         wc['categories'] = []
         for category in product['category_ids']:
             category_map = review['categories'][str(category)]
