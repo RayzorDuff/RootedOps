@@ -159,6 +159,14 @@ echo json_encode(['origin'=>get_option('siteurl'),
                "tax":"no","products":0,"gateways":0,"webhooks":0}:
         raise ValueError("Staging storefront is not isolated: "+repr(state))
 
+def save_receipt(path, data):
+    # Retain the operator's ownership on a sudo-mediated native import.
+    private_write(path,data)
+    if os.geteuid()==0:
+        owner=path.parent.stat()
+        os.chown(path,owner.st_uid,owner.st_gid)
+
+
 def main():
     p=argparse.ArgumentParser(description=__doc__)
     p.add_argument("--manifest",type=Path,required=True)
@@ -195,14 +203,14 @@ def main():
                 "-w","/home/frappe/frappe-bench/sites","erpnext-backend",
                 "/home/frappe/frappe-bench/env/bin/python","-c",ERP_PY],payload)
             record["erp_file_url"]=response["file_url"]
-            private_write(a.receipt,receipt)
+            save_receipt(a.receipt,receipt)
         if not record.get("woocommerce_media_id"):
             response=command(["docker","exec","-i",SHOP,"php","-r",WP_PHP],payload)
             record["woocommerce_media_id"]=response["media_id"]
-            private_write(a.receipt,receipt)
+            save_receipt(a.receipt,receipt)
     # Expand deduplicated binary receipts to each original source URL.
     mapped=[dict(row,**receipt["blobs"][row["sha256"]]) for row in rows]
-    private_write(a.receipt.with_name("uploaded-media.json"),mapped)
+    save_receipt(a.receipt.with_name("uploaded-media.json"),mapped)
     print(json.dumps(dict(summary,uploaded_blobs=len(receipt["blobs"]),
                           mapped_urls=len(mapped)),indent=2))
 
