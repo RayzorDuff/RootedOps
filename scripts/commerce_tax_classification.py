@@ -11,11 +11,13 @@ import csv
 import hashlib
 import json
 import os
+import re
 from pathlib import Path
 
 EXPECTED_SOURCE_SHA = "0b4eec40a1cfd1d62551e2ac951a42dac21984f34ffb2d03f9aea697d1d713a8"
 STORE_ID = "95802503"
 CLASSES = {"grocery_food", "cultivation_supply", "other_reviewed"}
+POS_LABEL = re.compile(r"^(?:50c|[0-9]+ Dollar) Mushroom Item(?: \(NOTAX\))?$", re.IGNORECASE)
 
 
 def load_source(path):
@@ -83,6 +85,7 @@ def approve(products, review_file, output, reviewer):
         raise ValueError("Every imported product must be reviewed exactly once")
     seen = set()
     classifications = {}
+    excluded = {}
     for row in rows:
         sku = row["item_code"].strip()
         if sku in seen or sku not in products:
@@ -91,11 +94,20 @@ def approve(products, review_file, output, reviewer):
         if row["ecwid_product_id"].strip() != str(products[sku]["id"]):
             raise ValueError("Source ID mismatch: " + sku)
         kind = row["tax_class"].strip()
-        if kind not in CLASSES:
-            raise ValueError("Unreviewed or invalid tax class for: " + sku)
         note = row["review_note"].strip()
         if not note or len(note) > 1024:
             raise ValueError("Document a product-specific rationale for: " + sku)
+        if kind not in CLASSES:
+            # The only permitted unclassified items are explicit generic
+            # dollar-amount POS buttons that do not identify a product.
+            # Exclusion is NOT a tax exemption or a future sale permission.
+            if (kind or row.get("review_status", "").strip() != "excluded_pos" or
+                    not POS_LABEL.fullmatch(str(products[sku].get("name") or ""))):
+                raise ValueError("Unreviewed or invalid tax class for: " + sku)
+            excluded[sku] = {"reason": note, "source_product_id": str(products[sku]["id"])}
+            continue
+        if row.get("review_status", "").strip() == "excluded_pos":
+            raise ValueError("Excluded POS status conflicts with approved class: " + sku)
         classifications[sku] = kind
     if set(products) != seen:
         raise ValueError("Incomplete catalog review")
@@ -103,11 +115,14 @@ def approve(products, review_file, output, reviewer):
               "store_id": STORE_ID, "reviewer": reviewer,
               "review_csv_sha256": hashlib.sha256(review_file.read_bytes()).hexdigest(),
               "item_classes": dict(sorted(classifications.items())),
+              "blocked_item_codes": sorted(excluded),
+              "excluded_pos": dict(sorted(excluded.items())),
               "class_counts": {kind: list(classifications.values()).count(kind)
                                for kind in sorted(CLASSES)},
               "applies_taxes": False}
     _private_write(output, result)
-    return {"approved": len(classifications), "class_counts": result["class_counts"],
+    return {"approved": len(classifications), "blocked": len(excluded),
+            "class_counts": result["class_counts"],
             "mapping_file": str(output), "writes_to_destinations": False}
 
 
