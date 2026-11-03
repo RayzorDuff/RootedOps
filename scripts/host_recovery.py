@@ -188,6 +188,7 @@ def prepare(output,rallly_path=None,hostname_suffix="-test"):
         'S3_ACCESS_KEY_ID':'GK'+secrets.token_hex(12),'S3_SECRET_ACCESS_KEY':secrets.token_hex(32),
         'GARAGE_RPC_SECRET':secrets.token_hex(32),'SMTP_HOST':'mailpit','SMTP_PORT':'1025',
         'SMTP_SECURE':'false','SMTP_USER':'test@example.invalid','SMTP_PWD':'',
+        'SUPPORT_EMAIL':'support@example.invalid',
         'POSTGRES_VERSION':'18','POSTGRES_DATA_MOUNT':'/var/lib/postgresql'}
     private_write(rallly/'.env','\n'.join(k+'='+v for k,v in r_env.items())+'\n')
     config=transform(yaml.safe_load((rallly_path/'docker-compose.yml').read_text()),rallly_path,'rallly-test')
