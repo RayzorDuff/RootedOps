@@ -59,7 +59,8 @@ def import_product(payload):
     if not frappe.db.exists("Item", code):
         if not erp_data.get("item_group") or not erp_data.get("stock_uom"):
             frappe.throw("Reviewed item_group and stock_uom are required")
-        frappe.get_doc(dict(erp_data, doctype="Item", is_stock_item=0)).insert()
+        frappe.get_doc(dict(erp_data, doctype="Item", is_stock_item=0,
+                            description=content_data.get("full_description") or "")).insert()
     else:
         existing_item = frappe.get_doc("Item", code)
         existing_item.check_permission("read")
