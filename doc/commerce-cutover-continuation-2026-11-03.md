@@ -2,8 +2,10 @@
 
 ## Accepted state
 
-- Production ERPNext `erp.danks.store` runs `rootedops_commerce` 0.3.3 after
-  the owner merged PRs #72/#73/#74 to main. The previously accepted backfill
+- Production ERPNext `erp.danks.store` last **verified running**
+  `rootedops_commerce` 0.3.2; the owner merged PRs #72/#73/#74 to main,
+  which contains commerce 0.3.3, but has not shown a subsequent live deploy.
+  The previously accepted backfill
   applied 132 descriptions and the independent reconciliation showed zero drift.
   **This does not establish that the latest UI/browser edits or outbound sync
   have been exercised on the live site.**
