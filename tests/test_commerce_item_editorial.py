@@ -14,6 +14,7 @@ class ItemEditorialTests(unittest.TestCase):
     def test_backend_code_compiles(self):
         for file in (
             APP / "item_editorial.py",
+            APP / "item_guard.py",
             APP / "setup.py",
             APP / "rootedops_commerce/doctype/commercial_product_content/commercial_product_content.py",
         ):
@@ -55,6 +56,11 @@ class ItemEditorialTests(unittest.TestCase):
         hook = (APP / "hooks.py").read_text()
         self.assertIn('doctype_js = {"Item": "public/js/item_commerce.js"}', hook)
         self.assertIn("after_migrate", hook)
+        self.assertIn("enforce_canonical_item_display", hook)
+        guard = (APP / "item_guard.py").read_text()
+        self.assertIn("Commercial Product Content", guard)
+        self.assertIn("doc.item_name", guard)
+        self.assertIn("doc.description", guard)
 
     def test_ui_has_edit_and_full_content_actions(self):
         js = (APP / "public/js/item_commerce.js").read_text()
