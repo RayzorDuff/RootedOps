@@ -102,6 +102,32 @@ directory must be empty and is private. **This is a read-only/offline step.**
 Record each compiled-batch checksum from `batch-index.json` before any staging
 product write.
 
+## Installed first-batch readiness without changes
+
+After the five offline batches are compiled, run this read-only installed
+preflight from the PR worktree (keep the production checkout untouched):
+
+```sh
+python3 "$HOME/RootedOps-commerce-pr57/scripts/commerce_production_batch_readiness.py" \
+  --repo-root "$HOME/RootedOps" \
+  --compiled "$HOME/commerce-migration/pilot-batches-1/pilot-01.json" \
+  --sha256 ed49bd43b49cb9f705bd780f5f8d2220bd7aec32b2e4cc17c7dbde1a53f389d6
+```
+
+It verifies the installed Commerce 0.3.1 API, native ERPNext site, approved
+Item Group, UOM, USD selling Price List, the required public File records,
+absence of collisions in ERP Items / mappings / prices and Woo SKU, correct
+Woo categories, media IDs, store currency, Coming Soon, no published products,
+no enabled checkout gateways and no active Woo webhooks. It does not import
+Items or Woo products. The site is not placed in maintenance mode and
+financial/stock records are not changed.
+
+**Do not run the provisional production batch runner with --apply.** It still
+relies on test2 REST credentials/targets and is intentionally write-blocked.
+Develop a separate native staging Woo projection adapter (or a properly
+authenticated, exact-origin-scoped adapter) with per-record replay receipt
+before the first write.
+
 ## Production-staging runner — guarded first cohort
 
 - Existing `scripts/commerce_catalog_batch.py` remains test2-only. The new
