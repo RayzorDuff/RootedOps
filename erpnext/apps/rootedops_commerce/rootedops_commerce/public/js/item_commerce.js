@@ -36,12 +36,14 @@ frappe.ui.form.on("Item", {
         });
         html += '<p><strong>' + esc(__("Gallery / alt text")) + ' (' + d.gallery.length + ')</strong></p>';
         d.gallery.forEach((row) => {
-          html += '<p>' + esc(row.image) + ' — ' + esc(row.alt_text) + '</p>';
+          html += '<p>' + esc(row.image) + ' — ' + esc(row.alt_text) + ' — ' + esc(row.source_url) + '</p>';
         });
         html += '<p><strong>' + esc(__("Channel overrides")) + ' (' + d.channel_overrides.length + ')</strong></p>';
         d.channel_overrides.forEach((row) => {
           html += '<p>' + esc(row.provider) + ' / ' + esc(row.site_key) + ': ' +
-                  esc(row.title) + '</p>';
+                  esc(row.title) + '</p><div style="white-space:pre-wrap">' +
+                  esc(row.short_description) + '</div><div style="white-space:pre-wrap">' +
+                  esc(row.full_description) + '</div>';
         });
         html += '<p><strong>' + esc(__("Source key")) + ':</strong> ' + esc(d.source_key) + '</p>';
         html += '<p class="text-muted">' +
