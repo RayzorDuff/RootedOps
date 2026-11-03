@@ -141,7 +141,18 @@ def preflight(manifest, blobs, expected_sha):
         raise ValueError("Expected 11 unique pilot media binaries")
     return rows,verified
 
-def guard_live():
+def guard_live(deployment):
+    erp_id=subprocess.check_output([
+        'docker','compose','--env-file',str(deployment/'.env'),
+        '-f',str(deployment/'docker/docker-compose.yml'),
+        'ps','-q','erpnext-backend'],text=True).strip()
+    if not erp_id:
+        raise ValueError('Production ERPNext backend is absent')
+    erp=json.loads(subprocess.check_output(['docker','inspect',erp_id]))[0]
+    if (not erp['State']['Running'] or
+        erp['Config']['Labels'].get('com.docker.compose.service')!='erpnext-backend'):
+        raise ValueError('Production ERPNext service identity drift')
+
     inspect=json.loads(subprocess.check_output(
         ["docker","inspect",SHOP]))[0]
     if (inspect["Config"]["Labels"].get("com.docker.compose.project")!="dank-store-test"
@@ -176,6 +187,8 @@ def main():
     p.add_argument("--repo-root",type=Path,default=ROOT,
                    help="RootedOps deployment checkout containing docker/ and .env")
     p.add_argument("--apply",action="store_true")
+    p.add_argument("--check-live",action="store_true",
+                   help="Inspect installed ERP and staging Woo safeguards without writes")
     a=p.parse_args()
     deployment=a.repo_root.resolve()
     if not (deployment/"docker/docker-compose.yml").is_file() or not (deployment/".env").is_file():
@@ -190,15 +203,20 @@ def main():
                  "manifest_sha256":a.sha256,"blobs":{}}
     summary={"source_urls":len(rows),"unique_verified_blobs":len(verified),
              "previously_receipted":len(receipt["blobs"]),"write_requested":a.apply}
+    if a.check_live and a.apply:
+        raise ValueError("--check-live cannot be combined with --apply")
+    if a.check_live:
+        guard_live(deployment)
+        summary["live_environment_guards"]="passed"
     if not a.apply:
         print(json.dumps(summary,indent=2));return
     if os.geteuid()!=0:
         raise ValueError("Use sudo for the native Docker media transport")
-    guard_live()
+    guard_live(deployment)
     if a.receipt.parent.stat().st_mode & 0o077:
         raise ValueError("Receipt parent directory must be private")
     for sha,(data,mime) in sorted(verified.items()):
-        guard_live()
+        guard_live(deployment)
         record=receipt["blobs"].setdefault(sha,{})
         payload={"sha256":sha,"filename":sha+"."+MIMES[mime],
                  "mime":mime,"blob":base64.b64encode(data).decode()}
