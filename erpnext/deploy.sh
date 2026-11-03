@@ -123,14 +123,15 @@ for APP_NAME in "${APPS[@]}"; do
     die "Cannot list installed apps on site $SITE."
   printf '%s\n' "$installed_apps" | grep -Eq "^$APP_NAME([[:space:]]|$)" ||
     die "$APP_NAME is not installed on $SITE; this script updates only installed apps."
-  # All ERPNext services share the built image. Check imports in fresh image
-  # before any copy/restart; a pip install in only the running backend is not durable.
+  # All ERPNext services use the built image and shared apps volume.
+  # Check the *bench virtualenv* in a fresh image, not system Python.
+  # flit_core is a PEP 517 build dependency (installed in pip's isolated
+  # build environment), and is not required to import the installed app.
   IMAGE="$(sudo docker inspect "$BACKEND" --format '{{.Config.Image}}')"
-  if [[ "$APP_NAME" == "rootedops_commerce" ]]; then
-    sudo docker run --rm --entrypoint /bin/sh "$IMAGE" -c \
-      'python -c "import flit_core, rootedops_commerce"' ||
-      die "Commerce/flit_core missing from image; build and deploy a reviewed persistent image first."
-  fi
+  sudo docker run --rm \
+    --entrypoint /home/frappe/frappe-bench/env/bin/python "$IMAGE" \
+    -c 'import importlib, sys; importlib.import_module(sys.argv[1])' "$APP_NAME" ||
+    die "$APP_NAME is not importable in the ERPNext image bench environment; rebuild the persistent image before deployment."
 done
 
 log "Deploy selected RootedOps app sources"
