@@ -152,10 +152,12 @@ if ($p['status']!=='draft' || $p['catalog_visibility']!=='hidden' ||
   throw new Exception('Non-sellable draft policy drift');
 $sku=$p['sku'];
 $source=$record['source_key'];
+$sourceproduct=json_decode($record['content']['source_payload'],true,512,JSON_THROW_ON_ERROR)['product'];
+if (!is_bool($sourceproduct['enabled']??null)) throw new Exception('Invalid Ecwid enabled status');
 $meta=[];
 foreach ($p['meta_data'] as $m) $meta[$m['key']]=$m['value'];
 if (($meta['_rootedops_source_key']??null)!==$source ||
-    ($meta['_rootedops_ecwid_enabled']??null)!=='yes' ||
+    ($meta['_rootedops_ecwid_enabled']??null)!==($sourceproduct['enabled']?'yes':'no') ||
     ($meta['_rootedops_tax_mapping_pending']??null)!=='yes')
   throw new Exception('Provenance or deferred tax policy drift');
 $allowed=['16'=>'Gourmet Mushrooms','17'=>'Miscellaneous',
