@@ -119,6 +119,8 @@ class TaxQuoteTests(unittest.TestCase):
         self.assertIn("validate_quote(",source)
         self.assertIn("validate_erp_taxes(",source)
         self.assertIn("commerce_tax_account_map",source)
+        self.assertIn("commerce_tax_item_class_map",source)
+        self.assertIn("commerce_tax_provider",source)
         self.assertIn("commerce_tax_quote_required",source)
         self.assertIn("'tax_quote':event['tax_quote']",source)
         self.assertNotIn("frappe.db.commit()",source)
