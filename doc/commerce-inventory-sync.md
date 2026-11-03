@@ -29,6 +29,7 @@ RootedOps Compose passes these values from private `.env` to n8n:
 | Variable | Default | Function |
 | --- | --- | --- |
 | `MP_SYNC_ECWID_ENABLED` | `true` | Preserve working Ecwid quantity/UPC sync |
+| `MP_SYNC_SNAPSHOT_ENABLED` | `false` | Run reservation-adjusted snapshot after SQL 051/052 verified |
 | `MP_SYNC_ERP_ENABLED` | `false` | Write per-ID availability to ERP read model |
 | `MP_SYNC_WOO_ENABLED` | `false` | Update existing *hidden drafts* at exact `shop-test.danks.store` only |
 | `MP_SYNC_ERP_BASE_URL` | `http://erpnext-backend:8000` | Internal Frappe endpoint |
@@ -71,7 +72,7 @@ Do not import both as hourly-active workflows. Work on existing production n8n;
    version. Do not export secret values in public evidence.
 2. Import the new generic workflow as **inactive**, bind the existing
    production PostgreSQL credential (Ecwid branch reuses current reference).
-   Keep `MP_SYNC_ERP_ENABLED=false`, `MP_SYNC_WOO_ENABLED=false`,
+   Keep `MP_SYNC_SNAPSHOT_ENABLED=false`, `MP_SYNC_ERP_ENABLED=false`, `MP_SYNC_WOO_ENABLED=false`,
    `MP_SYNC_ECWID_ENABLED=true`.
 3. Run Node regression `node n8n/tests/commercial_inventory_sync_smoke.js`;
    compare original and new Ecwid node definitions/quantity candidates.
@@ -84,10 +85,14 @@ Do not import both as hourly-active workflows. Work on existing production n8n;
    resulting Ecwid quantity, including an eligible unit moved to Consumed or
    allowed to expire **without an order**. Recheck after hourly run. Review
    differences before enabling additional providers.
-6. Review ERP MP ecommerce identity links and distinct Woo product mappings.
+6. Verify MP functions `mp_ecommerce_catalog_inventory()` and
+   `mp_commerce_inventory()` are installed; enable `MP_SYNC_SNAPSHOT_ENABLED=true`
+   while ERP/Woo remain off. Review gross versus reservation-adjusted
+   inventory, including a non-sale physical decrease.
+7. Review ERP MP ecommerce identity links and distinct Woo product mappings.
    Enable ERP independently, then Woo independently, only with a separately
    approved host configuration change and controlled n8n service refresh.
-7. Verify stale/same-timestamp ERP snapshot refusal, isolated Woo draft
+8. Verify stale/same-timestamp ERP snapshot refusal, isolated Woo draft
    update and read-back, reservation decreases, physical decreases, no duplicate
    writes and failures/retries before any real Woo publication.
 
