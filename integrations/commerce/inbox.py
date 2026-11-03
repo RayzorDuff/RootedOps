@@ -13,8 +13,8 @@ class Inbox:
     def __init__(self, connect):
         self.connect = connect
 
-    def receive(self, raw, signature, *, secrets, site, mappings, gateways):
-        event = normalize_woo(raw, signature, secrets, site, mappings, gateways)
+    def receive(self, raw, signature, *, secrets, site, mappings, gateways, tax_policy=None):
+        event = normalize_woo(raw, signature, secrets, site, mappings, gateways, tax_policy=tax_policy)
         key = (event['provider'], site, event['event_id'])
         with self.connect() as db:
             old = db.execute('SELECT payload FROM commerce_inbox WHERE provider=%s AND site_key=%s AND event_id=%s', key).fetchone()
