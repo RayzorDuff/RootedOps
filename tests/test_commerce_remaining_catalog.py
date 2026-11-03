@@ -61,6 +61,34 @@ class RemainingCatalogTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError,"snapshot checksum drift"):
                 bulk.read_source(path)
 
+    def test_woo_verifier_uses_receipted_product_identity(self):
+        self.assertIn("'woocommerce_id'=>(int)$id",bulk.WOO_VERIFY)
+        self.assertNotIn("'id'=>(int)$id",bulk.WOO_VERIFY)
+        keys=[v for v in bulk.reconcile.__code__.co_consts if isinstance(v,tuple)]
+        self.assertIn(('source_key','sku','media_ids','woocommerce_id'),keys)
+
+    def test_verify_only_requires_existing_receipts(self):
+        with tempfile.TemporaryDirectory() as d:
+            with self.assertRaisesRegex(ValueError,"No completed bulk import state directory"):
+                bulk.verify_existing(Path(d),{},[],Path(d),Path(d)/"missing")
+
+    def test_reconcile_accepts_receipted_woocommerce_id(self):
+        records=[{'source_key':f'ecwid:95802503:product:{n}',
+                  'price':{'item_price_rate':'1.00'}} for n in range(110)]
+        woo=[{'source_key':r['source_key'],'sku':f'SKU{n}',
+              'woocommerce_id':n+100,'media_ids':[]} for n,r in enumerate(records)]
+        receipt={'woo_done':{r['source_key']:r for r in woo}}
+        counts=dict.fromkeys(('Item','Commercial Product Content',
+                              'Commerce Channel Mapping'),132)
+        counts.update({'Item Price':132,'Sales Order':0,'Sales Invoice':0,
+                       'Payment Entry':0,'Stock Entry':0,'Bin':0})
+        with patch.object(bulk,'run_json') as call:
+            call.side_effect=[{'checked':110,'counts':counts},
+                              {'records':woo,'drafts':132,'published':0}]
+            result=bulk.reconcile(Path('/tmp'),records,receipt)
+        self.assertEqual(result['status'],'PASSED')
+        self.assertTrue(result['receipt_matches'])
+
     def test_verifier_requires_all_110_records(self):
         with patch.object(bulk,"run_json") as call:
             call.side_effect=[
