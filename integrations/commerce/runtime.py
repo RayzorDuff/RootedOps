@@ -44,9 +44,17 @@ def main():
         if not a.config:p.error('--config required')
         config=json.loads(a.config.read_text())
         sites={}
+        from tax_policy import load_policy
         for site,row in config['sites'].items():
+            # Every enabled staging site must point to an approved, private,
+            # read-only classification file. Missing policy fails closed at
+            # server startup, before any webhook can be acknowledged.
+            if not row.get('tax_classification_file'):
+                raise ValueError('Approved tax classification file required for webhook site')
+            policy=load_policy(row['tax_classification_file'])
             sites[site]={'secrets':[os.environ[name] for name in row['secret_envs']],
-                         'mappings':row['mappings'],'gateways':row['gateways']}
+                         'mappings':row['mappings'],'gateways':row['gateways'],
+                         'tax_policy':policy}
         # No public bind switch. Use only an independently reviewed test proxy.
         with make_server('127.0.0.1',8100,application(inbox,sites)) as server:server.serve_forever()
     else:
