@@ -1,0 +1,90 @@
+{
+  "name": "Commerce Operational Availability",
+  "doctype": "DocType",
+  "module": "RootedOps Commerce",
+  "engine": "InnoDB",
+  "track_changes": 1,
+  "autoname": "field:identity",
+  "field_order": [
+    "identity",
+    "item",
+    "mushroomprocess_ecommerce_id",
+    "available_quantity",
+    "source_observed_at",
+    "source_hash",
+    "source_provider",
+    "source_site"
+  ],
+  "fields": [
+    {
+      "fieldname": "identity",
+      "label": "Identity",
+      "fieldtype": "Data",
+      "reqd": 1,
+      "unique": 1,
+      "read_only": 1
+    },
+    {
+      "fieldname": "item",
+      "label": "ERP Item",
+      "fieldtype": "Link",
+      "options": "Item",
+      "reqd": 1,
+      "read_only": 1
+    },
+    {
+      "fieldname": "mushroomprocess_ecommerce_id",
+      "label": "MushroomProcess Ecommerce ID",
+      "fieldtype": "Data",
+      "reqd": 1,
+      "read_only": 1
+    },
+    {
+      "fieldname": "available_quantity",
+      "label": "Sellable Available",
+      "fieldtype": "Int",
+      "reqd": 1,
+      "read_only": 1
+    },
+    {
+      "fieldname": "source_observed_at",
+      "label": "Source Observed At (UTC)",
+      "fieldtype": "Datetime",
+      "reqd": 1,
+      "read_only": 1
+    },
+    {
+      "fieldname": "source_hash",
+      "label": "Source Hash",
+      "fieldtype": "Data",
+      "reqd": 1,
+      "read_only": 1
+    },
+    {
+      "fieldname": "source_provider",
+      "label": "Source Provider",
+      "fieldtype": "Data",
+      "read_only": 1
+    },
+    {
+      "fieldname": "source_site",
+      "label": "Source Site",
+      "fieldtype": "Data",
+      "read_only": 1
+    }
+  ],
+  "permissions": [
+    {
+      "role": "System Manager",
+      "read": 1
+    },
+    {
+      "role": "Sales Manager",
+      "read": 1
+    },
+    {
+      "role": "Sales User",
+      "read": 1
+    }
+  ]
+}
