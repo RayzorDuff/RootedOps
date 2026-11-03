@@ -70,7 +70,7 @@ $input=json_decode(stream_get_contents(STDIN),true,512,JSON_THROW_ON_ERROR);
 $sha=$input['sha256'];$mime=$input['mime'];$filename=$input['filename'];
 $bytes=base64_decode($input['blob'],true);
 if (!preg_match('/^[a-f0-9]{64}$/D',$sha) ||
-    !preg_match('/^[a-f0-9]{64}\\.(jpg|png|webp|gif)$/D',$filename) ||
+    !preg_match('/^[a-f0-9]{64}\.(jpg|png|webp|gif)$/D',$filename) ||
     $bytes===false || hash('sha256',$bytes)!==$sha) { throw new Exception('Invalid image identity'); }
 if (get_option('woocommerce_coming_soon')!=='yes' ||
     get_option('woocommerce_calc_taxes')!=='no' ||
