@@ -155,6 +155,7 @@ if ($id) {
  $existing->set_catalog_visibility('hidden');
  $existing->set_manage_stock(true);
  $existing->set_stock_quantity(0);
+ $existing->set_stock_status('outofstock');
  $existing->set_backorders('no');
  $existing->set_regular_price((string)$p['regular_price']);
  $existing->set_tax_status('none'); // Woo tax calculation remains disabled.
@@ -172,6 +173,7 @@ if (!$actual || !$actual->is_type('simple') ||
     $actual->get_sku()!==$sku || $actual->get_status()!=='draft' ||
     $actual->get_catalog_visibility()!=='hidden' ||
     !$actual->get_manage_stock() || (int)$actual->get_stock_quantity()!==0 ||
+    $actual->get_stock_status()!=='outofstock' ||
     $actual->get_backorders()!=='no' ||
     $actual->get_name()!==$p['name'] ||
     $actual->get_description()!==$p['description'] ||
