@@ -22,6 +22,9 @@ from commerce_catalog_batch import records_for_batch
 from commerce_production_staging_batch import compiled_guard
 from commerce_production_media import guard_live
 
+FIRST_BATCH_SHA = "ed49bd43b49cb9f705bd780f5f8d2220bd7aec32b2e4cc17c7dbde1a53f389d6"
+FIRST_BATCH_IDS = {"610274451","610274742","610274979","610274980","610276199"}
+
 # All operations in this block are in one Frappe DB transaction. Native
 # import_product handles allowed fields, permissions, pricing and idempotence.
 ERP_SCRIPT = r"""
@@ -212,6 +215,8 @@ def persist(path,data):
         os.chown(path,owner.st_uid,owner.st_gid)
 
 def verify_compiled(path,expected_sha):
+    if expected_sha!=FIRST_BATCH_SHA:
+        raise ValueError("Only exact approved first pilot batch is permitted")
     if compiled_guard(path)!=expected_sha:
         raise ValueError("Compiled batch SHA drift")
     records=records_for_batch(json.loads(path.read_text()))
@@ -223,6 +228,8 @@ def verify_compiled(path,expected_sha):
     keys=[r["source_key"] for r in records]
     if len(set(keys))!=5:
         raise ValueError("Duplicate source keys")
+    if {r["mapping"]["external_product_id"] for r in records}!=FIRST_BATCH_IDS:
+        raise ValueError("First pilot source identity drift")
     return records
 
 def import_batch(deployment,compiled,sha,receipt_path,apply):
