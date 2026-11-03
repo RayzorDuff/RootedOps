@@ -63,6 +63,23 @@ class RecurringTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError,"unresolved attempt"):
             c.preview(self.db,newer,self.woo)
 
+    def test_recover_confirmed_remote_write(self):
+        row=dict(self.rows[0],physical=2,qty=2)
+        newer=[row]+self.rows[1:]
+        ch=c.preview(self.db,newer,self.woo)[0]
+        c.one_write.snapshot=newer
+        with patch.object(c,"source",return_value=newer),patch.object(c,"owned_product",
+            side_effect=[{"stock_quantity":0},RuntimeError("response lost")]),patch(
+            "ecwid_migrate.api",return_value={"id":self.woo[row["mp_id"]]["id"]}):
+            with self.assertRaisesRegex(RuntimeError,"response lost"):
+                c.one_write(self.db,*ch,"TEST",None)
+        self.assertEqual(c.pending(self.db),1)
+        self.woo[row["mp_id"]]["qty"]=2
+        c.reconcile(self.db,newer,self.woo)
+        self.assertEqual(c.pending(self.db),0)
+        self.assertEqual(c.state_map(self.db)[row["mp_id"]]["revision"],2)
+        self.assertEqual(c.preview(self.db,newer,self.woo),[])
+
     def test_reject_drift_before_write(self):
         newer=[dict(self.rows[0],physical=1,qty=1)]+self.rows[1:]
         ch=c.preview(self.db,newer,self.woo)[0]
