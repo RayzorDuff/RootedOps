@@ -161,7 +161,7 @@ foreach ($a['records'] as $r) {
  $expected=array_map(fn($v)=>(int)$v['id'],$e['images']);
  if (array_map('intval',$media)!==$expected)
    throw new Exception('Woo images drift: '.$e['sku']);
- $results[]=['sku'=>$e['sku'],'id'=>(int)$id,'source_key'=>$r['source_key'],
+ $results[]=['sku'=>$e['sku'],'woocommerce_id'=>(int)$id,'source_key'=>$r['source_key'],
              'media_ids'=>array_map('intval',$media)];
 }
 echo json_encode(['records'=>$results,'drafts'=>(int)wp_count_posts('product')->draft,
@@ -445,6 +445,55 @@ def reconcile(deployment,records,receipt):
             'published':0,'remaining_checked':110,
             'receipt_matches':True,'writes_during_verification':False}
 
+def verify_existing(deployment,planned,remaining,archive,state):
+    """Read-only final reconciliation from persisted media/product receipts."""
+    if not state.is_dir():
+        raise ValueError('No completed bulk import state directory')
+    pilot_blobs,pilot_media=check_pilot_receipts(state.parent)
+    existing=load_archive(archive)
+    more_path=state/'new-media-urls.json'
+    more=json.loads(more_path.read_text()) if more_path.exists() else {}
+    for url,row in more.items():
+        if url in existing and existing[url]!=row:
+            raise ValueError('Downloaded URL identity drift: '+url)
+    existing.update(more)
+    needed=required_urls(remaining)
+    if missing:=needed-set(existing):
+        raise ValueError('Required source images absent from archive: '+str(len(missing)))
+    extra_path=state/'remaining-media-receipt.json'
+    extra=json.loads(extra_path.read_text()) if extra_path.exists() else {
+        'scope':SCOPE,'source_sha256':SOURCE_SHA,'blobs':{}}
+    if extra.get('scope')!=SCOPE or extra.get('source_sha256')!=SOURCE_SHA:
+        raise ValueError('Media receipt identity drift')
+    blobs=dict(pilot_blobs)
+    blobs.update(extra['blobs'])
+    media=[]
+    for url in sorted(needed):
+        row=existing[url]
+        media_file(archive,row)
+        dest=blobs.get(row['sha256'])
+        if not dest or not dest.get('erp_file_url') or not dest.get('woocommerce_media_id'):
+            raise ValueError('Uploaded image identity missing: '+url)
+        media.append(dict(row,**dest))
+    guard_live(deployment)
+    default_cat=destination_categories(deployment)
+    records=build_records(planned,remaining,{m['url']:m for m in media},default_cat)
+    raw=json.dumps(records,sort_keys=True,separators=(',',':')).encode()
+    sha=hashlib.sha256(raw).hexdigest()
+    receipt_path=state/'remaining-product-receipt.json'
+    receipt=json.loads(receipt_path.read_text())
+    if (receipt.get('scope')!=SCOPE or
+        receipt.get('source_sha256')!=SOURCE_SHA or
+        receipt.get('compiled_sha256')!=sha):
+        raise ValueError('Product receipt identity/checksum drift')
+    keys={r['source_key'] for r in records}
+    if set(receipt.get('erp_done',[]))!=keys or set(receipt.get('woo_done',{}))!=keys:
+        raise ValueError('Incomplete imported product receipts')
+    result=reconcile(deployment,records,receipt)
+    return {'source_products':110,'compiled_sha256':sha,
+            'reconciliation':result,'writes':False}
+
+
 def main():
     p=argparse.ArgumentParser(description=__doc__)
     p.add_argument('--repo-root',type=Path,required=True)
@@ -453,6 +502,8 @@ def main():
     p.add_argument('--state-dir',type=Path,required=True)
     p.add_argument('--allow-host',action='append',default=[])
     p.add_argument('--apply',action='store_true')
+    p.add_argument('--verify-only',action='store_true',
+                   help='Read-only final reconciliation from existing receipts')
     args=p.parse_args()
     deployment=args.repo_root.resolve()
     source,planned,remaining=read_source(args.source)
@@ -471,6 +522,12 @@ def main():
             'missing_image_products':sum(not p['content']['gallery'] for p in remaining),
             'unpriced_products':sum(p['price'] is None for p in remaining),
             'writes':args.apply}
+    if args.verify_only:
+        if args.apply:
+            raise ValueError('Do not combine --verify-only and --apply')
+        final=verify_existing(deployment,planned,remaining,args.archive,args.state_dir)
+        print(json.dumps(final,indent=2))
+        return
     if not args.apply:
         print(json.dumps(report,indent=2));return
     if os.geteuid()!=0:raise ValueError('Use sudo for native Docker catalog import')
