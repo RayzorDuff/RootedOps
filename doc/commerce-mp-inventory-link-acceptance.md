@@ -30,9 +30,9 @@ cd ~/RootedOps
 git pull --ff-only origin main
 sudo docker cp scripts/commerce_mp_reverse_link.py erpnext-backend:/tmp/commerce_mp_reverse_link.py
 # PREVIEW: never writes
-printf '%s\n' "exec(compile(open('/tmp/commerce_mp_reverse_link.py').read(), '/tmp/commerce_mp_reverse_link.py', 'exec')); run_backfill(frappe, apply=False)" "exit()" | sudo docker exec -i erpnext-backend bench --site erp.danks.store console
+printf '%s\n' "ns = {}; exec(compile(open('/tmp/commerce_mp_reverse_link.py').read(), '/tmp/commerce_mp_reverse_link.py', 'exec'), ns); ns['run_backfill'](frappe, apply=False)" "exit()" | sudo docker exec -i erpnext-backend bench --site erp.danks.store console
 # APPLY: only after 24/24 preview, fresh backup and operator acceptance
-printf '%s\n' "exec(compile(open('/tmp/commerce_mp_reverse_link.py').read(), '/tmp/commerce_mp_reverse_link.py', 'exec')); run_backfill(frappe, apply=True)" "exit()" | sudo docker exec -i erpnext-backend bench --site erp.danks.store console
+printf '%s\n' "ns = {}; exec(compile(open('/tmp/commerce_mp_reverse_link.py').read(), '/tmp/commerce_mp_reverse_link.py', 'exec'), ns); ns['run_backfill'](frappe, apply=True)" "exit()" | sudo docker exec -i erpnext-backend bench --site erp.danks.store console
 ```
 
 The script asserts exact 132 existing mapping count, correct ERP site, 24 exact
