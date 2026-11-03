@@ -314,6 +314,81 @@ remitted, and tax still payable to another jurisdiction.
    acceptance **without** publishing products, submitting invoices or
    enabling gateways; only then turn on stricter production tax requirements.
 
+## Approved product classifications and real-provider request boundary
+
+A one-time human review of **all 132 imported Items** is needed before
+production quotes can be accepted. The source snapshot is private and
+immutably bound to SHA-256
+`0b4eec40a1cfd1d62551e2ac951a42dac21984f34ffb2d03f9aea697d1d713a8`.
+The catalog includes 22 originally reviewed products and 110 remaining
+products (including disabled POS/other category entries). Product names,
+WooCommerce category IDs, and source-enabled status are **not** sufficient
+to infer legal taxability.
+
+Prepare a **private, unclassified CSV** locally:
+
+```sh
+cd ~/RootedOps
+python3 scripts/commerce_tax_classification.py \
+  --source "$HOME/commerce-migration/ecwid-full-catalog-source.json" \
+  --prepare "$HOME/commerce-migration/tax-review-132.csv"
+```
+
+Each row contains the existing SKU, Ecwid product ID/name/status/source
+categories, plus blank `tax_class` and `review_note` columns. The owner
+must explicitly select one of `grocery_food`, `cultivation_supply` or
+`other_reviewed` and provide a short product-specific rationale for
+**every SKU**, including disabled/legacy POS entries. `other_reviewed`
+means an explicitly reviewed other classification, **not** automatic
+exemption. Additional tax categories (e.g., supplements) will need
+explicit contract/schema changes rather than being misclassified.
+
+Approve the reviewed file offline:
+
+```sh
+python3 scripts/commerce_tax_classification.py \
+  --source "$HOME/commerce-migration/ecwid-full-catalog-source.json" \
+  --approve "$HOME/commerce-migration/tax-review-132.csv" \
+  --reviewer "Dank Mushrooms owner" \
+  --output "$HOME/commerce-migration/tax-class-map-132.json"
+```
+
+The resulting `0600` JSON maps each exact ERP Item SKU to the reviewed
+tax class and records reviewer, review CSV checksum, and source hash.
+The command **never** changes ERPNext, products, tax rules, WooCommerce or
+permissions. Keep the CSV and mapping out of the Git repository. The
+approved mapping is an input to the eventual ERPNext
+`commerce_tax_item_class_map` configuration, not an instruction to
+enable checkout or claim all grocery products exempt everywhere.
+
+### Replaceable tax calculation provider
+
+`integrations/commerce/tax_adapter.py` creates a deterministic,
+SHA-bound request including the approved class for each line, an **actual
+street address** for market/pickup/delivery/shipping sourcing, order
+identity, channel and transaction date. ZIP-only destinations fail closed.
+An unknown SKU, missing tax class, unsupported shipping fees or discounts,
+or a missing provider also fail closed. No state-by-state rate tables are
+hardcoded.
+
+`get_quote(request, provider_name, provider)` accepts an injected,
+authenticated provider transport and requires response provider/order/
+line/class/request-hash identity to match. The existing
+`rootedops_commerce.tax_contract.validate_quote` then checks all
+jurisdiction components, totals and the ERPNext liability mapping before
+an order draft can use the quote.
+
+**The transport is intentionally not connected to a commercial provider.**
+Selecting, authenticating, and verifying a provider capable of resolving
+Colorado destination boundaries and nationwide nexus is a separate
+integration acceptance step. This code does not itself calculate taxes,
+purchase service subscriptions, collect tax, file returns, or provide
+authority for the Windsor market manager's cash-envelope remittances.
+A verified source jurisdiction must include the appropriate special
+districts and effective date; a recognized address alone is not a rate
+determination. Colorado retail delivery fees, order discounts and shipping
+charges also need explicitly defined line/fee policy before live use.
+
 ## Boundaries
 
 - Imported 132 Items and 132 draft Woo products are already accepted. No
