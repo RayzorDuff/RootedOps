@@ -29,7 +29,7 @@ def authenticate(raw, signature, secrets):
     return hashlib.sha256(raw).hexdigest()
 
 
-def normalize_woo(raw, signature, secrets, site, mappings, gateways):
+def normalize_woo(raw, signature, secrets, site, mappings, gateways, tax_policy=None):
     event_id = authenticate(raw, signature, secrets)
     def unique_object(pairs):
         result = {}
@@ -63,6 +63,11 @@ def normalize_woo(raw, signature, secrets, site, mappings, gateways):
         mapping = mappings[key]
         if mapping['sku'] != line['sku']:
             raise ValueError('Woo identity/SKU drift')
+        if tax_policy is not None:
+            # A generic amount-based POS button is not a real product.
+            # Check the mapped ERP identity, not the untrusted Woo item label.
+            from tax_policy import require_approved_item
+            require_approved_item(mapping['erp_item_code'], tax_policy)
         qty = line['quantity']
         if type(qty) is not int or qty <= 0:
             raise ValueError('Positive integer operational quantity required')
