@@ -35,6 +35,11 @@ def get_item_editorial(item):
         "publication_status": doc.publication_status,
         "fields": fields,
         "gallery": gallery,
+        "operational_availability": frappe.get_list(
+            "Commerce Operational Availability", filters={"item": item},
+            fields=["mushroomprocess_ecommerce_id", "available_quantity", "source_observed_at"],
+            order_by="mushroomprocess_ecommerce_id asc"
+        ),
         "channel_overrides": overrides,
         "can_write": bool(
             doc.has_permission("write") and erp.has_permission("write")
