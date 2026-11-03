@@ -72,6 +72,30 @@ There is no need to stage media URLs for all missing thumbnail variants. Only
 source URLs used as a primary/gallery image for the remaining products are
 downloaded. Existing source-free products are retained as source-free.
 
+## Read-only completion verification after an interrupted final report
+
+If the operator import completed all 110 ERP/Woo receipt entries but stopped
+during final reconciliation (for example, the earlier Woo receipt ID key
+mismatch), **do not repeat the import**. After updating `main`, use the
+existing archive and receipt files to check both destinations without writes:
+
+```sh
+sudo python3 "$HOME/RootedOps/scripts/commerce_remaining_catalog.py" \
+  --repo-root "$HOME/RootedOps" \
+  --source "$HOME/commerce-migration/ecwid-full-catalog-source.json" \
+  --archive "$HOME/commerce-migration/media-archive" \
+  --state-dir "$HOME/commerce-migration/remaining-110" \
+  --verify-only
+```
+
+Expected final status: `reconciliation.status: PASSED`,
+`remaining_checked: 110`, `receipt_matches: true`,
+`woo_drafts: 132`, `published: 0`, and `writes: false`.
+This command reconstructs the expected cohort from immutable source and
+existing image receipts, verifies all imported record identities, then queries
+ERPNext and WooCommerce read-only; it does not download images or upsert
+products. It does not create or overwrite the original import receipts.
+
 ## Recovery and completion
 
 The operator retains these private `0600` receipts below
