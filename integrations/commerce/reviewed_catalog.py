@@ -48,7 +48,22 @@ def compile_catalog(plan, review, media_manifest=()):
                 'item_group': r['item_group'], 'stock_uom': r['stock_uom']}
         wc = deepcopy(product['woocommerce'])
         # Publication remains a separate reviewed action.
+        # Source disabled status is independent of publication. Never allow
+        # automatic activation, even when a reviewed record is subsequently synced.
+        if product.get('source_enabled') is False:
+            if not (review.get('include_disabled_drafts') is True and
+                    review.get('draft_only') is True):
+                raise ValueError('Disabled Ecwid products require explicit draft-only review')
+            wc['meta_data'].append({
+                'key': '_rootedops_ecwid_enabled', 'value': 'no'})
+        else:
+            wc['meta_data'].append({
+                'key': '_rootedops_ecwid_enabled', 'value': 'yes'})
         wc['status'] = 'draft'
+        wc['catalog_visibility'] = 'hidden'
+        wc['manage_stock'] = True
+        wc['stock_quantity'] = 0
+        wc['backorders'] = 'no'
         wc['categories'] = []
         for category in product['category_ids']:
             category_map = review['categories'][str(category)]
