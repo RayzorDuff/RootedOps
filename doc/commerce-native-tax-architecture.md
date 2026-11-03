@@ -142,6 +142,95 @@ components and each component's food exemption policy, then use the real
 destination shipping address to select correct native ERPNext rules.
 The installed WooCommerce storefront remains unpublished.
 
+## Sales-channel and remittance model (owner-provided operations, November 2026)
+
+Dank Mushrooms sells **fresh and freeze-dried culinary mushrooms** and
+**cultivation supplies**. Its operational sales channels include Windsor and
+Johnstown farmers markets, deliveries to Johnstown and surrounding communities,
+and shipments to customers across the United States. Preserve source channel,
+exact event/location/address, order and tax identities when receiving Clover
+or WooCommerce orders.
+
+**Important distinction: the tax owed and who has already remitted it are
+separate facts.** Never treat an unverified organizer payment as an automatic
+exemption, and never remit a verified organizer-paid tax twice.
+
+| Channel | Sourcing basis | Collection and remittance |
+| --- | --- | --- |
+| Windsor market | Exact market venue and event date | Capture gross sales by item tax class, each envelope/tax component, recipient, amount, receipt and filing reference; distinguish tax already remitted by organizer from other taxes due separately |
+| Johnstown market | Actual market venue and event date | User reports no tax collected at event; keep tax treatment **pending determination**, not globally exempt, until event rules/licensing and municipal/state obligation are verified |
+| Colorado pickup | Buyer takes possession at pickup venue | Use physical pickup location; state, city, county, and special-district components can differ |
+| Colorado delivery | Exact ship-to address/date | Destination sourcing; component-specific grocery-food exemptions, correct destination rate and applicable retail delivery fee |
+| Other U.S. shipment | Exact ship-to state/address/date | Evaluate registration/physical or economic nexus for that state and product-specific rules; do not charge Colorado-origin tax on interstate shipments by default, or assume all out-of-state orders are exempt |
+
+### Windsor organizer remittance: source discrepancy
+
+The Town-operated **2026 Windsor Farmers Market** rules (Boardwalk Park)
+specify an envelope payment of **3.95% town sales tax**, a **separate 5%
+gross-sales fee**, and make the vendor responsible for **state sales tax**.
+Windsor's current published citywide rate is **3.65%**. The exact market,
+effective date and invoice/envelope receipt must be confirmed before treating
+either percentage as the authoritative applied rate. The 5% market fee is
+*not* sales tax. Windsor is a self-collecting home-rule municipality; a town
+payment is not automatically a Colorado DOR/state-tax remittance.
+
+Official references:
+- https://www.recreationliveshere.com/DocumentCenter/View/468
+- https://www.windsorco.gov/104/Business-Licensing
+- https://tax.colorado.gov/special-event-sales-tax
+
+**ERPNext accounting design:** Book taxable sale and tax liability by
+jurisdiction/component. Record each documented organizer remittance as a
+payment against that exact liability, with external reference and cash
+payment account; distinguish whether organizer is licensed to remit on the
+seller's behalf. Do **not** create a second tax obligation for the same
+jurisdiction/event when the corresponding tax is independently documented
+as remitted. A separate vendor/booth/gross-sales charge goes to a market
+expense account. Record all gross sales (including food) separately so an
+exempt item remains visible in taxable-base reconciliation.
+
+For events for which the Colorado Department of Revenue's *special-event*
+rules apply, the licensed organizer may remit **state-administered** tax
+on sellers' behalf; verify the organizer's authorization and retain a
+receipt. Recurring markets may have different ordinary retail licensing
+requirements. A town-only envelope does not prove that state-administered
+taxes were paid.
+
+### Item taxation and fulfillment
+
+- **Food for home consumption:** Fresh and ordinary freeze-dried culinary
+  mushrooms are candidate exempt groceries for Colorado state purposes;
+  confirm labeling and that a particular product is food rather than
+  supplement. Municipal grocery-food exemptions may differ. Johnstown
+  reports no town exemptions, and Windsor taxes grocery foods locally.
+- **Cultivation supplies:** Treat as merchandise pending review; do not
+  automatically extend grocery-food exemptions. Some plants/seeds and
+  qualifying agricultural production purchases may have separate rules.
+- **Mixed baskets:** Compute taxable base *per line and jurisdiction*, then
+  aggregate tax once for the order; do not apply a single blanket food/nonfood
+  rate across the whole cart.
+- **Delivery fees:** Determine Colorado retail delivery fee eligibility for
+  motor-vehicle deliveries of taxable items into Colorado, separate from
+  separately stated delivery/freight charges.
+- **Nationwide sales:** Maintain a reviewed state-by-state nexus/registration
+  status and effective dates before attempting collection. A zero-tax
+  destination because no duty to collect exists is not equivalent to an
+  item being legally exempt.
+
+### Required order/tax evidence
+
+At the ERPNext tax calculation boundary preserve: order and original channel
+identities; point-of-sale event name/date, pickup location or destination
+address; sale date; product classification; quantity and gross sales; each
+jurisdiction component, tax rate and exempt base; tax collected from buyer;
+tax accrued; tax remitted; recipient; payment and external filing reference;
+and any marketplace/event-operator remittance evidence. Do not infer
+payment from Clover card settlement alone.
+
+**Do not enable the two incomplete disabled templates or populate broad
+Tax Rules until the actual location and grocery/exemption policies are
+resolved.** The existing 132 imported drafts remain unchanged.
+
 ## Boundaries
 
 - Imported 132 Items and 132 draft Woo products are already accepted. No
