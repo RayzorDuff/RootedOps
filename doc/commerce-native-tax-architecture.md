@@ -263,7 +263,7 @@ Minimum input is:
 When the ERPNext order integration is enabled, a supplied quote is
 validated against the reviewed draft. It must exactly match the
 `Actual` tax rows, source order ID, USD total and tax component arithmetic.
-The integrated service also looks up each tax account in ERPNext,
+The installed service additionally requires site-configured `commerce_tax_provider` and `commerce_tax_item_class_map` to match the quote's provider name and every SKU's reviewed product tax classification. No provider or product classification is implicitly trusted. The integrated service also looks up each tax account in ERPNext,
 restricts it to a non-group DML liability, and requires the trusted
 **site configuration** `commerce_tax_account_map` to map
 `authority|jurisdiction_id` to the exact permitted tax account. This
