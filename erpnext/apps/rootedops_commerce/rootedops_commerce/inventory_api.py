@@ -56,19 +56,24 @@ def update_availability(payload):
     item = frappe.get_doc("Item", p["item"])
     item.check_permission("read")
     mappings = frappe.get_all("Commerce Channel Mapping",
-        filters={"item": p["item"], "mushroomprocess_ecommerce_id": p["ecommerce_id"]},
-        pluck="name")
-    if len(mappings) != 1:
-        frappe.throw("Reviewed MP ecommerce to ERP Item mapping absent or ambiguous")
+        filters={"mushroomprocess_ecommerce_id": p["ecommerce_id"]},
+        fields=["item", "provider", "site_key"])
+    if not mappings or {row.item for row in mappings} != {p["item"]}:
+        frappe.throw("Reviewed MP ecommerce ID is unmapped or belongs to a different ERP Item")
+    if not any((row.provider or "").lower() == p["provider"]
+               and (row.site_key or "") == p["site_key"] for row in mappings):
+        frappe.throw("MP source provider/site lacks a reviewed ERP mapping")
     identity = "mp-ecommerce-" + p["ecommerce_id"]
     existing = frappe.db.exists("Commerce Operational Availability", identity)
     if existing:
         doc = frappe.get_doc("Commerce Operational Availability", identity)
         if doc.item != p["item"] or doc.mushroomprocess_ecommerce_id != p["ecommerce_id"]:
             frappe.throw("Inventory identity drift")
-        if str(doc.source_observed_at) > p["observed"]:
+        old_time = frappe.utils.get_datetime(doc.source_observed_at)
+        incoming_time = datetime.strptime(p["observed"], "%Y-%m-%d %H:%M:%S.%f")
+        if old_time > incoming_time:
             frappe.throw("Stale operational inventory snapshot refused")
-        if str(doc.source_observed_at) == p["observed"]:
+        if old_time == incoming_time:
             if doc.source_hash == p["hash"]:
                 return {"status": "duplicate", "item": p["item"], "ecommerce_id": p["ecommerce_id"],
                         "available_quantity": p["quantity"]}
