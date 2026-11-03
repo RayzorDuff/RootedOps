@@ -12,7 +12,7 @@ import sys
 
 ROOT=Path(__file__).resolve().parents[1]
 sys.path.insert(0,str(ROOT/"scripts"))
-from commerce_production_draft_import import verify_compiled
+from commerce_production_draft_import import verify_compiled, batch_for_sha, require_prior_receipts, RECEIPT_NAME, BATCHES
 from commerce_production_batch_readiness import run_native
 from commerce_production_media import guard_live
 
@@ -129,6 +129,10 @@ echo json_encode(['site'=>get_option('siteurl'),'records'=>$out,
 
 def reconcile(deployment,compiled,sha,receipt):
     records=verify_compiled(compiled,sha)
+    batch,_=batch_for_sha(sha)
+    if receipt.name!=RECEIPT_NAME.format(batch=batch):
+        raise ValueError("Receipt filename/batch drift")
+    require_prior_receipts(batch,receipt)
     if not receipt.is_file():
         raise ValueError("Import receipt required")
     saved=json.loads(receipt.read_text())
@@ -136,8 +140,8 @@ def reconcile(deployment,compiled,sha,receipt):
         saved.get("scope")!="erp.danks.store|shop-test.danks.store" or
         saved.get("erp_committed") is not True):
         raise ValueError("Import receipt scope/status drift")
-    if not isinstance(saved.get("products"),dict) or len(saved["products"])!=5:
-        raise ValueError("Exactly five receipted Woo products required")
+    if not isinstance(saved.get("products"),dict) or len(saved["products"])!=len(records):
+        raise ValueError("Every batch Woo product must be receipted")
     guard_live(deployment)
     erp=run_native(['docker','compose','--env-file',str(deployment/'.env'),
        '-f',str(deployment/'docker/docker-compose.yml'),'exec','-T','-w',
@@ -145,7 +149,7 @@ def reconcile(deployment,compiled,sha,receipt):
        '/home/frappe/frappe-bench/env/bin/python','-c',ERP_READ],{'records':records})
     woo=run_native(['docker','exec','-i','dank-store-test-dank-wordpress-1',
        'php','-r',WOO_READ],{'records':records})
-    if len(erp['records'])!=5 or len(woo['records'])!=5:
+    if len(erp['records'])!=len(records) or len(woo['records'])!=len(records):
         raise ValueError("Read-back record counts differ")
     by_key={p['source_key']:p for p in woo['records']}
     if set(by_key)!=set(saved['products']):
@@ -156,15 +160,17 @@ def reconcile(deployment,compiled,sha,receipt):
             if record[field]!=previous[field]:
                 raise ValueError("Woo receipt drift: "+field)
     counts=erp["counts"]
-    if any(counts[d]!=5 for d in ('Item','Commercial Product Content',
+    cumulative=sum(len(ids) for n,(digest,ids) in BATCHES.items() if n<=batch)
+    if any(counts[d]!=cumulative for d in ('Item','Commercial Product Content',
                                   'Commerce Channel Mapping','Item Price')):
         raise ValueError("Unexpected first-cohort ERP counts")
     if any(counts[d]!=0 for d in ('Sales Order','Sales Invoice',
                                   'Payment Entry','Stock Entry','Bin')):
         raise ValueError("Unexpected financial or stock records")
-    if woo['published']!=0 or woo['drafts']!=5:
+    if woo['published']!=0 or woo['drafts']!=cumulative:
         raise ValueError("Unexpected WooCommerce product counts")
-    return {"compiled_sha256":sha,"erp_items":5,"woo_drafts":5,
+    return {"compiled_sha256":sha,"batch":batch,"batch_records":len(records),
+            "erp_items":cumulative,"woo_drafts":cumulative,
             "woocommerce_published":0,"erp":erp,"woo":woo,
             "receipt_matches":True,"reconciliation":"PASSED","writes":False}
 
