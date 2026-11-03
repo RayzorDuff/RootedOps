@@ -45,6 +45,7 @@ class OperationalAvailabilityTests(unittest.TestCase):
         for name in ("MP_SYNC_ERP_ENABLED", "MP_SYNC_WOO_ENABLED"):
             self.assertIn(name + ": ${" + name + ":-false}", compose)
         self.assertIn("MP_SYNC_ECWID_ENABLED: ${MP_SYNC_ECWID_ENABLED:-true}", compose)
+        self.assertIn("MP_SYNC_SNAPSHOT_ENABLED: ${MP_SYNC_SNAPSHOT_ENABLED:-false}", compose)
 
 
 if __name__ == "__main__":
