@@ -35,7 +35,7 @@ class DraftImportTests(unittest.TestCase):
             path=Path(directory)/"batch.json"
             path.write_text(json.dumps({"records":[]}))
             with self.assertRaisesRegex(ValueError,"Compiled batch SHA drift"):
-                importer.verify_compiled(path,"0"*64)
+                importer.verify_compiled(path,importer.FIRST_BATCH_SHA)
 
     def test_json_native_failure_is_not_suppressed(self):
         with patch.object(importer.subprocess,"run") as run:
