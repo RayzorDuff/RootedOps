@@ -44,19 +44,33 @@ def main():
         if not a.config:p.error('--config required')
         config=json.loads(a.config.read_text())
         sites={}
+        from tax_policy import load_policy
         for site,row in config['sites'].items():
+            # Every enabled staging site must point to an approved, private,
+            # read-only classification file. Missing policy fails closed at
+            # server startup, before any webhook can be acknowledged.
+            if not row.get('tax_classification_file'):
+                raise ValueError('Approved tax classification file required for webhook site')
+            policy=load_policy(row['tax_classification_file'])
             sites[site]={'secrets':[os.environ[name] for name in row['secret_envs']],
-                         'mappings':row['mappings'],'gateways':row['gateways']}
+                         'mappings':row['mappings'],'gateways':row['gateways'],
+                         'tax_policy':policy}
         # No public bind switch. Use only an independently reviewed test proxy.
         with make_server('127.0.0.1',8100,application(inbox,sites)) as server:server.serve_forever()
     else:
         if not a.config:p.error('--config required')
         config=json.loads(a.config.read_text());approved=config['approved_erp_drafts']
+        from tax_policy import load_policy
+        tax_policies={}
+        for site,row in config['sites'].items():
+            if not row.get('tax_classification_file'):
+                raise ValueError('Approved tax classification file required for order delivery')
+            tax_policies[site]=load_policy(row['tax_classification_file'])
         erp=ReviewedERP(config.get('erp_base_url','https://erp-test.danks.store'),os.environ['ERP_AUTHORIZATION'],approved,api)
         mp=PostgresInventory(connect_test(os.environ['MP_TEST_DSN']),erp_site=urlsplit(erp.base).hostname)
         if a.command=='reconcile-order':
             if not a.order_key:p.error('reconcile-order requires --order-key PROVIDER SITE ORDER_ID')
             print(json.dumps(reconcile_order(inbox,mp,erp,tuple(a.order_key))))
-        else:print(json.dumps({'worked':deliver_one(inbox,mp,erp)}))
+        else:print(json.dumps({'worked':deliver_one(inbox,mp,erp,tax_policies=tax_policies)}))
 
 if __name__=='__main__':main()

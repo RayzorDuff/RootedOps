@@ -420,6 +420,69 @@ districts and effective date; a recognized address alone is not a rate
 determination. Colorado retail delivery fees, order discounts and shipping
 charges also need explicitly defined line/fee policy before live use.
 
+## Runtime enforcement of owner-approved 119/13 mapping
+
+RootedOps PR #66 generated the local private reviewed file
+`~/commerce-migration/tax-private/tax-class-map-132.json` with **119
+approved product identities** (40 grocery, 78 cultivation, 1 other) and
+**13 blocked generic POS amount identities**. The successful local approval
+reported `writes_to_destinations: false`.
+
+`integrations/commerce/tax_policy.py` loads and validates that file
+against the immutable 132-product source checksum, its explicit owner
+review identity, the 119/13 counts, the disjoint identity sets, and
+the expected class counts. It rejects files without private 0600 file
+permissions or a private 0700 containing folder. The approved classes
+are not grocery exemptions everywhere: they are product classifications
+only.
+
+In the **opt-in staging** `integrations/commerce/runtime.py` settings,
+each `sites[<site_key>]` entry must now include an absolute
+`tax_classification_file` path readable by the staging process:
+
+```json
+{
+  "sites": {
+    "shop-test.danks.store": {
+      "secret_envs": ["COMMERCE_WOO_WEBHOOK_SECRET"],
+      "mappings": {},
+      "gateways": {"clover": "clover"},
+      "tax_classification_file": "/home/dankmushrooms/commerce-migration/tax-private/tax-class-map-132.json"
+    }
+  }
+}
+```
+
+The example above is a **configuration fragment**, not a complete
+operational inbox config; existing reviewed numeric Woo product ID to
+ERP Item mappings, secrets and separately reviewed order drafts must
+be retained. Do not replace an existing site mapping with the example
+empty dictionary.
+
+With that setting, the staging webhook loads the owner-approved policy
+**before serving**; each authenticated Woo order line's mapped ERP Item
+is validated **before durable receipt**, and the queued worker
+independently rechecks the policy **before either MushroomProcess or
+ERPNext receives the event**. Any excluded generic POS button, missing
+item, or missing private mapping is refused; no tax-free fallback.
+
+This PR introduces **no** production Frappe site configuration,
+WooCommerce product publishing, Clover payment capture, tax-provider
+authentication or tax quote generation. ERPNext continues to require
+a trusted `commerce_tax_item_class_map`, `commerce_tax_provider`
+and jurisdiction-account map before it can accept a real tax quote.
+Do not copy the full approved mapping into Git; retain it privately
+and bind it to the installed service after reviewing the staging
+host's filesystem permissions.
+
+**Outstanding gates:** block generic POS identities at WooCommerce
+publication/checkout itself (webhook rejection is a second line of
+defense); connect an authoritative effective-dated jurisdiction/nexus
+provider; verify Colorado food versus district treatment and any
+retail delivery fee; test one mixed-item draft order and review
+Clover sandbox evidence. Until then keep Woo checkout disabled and
+ERPNext tax templates nondefault.
+
 ## Boundaries
 
 - Imported 132 Items and 132 draft Woo products are already accepted. No

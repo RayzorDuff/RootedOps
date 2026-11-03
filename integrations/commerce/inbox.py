@@ -13,8 +13,8 @@ class Inbox:
     def __init__(self, connect):
         self.connect = connect
 
-    def receive(self, raw, signature, *, secrets, site, mappings, gateways):
-        event = normalize_woo(raw, signature, secrets, site, mappings, gateways)
+    def receive(self, raw, signature, *, secrets, site, mappings, gateways, tax_policy=None):
+        event = normalize_woo(raw, signature, secrets, site, mappings, gateways, tax_policy=tax_policy)
         key = (event['provider'], site, event['event_id'])
         with self.connect() as db:
             old = db.execute('SELECT payload FROM commerce_inbox WHERE provider=%s AND site_key=%s AND event_id=%s', key).fetchone()
@@ -102,10 +102,19 @@ def reconcile_order(inbox, mp_target, erp_target, key):
     return {'reconciled':True,'accounting_posted':False,'physical_fulfillment':False}
 
 
-def deliver_one(inbox, mp_target, erp_target, *, max_attempts=5, retry_seconds=30):
+def deliver_one(inbox, mp_target, erp_target, *, max_attempts=5, retry_seconds=30,
+                tax_policies=None):
     claim=inbox.claim()
     if not claim:return False
     try:
+        if tax_policies is not None:
+            from tax_policy import require_approved_item
+            event=claim['payload']
+            policy=tax_policies.get(event.get('site_key'))
+            if policy is None:
+                raise ValueError('No owner-approved tax classification for site')
+            for line in event['lines']:
+                require_approved_item(line['erp_item_code'], policy)
         mp=claim['mp_receipt']
         if mp is None:
             mp=mp_target(claim['payload'])
