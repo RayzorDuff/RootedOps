@@ -197,6 +197,67 @@ This stricter 5/0 count gate is specific to the first pilot and **must not be
 reused blindly after other sales, orders or inventory operations begin**.
 If it fails, stop and investigate; preserve both media and import receipts.
 
+## Remaining reviewed pilot batches (2–5)
+
+After successful independent batch-1 reconciliation, the native product importer
+accepts the remaining **four exact, previously compiled** batches. Their
+immutable SHA-256 digests and exact Ecwid source IDs are allowlisted in
+`scripts/commerce_production_draft_import.py`; the importer rejects
+disabled-source products, foreign SKUs, missing receipt history, mismatched
+media and unexpected price-list or tax policy. It does not fetch Ecwid or
+republish products.
+
+Batches must run **in order**, and each must pass its own installed
+preflight and independent reconciliation before the next. The same private
+receipt directory is used for all five batches, so successful earlier
+receipts remain available:
+
+```sh
+cd "$HOME/RootedOps"
+git fetch origin feature/commerce-full-catalog-staging-preflight
+git -C "$HOME/RootedOps-commerce-pr57" checkout --detach \
+  origin/feature/commerce-full-catalog-staging-preflight
+
+BATCH=2
+BATCH_LABEL="$(printf '%02d' "$BATCH")"
+BATCH_FILE="$HOME/commerce-migration/pilot-batches-1/pilot-${BATCH_LABEL}.json"
+BATCH_SHA="$(python3 - "$HOME/commerce-migration/pilot-batches-1/batch-index.json" "$BATCH" <<'PY'
+import json,sys
+index=json.load(open(sys.argv[1]))
+matches=[x for x in index if x['batch']==int(sys.argv[2])]
+assert len(matches)==1
+print(matches[0]['sha256'])
+PY
+)"
+RECEIPT="$HOME/commerce-migration/media-preparation-1/pilot-${BATCH_LABEL}-import-receipt.json"
+
+# Read-only native target inspection of the next cohort
+sudo python3 "$HOME/RootedOps-commerce-pr57/scripts/commerce_production_batch_readiness.py" \
+  --repo-root "$HOME/RootedOps" --compiled "$BATCH_FILE" --sha256 "$BATCH_SHA"
+
+# New native importer guard: no writes without --apply
+sudo python3 "$HOME/RootedOps-commerce-pr57/scripts/commerce_production_draft_import.py" \
+  --repo-root "$HOME/RootedOps" --compiled "$BATCH_FILE" \
+  --sha256 "$BATCH_SHA" --receipt "$RECEIPT"
+
+# Following accepted backup, reviewed output and passing CI, append --apply
+# to the same importer command; do not add --apply to readiness or verifier.
+
+# After applying, independently reconcile before BATCH=3.
+sudo python3 "$HOME/RootedOps-commerce-pr57/scripts/commerce_verify_production_pilot.py" \
+  --repo-root "$HOME/RootedOps" --compiled "$BATCH_FILE" \
+  --sha256 "$BATCH_SHA" --receipt "$RECEIPT"
+```
+
+Expected cumulative ERP Item / Content / Mapping / Price and Woo draft counts:
+batch 2 = 10, batch 3 = 15, batch 4 = 20, batch 5 = 22.
+Published Woo products must remain zero. Financial and stock document counts
+must remain unchanged (zero at the established pilot baseline). Preserve
+receipts and output on failures; never delete or reset products to retry.
+The first five-product receipt is not rewritten by importing subsequent
+batches. Only the 22 previously reviewed and media-verified products are in
+scope here; classification of the other 110 records is a separate activity.
+
 ## Production-staging runner — guarded first cohort
 
 - Existing `scripts/commerce_catalog_batch.py` remains test2-only. The new
