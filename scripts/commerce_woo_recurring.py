@@ -189,9 +189,51 @@ def one_write(db,r,s,w,auth,identity_receipt):
         raise
     print("VERIFIED:",r["sku"],"Woo",w["id"],r["qty"],"revision",revision)
 
+def reconcile(db,rows,woo):
+    """Read-only Woo inspection; acknowledge verified interrupted PUT only.
+
+    If target is still at before quantity, no automatic retry occurs because
+    the network outcome is ambiguous. Operator must resolve separately.
+    """
+    states=state_map(db)
+    if len(states)!=24:raise ValueError("State is incomplete")
+    active=db.execute("""SELECT mp_id,woo_id,revision,source_hash,before_qty,
+                                target_qty FROM attempts WHERE status!='verified'
+                                ORDER BY attempt_id""").fetchall()
+    if not active:
+        print("RECOVERY: no unresolved attempts")
+        return
+    source_by_id={r["mp_id"]:r for r in rows}
+    for mid,wid,revision,h,before,target in active:
+        r=source_by_id.get(mid)
+        s=states.get(mid)
+        if (r is None or s is None or fingerprint(r)!=h or
+            s["revision"]+1!=revision or s["woo_id"]!=wid or
+            woo[mid]["id"]!=wid):
+            raise ValueError("Unresolved attempt source/identity drift: manual review required")
+        actual=woo[mid]["qty"]
+        if actual!=target:
+            raise ValueError("Unresolved attempt not at target (Woo %s has %s, intended %s); manual review required"
+                             %(wid,actual,target))
+        db.execute("BEGIN IMMEDIATE")
+        try:
+            db.execute("""UPDATE projection SET last_qty=?,source_hash=?,revision=?,acked_at=?
+                           WHERE mp_id=? AND revision=? AND last_qty=?""",
+                       (target,h,revision,now(),mid,s["revision"],before))
+            if db.execute("SELECT changes()").fetchone()[0]!=1:
+                raise ValueError("Recovery state drift")
+            db.execute("UPDATE attempts SET status='verified',updated_at=?,error=NULL WHERE mp_id=? AND revision=?",
+                       (now(),mid,revision))
+            db.commit()
+        except Exception:
+            db.rollback()
+            raise
+        print("RECOVERED ACK:",mid,"Woo",wid,"revision",revision,
+              "(verified target quantity; no PUT sent)")
+
 def main():
     p=argparse.ArgumentParser(description=__doc__)
-    p.add_argument("mode",choices=["check","bootstrap","apply"])
+    p.add_argument("mode",choices=["check","bootstrap","apply","reconcile"])
     p.add_argument("--state",type=Path,default=DEFAULT_STATE)
     p.add_argument("--identity-receipt",type=Path,default=DEFAULT_RECEIPT)
     args=p.parse_args()
@@ -206,6 +248,9 @@ def main():
             rows,woo=rowset(args.identity_receipt,auth)
             if args.mode=="bootstrap":
                 bootstrap(db,rows,woo)
+                return
+            if args.mode=="reconcile":
+                reconcile(db,rows,woo)
                 return
             changed=preview(db,rows,woo)
             if args.mode=="check":
