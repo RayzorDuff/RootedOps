@@ -1,10 +1,11 @@
 """Guarded 24-row MushroomProcess -> ERPNext Commerce Channel Mapping backfill.
 
 This is an operator-run Frappe console helper, NOT a scheduled sync or catalog
-migration. Use exec(compile(open('/tmp/commerce_mp_reverse_link.py').read(),
-'/tmp/commerce_mp_reverse_link.py', 'exec')); run_backfill(frappe, apply=False)
-and explicitly repeat with apply=True only after a production backup and
-preview. Source: 2026-11-03 independently verified MP/Ecwid/ERP crosswalk.
+migration. In the Frappe/IPython console use an explicit exec namespace:
+ns = {}; exec(compile(open('/tmp/commerce_mp_reverse_link.py').read(),
+'/tmp/commerce_mp_reverse_link.py', 'exec'), ns)
+ns['run_backfill'](frappe, apply=False)
+Repeat with apply=True only after a production backup and successful preview. Source: 2026-11-03 independently verified MP/Ecwid/ERP crosswalk.
 """
 from collections import Counter
 
