@@ -40,8 +40,21 @@ def validate_draft(values,event):
             raise ValueError('Approved jurisdiction tax quote required')
     else:
         from rootedops_commerce.tax_contract import validate_quote, validate_erp_taxes
+        if not isinstance(quote, dict):
+            raise ValueError('Tax quote must be structured')
         if quote.get('source_order') != str(event['external_order_id']):
             raise ValueError('Tax quote external order identity mismatch')
+        # An arbitrary external caller cannot self-certify the provider or
+        # classify groceries. Both must be explicitly approved in ERPNext.
+        approved_provider = frappe.conf.get('commerce_tax_provider')
+        if not approved_provider or quote.get('provider') != approved_provider:
+            raise ValueError('Unapproved tax quote provider')
+        class_map = frappe.conf.get('commerce_tax_item_class_map') or {}
+        if not isinstance(class_map, dict):
+            raise ValueError('Approved item tax classifications required')
+        for line in quote.get('lines', []):
+            if not isinstance(line, dict) or class_map.get(line.get('item_code')) != line.get('tax_class'):
+                raise ValueError('Missing or mismatched authoritative item tax class')
         expected_taxes = validate_quote(quote, values['items'], values['currency'],
                                         event['total'])
         validate_erp_taxes(expected_taxes, values.get('taxes', []))
