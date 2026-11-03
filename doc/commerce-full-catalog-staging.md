@@ -75,6 +75,33 @@ original source sha. Repeat runs use existing Frappe content hashes and
 WordPress source-sha metadata to avoid duplicates. Preserve all receipts and
 source images in private local state.
 
+## Offline compilation of the first 22 reviewed products
+
+After the verified 11 ERP File / 11 Woo Media uploads and 37 URL mappings,
+prepare immutable five-product batches using the operator's current private
+`review.json` (selling price list `Standard Selling`, not
+`Standard Selling USD`):
+
+```sh
+python3 scripts/commerce_compile_production_pilot.py \
+  --full-source "$HOME/commerce-migration/ecwid-full-catalog-source.json" \
+  --plan "$HOME/commerce-migration/media-preparation-1/reviewed-plan.json" \
+  --review "$HOME/commerce-migration/media-preparation-1/review.json" \
+  --uploaded-media "$HOME/commerce-migration/media-preparation-1/uploaded-media.json" \
+  --upload-manifest "$HOME/commerce-migration/media-preparation-1/upload-manifest.json" \
+  --output-dir "$HOME/commerce-migration/pilot-batches-1"
+```
+
+The compiler validates the exact 132-product full source checksum and 37-URL
+upload manifest checksum, 22 exact selected IDs, approved categories (16/17/18),
+original prices/status, 11 unique binary checksums, source-to-upload mappings,
+and the existing 5-record test2 batch validator. It deduplicates images by
+source binary checksum within each product without altering the original
+source payload. Five output batches contain 5/5/5/5/2 records. The output
+directory must be empty and is private. **This is a read-only/offline step.**
+Record each compiled-batch checksum from `batch-index.json` before any staging
+product write.
+
 ## Production-staging runner — guarded first cohort
 
 - Existing `scripts/commerce_catalog_batch.py` remains test2-only. The new
