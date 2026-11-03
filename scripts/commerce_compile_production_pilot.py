@@ -25,7 +25,7 @@ CATEGORIES={"160254004":16,"160255005":17,"160277251":18}
 def compile_batches(source,plan,review,media):
     if str(source.get("store_id"))!="95802503" or len(source["products"])!=132:
         raise ValueError("Full source identity/count changed")
-    if {int(p["id"]) for p in plan["products"]}!=APPROVED_PILOT_IDS:
+    if {int(p["mapping"]["external_product_id"]) for p in plan["products"]}!=APPROVED_PILOT_IDS:
         raise ValueError("Exact original 22-product pilot required")
     if plan["errors"] or review["source_sha256"]!=plan["source_sha256"]:
         raise ValueError("Planner/review digest drift")
