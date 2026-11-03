@@ -60,9 +60,12 @@ def update_availability(payload):
         fields=["item", "provider", "site_key"])
     if not mappings or {row.item for row in mappings} != {p["item"]}:
         frappe.throw("Reviewed MP ecommerce ID is unmapped or belongs to a different ERP Item")
-    if not any((row.provider or "").lower() == p["provider"]
-               and (row.site_key or "") == p["site_key"] for row in mappings):
-        frappe.throw("MP source provider/site lacks a reviewed ERP mapping")
+    # MP site_key names an operational listing (e.g. dank_mushrooms);
+    # ERP source-channel site_key can instead be a provider account/store ID.
+    # The reviewed MP ecommerce ID + ERP Item must agree; do not demand the
+    # different systems use identical site-key spelling.
+    if not any((row.provider or "").lower() == p["provider"] for row in mappings):
+        frappe.throw("MP source provider lacks a reviewed ERP mapping")
     identity = "mp-ecommerce-" + p["ecommerce_id"]
     existing = frappe.db.exists("Commerce Operational Availability", identity)
     if existing:
