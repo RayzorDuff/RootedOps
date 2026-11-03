@@ -162,6 +162,11 @@ if (($meta['_rootedops_source_key']??null)!==$source ||
   throw new Exception('Provenance or deferred tax policy drift');
 $allowed=['16'=>'Gourmet Mushrooms','17'=>'Miscellaneous',
           '18'=>'Grow Kits and Mycology Supplies'];
+$defaultcat=(int)get_option('default_product_cat');
+$defaultterm=get_term($defaultcat,'product_cat');
+if (!$defaultcat || !$defaultterm || is_wp_error($defaultterm))
+ throw new Exception('Missing Woo default product category');
+$allowed[(string)$defaultcat]=$defaultterm->name;
 $catids=[];
 foreach ($p['categories'] as $c) {
  $id=(int)$c['id'];$t=get_term($id,'product_cat');
