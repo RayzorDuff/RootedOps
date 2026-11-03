@@ -128,6 +128,54 @@ Develop a separate native staging Woo projection adapter (or a properly
 authenticated, exact-origin-scoped adapter) with per-record replay receipt
 before the first write.
 
+## Native first five-product draft import
+
+The first installed batch preflight passed: live ERPNext 0.3.1, price list
+\`Standard Selling\`, five unique new source/SKU identities, uploaded public
+Files, staging media IDs, Woo category mappings (16/17/18), USD, no enabled
+checkout gateway or webhooks, no published Woo products. Baseline ERP Item,
+Commercial Product Content, Commerce Channel Mapping and Item Price counts
+were all zero; ERP File count 37. Preserve this preflight output.
+
+\`scripts/commerce_production_draft_import.py\` is separate from the provisional
+test2 adapter and accepts **only** the immutable first batch SHA-256
+\`ed49bd43b49cb9f705bd780f5f8d2220bd7aec32b2e4cc17c7dbde1a53f389d6\`
+with Ecwid IDs \`610274451, 610274742, 610274979, 610274980, 610276199\`.
+It uses native Frappe \`import_product\` and Commerce \`catalog\` within a
+single transactional five-product ERP operation. It refuses any mutation of
+Sales Orders, Sales Invoices, Payment Entries, Stock Entries, Bins or Files.
+Each product import is repeated within the transaction and verifies
+idempotence. No production scheduler, payroll or mail settings are modified.
+
+Staging WooCommerce is written through native WooCommerce CRUD from the
+staging WordPress container, not an API credential. Each product is a
+hidden, zero-stock, no-backorder draft with no Woo tax calculation. Existing
+SKUs are reused **only** if their source metadata matches; replay also
+verifies exact content, prices, categories, media and metadata. The
+private checkpoint receipt is scoped to the compiled batch and destination
+pair, and retains a checkpoint after the ERP transaction and after each Woo
+product. In the event of a partial result, preserve the receipt and
+rerun the identical command to reconcile; never delete/restage the
+products to restart.
+
+First inspect without destination product writes:
+
+\`\`\`sh
+sudo python3 "$HOME/RootedOps-commerce-pr57/scripts/commerce_production_draft_import.py" \
+  --repo-root "$HOME/RootedOps" \
+  --compiled "$HOME/commerce-migration/pilot-batches-1/pilot-01.json" \
+  --sha256 ed49bd43b49cb9f705bd780f5f8d2220bd7aec32b2e4cc17c7dbde1a53f389d6 \
+  --receipt "$HOME/commerce-migration/media-preparation-1/pilot-01-import-receipt.json"
+\`\`\`
+
+Before authorizing a live product write, verify current backup/restore
+coverage for ERPNext and WordPress, confirm new CI checks pass and visually
+review the five source products. The same exact command with \`--apply\`
+performs the guarded five-product import. Do not execute the provisional
+\`commerce_production_staging_batch.py --apply\` runner. This new runner
+does not support batches 2-5 or disabled-source imports; those require a
+separate follow-up approval after complete first-batch reconciliation.
+
 ## Production-staging runner — guarded first cohort
 
 - Existing `scripts/commerce_catalog_batch.py` remains test2-only. The new
