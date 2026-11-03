@@ -12,24 +12,61 @@ set -Eeuo pipefail
 #   ./erpnext/deploy.sh erp.danks.store commerce
 #   ./erpnext/deploy.sh erp.danks.store both
 
-REPO_ROOT="$(git rev-parse --show-toplevel 2>/dev/null || true)"
-if [[ -z "$REPO_ROOT" ]]; then
-  echo "ERROR: Run this script from inside the RootedOps Git repository." >&2
-  exit 1
-fi
-
-cd "$REPO_ROOT"
-
-SITE="${1:-erp.danks.store}"
-COMPOSE=(sudo docker compose --env-file ./.env -f docker/docker-compose.yml)
-BACKEND="erpnext-backend"
-SELECTION="${2:-payroll}"
+usage() {
+  cat <<'USAGE'
+Usage: erpnext/deploy.sh [site] [payroll|commerce|both]
+       erpnext/deploy.sh [payroll|commerce|both]
+       erpnext/deploy.sh [--site SITE] [--app payroll|commerce|both]
+       erpnext/deploy.sh --help
+Aliases: rootedops_payroll, rootedops_commerce
+Defaults: site=erp.danks.store, app=payroll
+USAGE
+}
+normalize_app() {
+  case "$1" in
+    payroll|rootedops_payroll) echo payroll ;;
+    commerce|rootedops_commerce) echo commerce ;;
+    both) echo both ;;
+    *) return 1 ;;
+  esac
+}
+SITE=erp.danks.store
+SELECTION=payroll
+site_set=false
+app_set=false
+while (($#)); do
+  case "$1" in
+    -h|--help) usage; exit 0 ;;
+    --site)
+      (($# >= 2)) && [[ -n "$2" ]] || { usage >&2; exit 2; }
+      "$site_set" && { echo "ERROR: site specified twice." >&2; exit 2; }
+      SITE="$2"; site_set=true; shift 2 ;;
+    --app)
+      (($# >= 2)) && [[ -n "$2" ]] || { usage >&2; exit 2; }
+      "$app_set" && { echo "ERROR: app specified twice." >&2; exit 2; }
+      SELECTION="$(normalize_app "$2")" || { usage >&2; exit 2; }
+      app_set=true; shift 2 ;;
+    -*) echo "ERROR: Unknown option: $1" >&2; usage >&2; exit 2 ;;
+    *)
+      if normalized="$(normalize_app "$1")"; then
+        "$app_set" && { echo "ERROR: app specified twice." >&2; exit 2; }
+        SELECTION="$normalized"; app_set=true
+      else
+        "$site_set" && { echo "ERROR: site specified twice." >&2; exit 2; }
+        SITE="$1"; site_set=true
+      fi
+      shift ;;
+  esac
+done
 case "$SELECTION" in
   payroll) APPS=(rootedops_payroll) ;;
   commerce) APPS=(rootedops_commerce) ;;
   both) APPS=(rootedops_payroll rootedops_commerce) ;;
-  *) echo "Usage: $0 [site] [payroll|commerce|both]" >&2; exit 2 ;;
 esac
+REPO_ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
+cd "$REPO_ROOT"
+COMPOSE=(sudo docker compose --env-file ./.env -f docker/docker-compose.yml)
+BACKEND=erpnext-backend
 
 log() {
   printf '\n=== %s ===\n' "$1"
@@ -82,9 +119,10 @@ log "Check selected installed apps and package availability"
 for APP_NAME in "${APPS[@]}"; do
   APP_SOURCE="$REPO_ROOT/erpnext/apps/$APP_NAME"
   [[ -d "$APP_SOURCE" ]] || die "Missing source: $APP_SOURCE"
-  "${COMPOSE[@]}" exec -T "$BACKEND" bench --site "$SITE" list-apps |
-    grep -q "^$APP_NAME " ||
-    die "$APP_NAME is not installed; this script updates only installed apps."
+  installed_apps="$("${COMPOSE[@]}" exec -T "$BACKEND" bench --site "$SITE" list-apps)" ||
+    die "Cannot list installed apps on site $SITE."
+  printf '%s\n' "$installed_apps" | grep -Eq "^$APP_NAME([[:space:]]|$)" ||
+    die "$APP_NAME is not installed on $SITE; this script updates only installed apps."
   # All ERPNext services share the built image. Check imports in fresh image
   # before any copy/restart; a pip install in only the running backend is not durable.
   IMAGE="$(sudo docker inspect "$BACKEND" --format '{{.Config.Image}}')"
@@ -99,8 +137,10 @@ log "Deploy selected RootedOps app sources"
 for APP_NAME in "${APPS[@]}"; do
   APP_SOURCE="$REPO_ROOT/erpnext/apps/$APP_NAME"
   APP_TARGET="/home/frappe/frappe-bench/apps/$APP_NAME"
-  sudo docker cp "$APP_SOURCE/." "$BACKEND:$APP_TARGET/"
-  sudo docker exec "$BACKEND" chown -R frappe:frappe "$APP_TARGET"
+  # Copy only committed files; do not include local caches or untracked files.
+  git archive --format=tar HEAD "erpnext/apps/$APP_NAME" |
+    sudo docker exec -i -u 0 "$BACKEND" tar -xf - -C "$APP_TARGET" --strip-components=3
+  sudo docker exec -u 0 "$BACKEND" chown -R frappe:frappe "$APP_TARGET"
   while IFS= read -r -d '' rel; do
     host_hash="$(sha256sum "$REPO_ROOT/$rel" | awk '{print $1}')"
     container_rel="${rel#erpnext/apps/$APP_NAME/}"
