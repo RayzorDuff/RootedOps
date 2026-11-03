@@ -138,6 +138,7 @@ if (!class_exists('WooCommerce')) throw new Exception('WooCommerce unavailable')
 if (get_option('siteurl')!=='https://shop-test.danks.store' ||
     get_option('woocommerce_coming_soon')!=='yes' ||
     get_option('woocommerce_calc_taxes')!=='no' ||
+    get_woocommerce_currency()!=='USD' ||
     (int)wp_count_posts('product')->publish!==0 ||
     count(WC()->payment_gateways()->get_available_payment_gateways())!==0 ||
     count(get_posts(['post_type'=>'shop_webhook','post_status'=>'publish','numberposts'=>1]))!==0 ||
