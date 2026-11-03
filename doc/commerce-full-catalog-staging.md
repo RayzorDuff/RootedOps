@@ -21,14 +21,22 @@ validated/other_enabled/disabled cohorts, and flags unresolved categories,
 missing images, prices and descriptions. This script makes **no destination
 writes** and does not replace the reviewed product compiler.
 
-## Production import requirements / NOT YET IMPLEMENTED
+## Production-staging runner — guarded first cohort
 
-- Existing `scripts/commerce_catalog_batch.py` is test2-only: DO NOT run it
-  against production. Preserve its environment guards.
-- Make a separately reviewed production-staging adapter with explicit domain,
-  container identity, site and live operational safety checks (Woo Coming Soon,
-  payment gateways off, tax treatment, no webhook delivery, ERP financial and
-  stock baseline). Do not require maintenance-mode changes to payroll production.
+- Existing `scripts/commerce_catalog_batch.py` remains test2-only. The new
+  `scripts/commerce_production_staging_batch.py` reuses its transaction,
+  identities, media, replay and receipt logic but targets the installed
+  production ERPNext site and staging Woo instance. It refuses disabled-source
+  records until separately reviewed and restricts each invocation to 1–5
+  compiled records, drafts only. This path has NOT been executed on production.
+- Production runner requires `$HOME/commerce-migration/private/wordpress-credentials.json`
+  with a scoped staging WordPress application password. Keep it at mode 0600,
+  and protect directory at mode 0700; never commit credentials.
+- Before the first write, confirm ERP container compose project identity,
+  site, back-office baseline, staging WordPress URL, Coming Soon, no published
+  products, live tax setting, zero enabled gateways and zero active Woo webhooks.
+  The current runner does not yet perform the complete production reconciliation
+  needed for this gate: review it before granting `--apply`.
 - Run the 22 previously reconciled products first, then 16 other enabled and 94
   disabled products, in repeatable batches with receipts. Draft-only Woo, hidden
   catalog, zero managed stock, no backorders, Commerce channel mappings disabled.
@@ -48,5 +56,7 @@ writes** and does not replace the reviewed product compiler.
 - Hold storefront publication pending native taxes, order routing and Clover
   sandbox checkout acceptance. Back up new WordPress DB/files off-host.
 
-This PR is intentionally a *preflight and compiler-safety change*, not a
-completed production importer or authorization to apply the 132 records.
+This PR provides preflight, source-status safeguards and a first-cohort guarded
+staging adapter. It is NOT a complete 132-product importer: disabled products,
+category reconciliation, production authentication/media provisioning and
+backups still require operator approval. Do not execute --apply yet.
