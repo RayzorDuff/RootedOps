@@ -8,8 +8,9 @@ set -Eeuo pipefail
 # Run on the ERPNext host from anywhere inside the RootedOps repository:
 #   ./erpnext/deploy.sh
 #
-# Optional site override:
-#   ./erpnext/deploy.sh erp.danks.store
+# Optional site / app selection:
+#   ./erpnext/deploy.sh erp.danks.store commerce
+#   ./erpnext/deploy.sh erp.danks.store both
 
 REPO_ROOT="$(git rev-parse --show-toplevel 2>/dev/null || true)"
 if [[ -z "$REPO_ROOT" ]]; then
@@ -22,9 +23,13 @@ cd "$REPO_ROOT"
 SITE="${1:-erp.danks.store}"
 COMPOSE=(sudo docker compose --env-file ./.env -f docker/docker-compose.yml)
 BACKEND="erpnext-backend"
-APP_NAME="rootedops_payroll"
-APP_SOURCE="$REPO_ROOT/erpnext/apps/$APP_NAME"
-APP_TARGET="/home/frappe/frappe-bench/apps/$APP_NAME"
+SELECTION="${2:-payroll}"
+case "$SELECTION" in
+  payroll) APPS=(rootedops_payroll) ;;
+  commerce) APPS=(rootedops_commerce) ;;
+  both) APPS=(rootedops_payroll rootedops_commerce) ;;
+  *) echo "Usage: $0 [site] [payroll|commerce|both]" >&2; exit 2 ;;
+esac
 
 log() {
   printf '\n=== %s ===\n' "$1"
@@ -39,7 +44,6 @@ trap 'echo "ERROR: deployment failed at line $LINENO." >&2' ERR
 
 [[ -f .env ]] || die "Missing .env in $REPO_ROOT."
 [[ -f docker/docker-compose.yml ]] || die "Missing docker/docker-compose.yml."
-[[ -d "$APP_SOURCE" ]] || die "Missing ERPNext app source: $APP_SOURCE."
 [[ "$(git branch --show-current)" == "main" ]] || die "Deployment must run from the main branch."
 
 log "Repository"
@@ -74,24 +78,38 @@ sudo docker inspect "$BACKEND" --format '{{if .State.Running}}running{{else}}not
   grep -qx running ||
   die "$BACKEND is not running."
 
-log "Deploy ERPNext custom app"
-sudo docker cp \
-  "$APP_SOURCE/." \
-  "$BACKEND:$APP_TARGET/"
+log "Check selected installed apps and package availability"
+for APP_NAME in "${APPS[@]}"; do
+  APP_SOURCE="$REPO_ROOT/erpnext/apps/$APP_NAME"
+  [[ -d "$APP_SOURCE" ]] || die "Missing source: $APP_SOURCE"
+  "${COMPOSE[@]}" exec -T "$BACKEND" bench --site "$SITE" list-apps |
+    grep -q "^$APP_NAME " ||
+    die "$APP_NAME is not installed; this script updates only installed apps."
+  # All ERPNext services share the built image. Check imports in fresh image
+  # before any copy/restart; a pip install in only the running backend is not durable.
+  IMAGE="$(sudo docker inspect "$BACKEND" --format '{{.Config.Image}}')"
+  if [[ "$APP_NAME" == "rootedops_commerce" ]]; then
+    sudo docker run --rm --entrypoint /bin/sh "$IMAGE" -c \
+      'python -c "import flit_core, rootedops_commerce"' ||
+      die "Commerce/flit_core missing from image; build and deploy a reviewed persistent image first."
+  fi
+done
 
-log "Verify deployed source"
-while IFS= read -r -d '' rel; do
-  host_hash="$(sha256sum "$REPO_ROOT/$rel" | awk '{print $1}')"
-  container_rel="${rel#erpnext/apps/$APP_NAME/}"
-  container_hash="$(
-    sudo docker exec "$BACKEND" sha256sum "$APP_TARGET/$container_rel" |
-      awk '{print $1}'
-  )"
-  [[ "$host_hash" == "$container_hash" ]] ||
-    die "Source mismatch after copy: $rel"
-done < <(git ls-files -z "erpnext/apps/$APP_NAME")
-
-echo "All tracked $APP_NAME files match the container."
+log "Deploy selected RootedOps app sources"
+for APP_NAME in "${APPS[@]}"; do
+  APP_SOURCE="$REPO_ROOT/erpnext/apps/$APP_NAME"
+  APP_TARGET="/home/frappe/frappe-bench/apps/$APP_NAME"
+  sudo docker cp "$APP_SOURCE/." "$BACKEND:$APP_TARGET/"
+  sudo docker exec "$BACKEND" chown -R frappe:frappe "$APP_TARGET"
+  while IFS= read -r -d '' rel; do
+    host_hash="$(sha256sum "$REPO_ROOT/$rel" | awk '{print $1}')"
+    container_rel="${rel#erpnext/apps/$APP_NAME/}"
+    container_hash="$(sudo docker exec "$BACKEND" sha256sum "$APP_TARGET/$container_rel" | awk '{print $1}')"
+    [[ "$host_hash" == "$container_hash" ]] ||
+      die "Source mismatch after copy: $rel"
+  done < <(git ls-files -z "erpnext/apps/$APP_NAME")
+  echo "All tracked $APP_NAME files match the container."
+done
 
 log "Run ERPNext migration"
 "${COMPOSE[@]}" exec -T "$BACKEND" \
@@ -129,20 +147,19 @@ do
 done
 
 log "Verify runtime source after restart"
-while IFS= read -r -d '' rel; do
-  host_hash="$(sha256sum "$REPO_ROOT/$rel" | awk '{print $1}')"
-  container_rel="${rel#erpnext/apps/$APP_NAME/}"
-  container_hash="$(
-    sudo docker exec "$BACKEND" sha256sum "$APP_TARGET/$container_rel" |
-      awk '{print $1}'
-  )"
-  [[ "$host_hash" == "$container_hash" ]] ||
-    die "Runtime source mismatch after restart: $rel"
-done < <(git ls-files -z "erpnext/apps/$APP_NAME")
-
-echo "Runtime $APP_NAME source matches committed repository files."
+for APP_NAME in "${APPS[@]}"; do
+  APP_TARGET="/home/frappe/frappe-bench/apps/$APP_NAME"
+  while IFS= read -r -d '' rel; do
+    host_hash="$(sha256sum "$REPO_ROOT/$rel" | awk '{print $1}')"
+    container_rel="${rel#erpnext/apps/$APP_NAME/}"
+    container_hash="$(sudo docker exec "$BACKEND" sha256sum "$APP_TARGET/$container_rel" | awk '{print $1}')"
+    [[ "$host_hash" == "$container_hash" ]] ||
+      die "Runtime source mismatch after restart: $rel"
+  done < <(git ls-files -z "erpnext/apps/$APP_NAME")
+  echo "Runtime $APP_NAME source matches committed files."
+done
 
 log "Deployment complete"
 echo "Commit: $LOCAL_HEAD"
 echo "Site:   $SITE"
-echo "App:    $APP_NAME"
+echo "Apps:   ${APPS[*]}"
