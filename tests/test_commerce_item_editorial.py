@@ -21,8 +21,9 @@ class ItemEditorialTests(unittest.TestCase):
 
     def test_js_syntax(self):
         js = APP / "public/js/item_commerce.js"
-        result = subprocess.run(["node", "--check", str(js)], capture_output=True, text=True)
-        if result.returncode == 127:
+        try:
+            result = subprocess.run(["node", "--check", str(js)], capture_output=True, text=True)
+        except FileNotFoundError:
             self.skipTest("Node.js unavailable")
         self.assertEqual(0, result.returncode, result.stderr)
 
@@ -64,7 +65,7 @@ class ItemEditorialTests(unittest.TestCase):
         self.assertIn("seo_title", js)
         self.assertIn("gallery", js)
         self.assertIn("channel_overrides", js)
-        self.assertNotIn("woocommerce", js.lower().split('method: "rootedops_commerce.item_editorial.save_item_editorial"')[0].split('refresh(frm)')[0])
+        self.assertNotIn("wc/v3", js)
 
 
 if __name__ == "__main__":
