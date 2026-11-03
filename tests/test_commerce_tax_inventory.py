@@ -8,6 +8,9 @@ sys.path.insert(0,str(ROOT/"scripts"))
 import commerce_tax_inventory as inventory
 
 class TaxInventoryTests(unittest.TestCase):
+    def test_embedded_native_python_compiles(self):
+        compile(inventory.ERP_READ, "<native-tax-inventory>", "exec")
+
     def test_live_inventory_is_read_only(self):
         code=inventory.ERP_READ
         self.assertIn('frappe.init(site="erp.danks.store")',code)
