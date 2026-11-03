@@ -10,6 +10,7 @@ frappe.ui.form.on("Item", {
     wrapper.$wrapper.empty().text(__("Loading commerce content…"));
     frappe.call({
       method: "rootedops_commerce.item_editorial.get_item_editorial",
+      type: "GET",
       args: { item: item },
       callback(response) {
         if (frm.doc.name !== item) return;
