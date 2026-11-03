@@ -73,7 +73,7 @@ frappe.ui.form.on("Item", {
             dialog.set_primary_action(__("Save in ERPNext"), async () => {
               const values = dialog.get_values();
               if (!values) return;
-              dialog.disable_primary_action();
+              dialog.get_primary_btn().prop("disabled", true);
               try {
                 await frappe.call({
                   method: "rootedops_commerce.item_editorial.save_item_editorial",
@@ -84,7 +84,7 @@ frappe.ui.form.on("Item", {
                 frappe.show_alert({ message: __("ERPNext content saved. WooCommerce was not changed."),
                                     indicator: "green" });
               } finally {
-                dialog.enable_primary_action();
+                dialog.get_primary_btn().prop("disabled", false);
               }
             });
             dialog.show();
