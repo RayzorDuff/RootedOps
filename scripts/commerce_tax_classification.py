@@ -94,6 +94,9 @@ def approve(products, review_file, output, reviewer):
         if row["ecwid_product_id"].strip() != str(products[sku]["id"]):
             raise ValueError("Source ID mismatch: " + sku)
         kind = row["tax_class"].strip()
+        if kind not in CLASSES and (kind or
+                row.get("review_status", "").strip() != "excluded_pos"):
+            raise ValueError("Unreviewed or invalid tax class for: " + sku)
         note = row["review_note"].strip()
         if not note or len(note) > 1024:
             raise ValueError("Document a product-specific rationale for: " + sku)
