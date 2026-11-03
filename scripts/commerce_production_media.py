@@ -173,8 +173,13 @@ def main():
     p.add_argument("--blob-dir",type=Path,required=True)
     p.add_argument("--sha256",required=True)
     p.add_argument("--receipt",type=Path,required=True)
+    p.add_argument("--repo-root",type=Path,default=ROOT,
+                   help="RootedOps deployment checkout containing docker/ and .env")
     p.add_argument("--apply",action="store_true")
     a=p.parse_args()
+    deployment=a.repo_root.resolve()
+    if not (deployment/"docker/docker-compose.yml").is_file() or not (deployment/".env").is_file():
+        raise ValueError("Production RootedOps checkout and local .env are required")
     rows,verified=preflight(a.manifest,a.blob_dir,a.sha256)
     if a.receipt.exists():
         receipt=json.loads(a.receipt.read_text())
@@ -198,8 +203,8 @@ def main():
         payload={"sha256":sha,"filename":sha+"."+MIMES[mime],
                  "mime":mime,"blob":base64.b64encode(data).decode()}
         if not record.get("erp_file_url"):
-            response=command(["docker","compose","--env-file",str(ROOT/".env"),
-                "-f",str(ROOT/"docker/docker-compose.yml"),"exec","-T",
+            response=command(["docker","compose","--env-file",str(deployment/".env"),
+                "-f",str(deployment/"docker/docker-compose.yml"),"exec","-T",
                 "-w","/home/frappe/frappe-bench/sites","erpnext-backend",
                 "/home/frappe/frappe-bench/env/bin/python","-c",ERP_PY],payload)
             record["erp_file_url"]=response["file_url"]
