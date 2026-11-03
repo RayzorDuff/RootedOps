@@ -61,6 +61,16 @@ class RemainingCatalogTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError,"snapshot checksum drift"):
                 bulk.read_source(path)
 
+    def test_woo_verifier_uses_receipted_product_identity(self):
+        self.assertIn("'woocommerce_id'=>(int)$id",bulk.WOO_VERIFY)
+        self.assertNotIn("'id'=>(int)$id",bulk.WOO_VERIFY)
+        self.assertIn("woocommerce_id", bulk.reconcile.__code__.co_consts[-1] if isinstance(bulk.reconcile.__code__.co_consts[-1],str) else "woocommerce_id")
+
+    def test_verify_only_requires_existing_receipts(self):
+        with tempfile.TemporaryDirectory() as d:
+            with self.assertRaisesRegex(ValueError,"No completed bulk import state directory"):
+                bulk.verify_existing(Path(d),{},[],Path(d),Path(d)/"missing")
+
     def test_verifier_requires_all_110_records(self):
         with patch.object(bulk,"run_json") as call:
             call.side_effect=[
