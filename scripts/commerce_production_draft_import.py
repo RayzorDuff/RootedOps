@@ -22,8 +22,46 @@ from commerce_catalog_batch import records_for_batch
 from commerce_production_staging_batch import compiled_guard
 from commerce_production_media import guard_live
 
-FIRST_BATCH_SHA = "ed49bd43b49cb9f705bd780f5f8d2220bd7aec32b2e4cc17c7dbde1a53f389d6"
-FIRST_BATCH_IDS = {"610274451","610274742","610274979","610274980","610276199"}
+BATCHES = {
+    1: ("ed49bd43b49cb9f705bd780f5f8d2220bd7aec32b2e4cc17c7dbde1a53f389d6",
+        {"610274451","610274742","610274979","610274980","610276199"}),
+    2: ("33bce3ae33935042eff78084b8913ad5ef60e1b9b7926a3686d99d691e83d90e",
+        {"610276670","610276905","610276912","610277364","610277365"}),
+    3: ("628b092e98ad926d7ceff0216fc207a03e4a7c7419526abe75043625f0ac277f",
+        {"711334877","711334880","711335071","711335075","711335076"}),
+    4: ("125f79a87369fb858cb99cae46b4726775e4b2965c1789332da26476914e9418",
+        {"711335795","711335797","711335798","753212607","828374466"}),
+    5: ("0c7cf15456337d665cbf48fdcfca56e1e1a67fc46b3c7f82bcbd1af78dfda052",
+        {"828374469","829845573"}),
+}
+FIRST_BATCH_SHA, FIRST_BATCH_IDS = BATCHES[1]
+RECEIPT_NAME = "pilot-{batch:02}-import-receipt.json"
+
+def batch_for_sha(sha):
+    matches=[(n,ids) for n,(digest,ids) in BATCHES.items() if sha==digest]
+    if len(matches)!=1:
+        raise ValueError("Only exact approved pilot batch SHA values are permitted")
+    return matches[0]
+
+def require_prior_receipts(batch, receipt_path):
+    """Refuse out-of-order writes, without rewriting earlier receipts."""
+    for previous in range(1,batch):
+        path=receipt_path.parent/RECEIPT_NAME.format(batch=previous)
+        if not path.is_file():
+            raise ValueError("Prior pilot import receipt missing: "+path.name)
+        receipt=json.loads(path.read_text())
+        sha,identities=BATCHES[previous]
+        expected={"ecwid:95802503:product:"+sid for sid in identities}
+        if (receipt.get("compiled_sha256")!=sha or
+            receipt.get("scope")!="erp.danks.store|shop-test.danks.store" or
+            receipt.get("erp_committed") is not True or
+            set(receipt.get("products",{}))!=expected):
+            raise ValueError("Prior pilot import not fully receipted: "+path.name)
+        for key,value in receipt["products"].items():
+            if (value.get("source_key")!=key or
+                type(value.get("woocommerce_id")) is not int or
+                value["woocommerce_id"]<=0 or value.get("status")!="draft"):
+                raise ValueError("Prior pilot product receipt drift: "+key)
 
 # All operations in this block are in one Frappe DB transaction. Native
 # import_product handles allowed fields, permissions, pricing and idempotence.
@@ -219,25 +257,28 @@ def persist(path,data):
         os.chown(path,owner.st_uid,owner.st_gid)
 
 def verify_compiled(path,expected_sha):
-    if expected_sha!=FIRST_BATCH_SHA:
-        raise ValueError("Only exact approved first pilot batch is permitted")
+    batch,expected_ids=batch_for_sha(expected_sha)
     if compiled_guard(path)!=expected_sha:
         raise ValueError("Compiled batch SHA drift")
     records=records_for_batch(json.loads(path.read_text()))
-    if len(records)!=5:
-        raise ValueError("First approved import must contain exactly five products")
+    if len(records)!=len(expected_ids):
+        raise ValueError("Pilot batch record count drift")
     if any(r["price"] is None or r["price"]["price_list"]!="Standard Selling"
            or r.get("parent_sku") or r["item"].get("has_variants") for r in records):
         raise ValueError("Only priced simple products are approved")
     keys=[r["source_key"] for r in records]
-    if len(set(keys))!=5:
+    if len(set(keys))!=len(expected_ids):
         raise ValueError("Duplicate source keys")
-    if {r["mapping"]["external_product_id"] for r in records}!=FIRST_BATCH_IDS:
-        raise ValueError("First pilot source identity drift")
+    if {r["mapping"]["external_product_id"] for r in records}!=expected_ids:
+        raise ValueError("Pilot source identity drift")
     return records
 
 def import_batch(deployment,compiled,sha,receipt_path,apply):
     records=verify_compiled(compiled,sha)
+    batch,_=batch_for_sha(sha)
+    if receipt_path.name!=RECEIPT_NAME.format(batch=batch):
+        raise ValueError("Batch receipt filename drift")
+    require_prior_receipts(batch,receipt_path)
     if not (deployment/".env").is_file() or not (deployment/"docker/docker-compose.yml").is_file():
         raise ValueError("RootedOps deployment not found")
     if receipt_path.exists():
@@ -260,7 +301,7 @@ def import_batch(deployment,compiled,sha,receipt_path,apply):
             raise ValueError("Receipt product identity drift")
     guard_live(deployment)
     if not apply:
-        return {"apply":False,"source_products":len(records),
+        return {"apply":False,"batch":batch,"source_products":len(records),
                 "erp_committed":receipt["erp_committed"],
                 "woo_receipted":len(receipt["products"]),"writes":False}
     if os.geteuid()!=0:
@@ -271,7 +312,7 @@ def import_batch(deployment,compiled,sha,receipt_path,apply):
         "/home/frappe/frappe-bench/sites","erpnext-backend",
         "/home/frappe/frappe-bench/env/bin/python","-c",ERP_SCRIPT],
         {"records":records,"apply":True},"ERPNext")
-    if len(erp["records"])!=5 or erp["site"]!="erp.danks.store" or not erp["applied"]:
+    if len(erp["records"])!=len(records) or erp["site"]!="erp.danks.store" or not erp["applied"]:
         raise ValueError("ERP native result drift")
     receipt["erp_committed"]=True
     persist(receipt_path,receipt)
@@ -288,7 +329,7 @@ def import_batch(deployment,compiled,sha,receipt_path,apply):
             raise ValueError("Receipt Woo identity changed")
         receipt["products"][key]=woo
         persist(receipt_path,receipt)
-    return {"apply":True,"erp_committed":True,
+    return {"apply":True,"batch":batch,"erp_committed":True,
             "woo_receipted":len(receipt["products"]),"writes":True,
             "receipt":str(receipt_path)}
 
