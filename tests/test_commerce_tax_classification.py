@@ -69,6 +69,56 @@ class TaxClassificationTests(unittest.TestCase):
             self.assertEqual(len(artifact["item_classes"]),132)
             self.assertEqual(artifact["class_counts"],{"cultivation_supply":66,"grocery_food":66,"other_reviewed":0})
 
+    def test_generic_pos_exclusion_is_explicit_and_not_a_tax_exemption(self):
+        with tempfile.TemporaryDirectory() as d:
+            folder=Path(d)/"private"
+            review=folder/"review.csv"
+            catalog=products()
+            catalog["SKU000"]["name"]="1 Dollar Mushroom Item (NOTAX)"
+            classification.prepare(catalog,review)
+            with review.open(newline="") as fh:
+                rows=list(csv.DictReader(fh))
+            for row in rows:
+                row["review_note"]="Owner-confirmed culinary food or reviewed cultivation supplies"
+                row["tax_class"]="grocery_food"
+                if row["item_code"]=="SKU000":
+                    row["tax_class"]=""
+                    row["review_status"]="excluded_pos"
+                    row["review_note"]="Generic dollar amount not a specific sale; block"
+            with review.open("w",newline="") as fh:
+                writer=csv.DictWriter(fh,fieldnames=list(rows[0]))
+                writer.writeheader();writer.writerows(rows)
+            result=classification.approve(catalog,review,folder/"map.json","Owner")
+            self.assertEqual(result["approved"],131)
+            self.assertEqual(result["blocked"],1)
+            approved=json.loads((folder/"map.json").read_text())
+            self.assertEqual(approved["blocked_item_codes"],["SKU000"])
+            self.assertNotIn("SKU000",approved["item_classes"])
+            self.assertNotIn("SKU000",approved["class_counts"])
+            catalog["SKU000"]["name"]="Fresh Oyster Mushrooms"
+            with self.assertRaisesRegex(ValueError,"Unreviewed or invalid"):
+                classification.approve(catalog,review,folder/"reject.json","Owner")
+
+    def test_generic_pos_exclusion_must_not_be_in_class_map(self):
+        with tempfile.TemporaryDirectory() as d:
+            folder=Path(d)/"private"
+            review=folder/"review.csv"
+            catalog=products()
+            catalog["SKU000"]["name"]="10 Dollar Mushroom Item"
+            classification.prepare(catalog,review)
+            with review.open(newline="") as fh:
+                rows=list(csv.DictReader(fh))
+            for row in rows:
+                row["tax_class"]="cultivation_supply"
+                row["review_note"]="Owner-reviewed cultivation item"
+                if row["item_code"]=="SKU000":
+                    row["review_status"]="excluded_pos"
+            with review.open("w",newline="") as fh:
+                writer=csv.DictWriter(fh,fieldnames=list(rows[0]))
+                writer.writeheader();writer.writerows(rows)
+            with self.assertRaisesRegex(ValueError,"conflicts"):
+                classification.approve(catalog,review,folder/"reject.json","Owner")
+
     def test_source_checksum_is_exact(self):
         with tempfile.TemporaryDirectory() as d:
             source=Path(d)/"source.json"
