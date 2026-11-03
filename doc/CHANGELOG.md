@@ -1,5 +1,20 @@
 # Changelog
 
+## [1.5.28] - 2026-11-03
+
+### Commerce staging inventory
+
+- Add a separately gated, host-local recurring MushroomProcess-to-WooCommerce hidden-draft stock adapter with exact 24-product source identities, reservation-adjusted availability, and reused staging REST credentials.
+- Preserve Ecwid's working hourly inventory workflow and keep n8n Woo writes disabled to avoid two concurrent stock writers.
+- Persist Woo acknowledgement revisions and pending network attempts in private SQLite, refusing unknown write outcomes, identity drift and stale stock.
+- Add explicit read-back reconciliation, offline regression tests and guarded operator scheduling/rollback procedures. No automatic scheduler installation, Woo publication or production Stock Ledger changes.
+
+### Validation
+
+- The previous one-time projection of seven draft products was accepted with 24/24 Woo read-back. The recurring CLI requires operator-run regression, baseline bootstrap and an explicit enabled gate before first scheduled execution; these are not yet verified on the host.
+
+---
+
 ## [1.5.27] - 2026-10-27
 
 ### Safety and verification
