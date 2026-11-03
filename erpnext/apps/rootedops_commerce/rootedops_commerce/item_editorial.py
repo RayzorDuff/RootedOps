@@ -19,15 +19,17 @@ def get_item_editorial(item):
     doc.check_permission("read")
     fields = {name: doc.get(name) or "" for name in EDITORIAL_FIELDS}
     gallery = [
-        {"image": row.image, "source_url": row.source_url}
+        {"image": row.image, "alt_text": row.alt_text, "source_url": row.source_url}
         for row in doc.get("gallery", [])
     ]
     overrides = [
-        {"provider": row.provider, "site_key": row.site_key}
+        {"provider": row.provider, "site_key": row.site_key,
+         "title": row.title, "short_description": row.short_description,\n         "full_description": row.full_description}
         for row in doc.get("channel_overrides", [])
     ]
     return {
         "item": doc.item,
+        "source_key": doc.source_key,
         "modified": str(doc.modified),
         "publication_status": doc.publication_status,
         "fields": fields,
