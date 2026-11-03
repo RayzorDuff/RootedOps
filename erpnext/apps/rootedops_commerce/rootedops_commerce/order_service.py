@@ -36,7 +36,7 @@ def validate_draft(values,event):
             raise ValueError('Explicit actual tax/shipping accounts required')
     quote = event.get('tax_quote')
     if quote is None:
-        if frappe.conf.get('commerce_tax_quote_required'):
+        if getattr(frappe, 'conf', {}).get('commerce_tax_quote_required'):
             raise ValueError('Approved jurisdiction tax quote required')
     else:
         from rootedops_commerce.tax_contract import validate_quote, validate_erp_taxes
