@@ -51,7 +51,9 @@ After review/merge and a verified, scoped deployment to test2:
 4. Open as Sales User; verify preview but no edit controls. Try direct endpoint
    write without permission and confirm rejection.
 5. Open concurrent editor sessions and verify stale modified timestamps are
-   rejected. Deliberately diverge a test Item and confirm edit fails closed.
+   rejected. Attempt a direct native Item description/title edit and confirm it
+   is refused; deliberately diverge a disposable test record to verify the
+   Commerce editor also refuses overwriting an independent edit.
 6. Verify source_payload, Item Price, tax templates, inventory, publication
    state, Woo products and financial record counts remain unchanged.
 7. Verify both forms in Frappe v16 and that static assets load after migrate.
