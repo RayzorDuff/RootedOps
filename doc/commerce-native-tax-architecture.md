@@ -335,7 +335,38 @@ python3 scripts/commerce_tax_classification.py \
 ```
 
 Each row contains the existing SKU, Ecwid product ID/name/status/source
-categories, plus blank `tax_class` and `review_note` columns. The owner
+categories, plus blank `tax_class` and `review_note` columns.
+
+For the present catalog, the owner confirmed **40 grocery food** products
+(including conventionally packaged Reishi, Turkey Tail, and future
+culinary Breakfast Blend), **78 cultivation supplies** and **one
+other-reviewed merchandise item**. This classification is for ordinary
+culinary products as sold, not a determination for future tinctures,
+extractions, supplements or related wellness-claim goods.
+
+**Thirteen generic dollar-amount POS buttons** are not actual identified
+products and must remain out of the future tax-calculated checkout
+workflow. These review CSV rows retain an **empty** `tax_class` and
+must explicitly set `review_status=excluded_pos` with an explanatory
+`review_note`. The approval tool checks that the underlying original
+Ecwid product name really is a generic amount button; it does not let
+an arbitrary product escape classification. A separate `blocked_item_codes`
+list is emitted in the approved local mapping JSON, and **no tax class**
+is created for these 13 items.
+
+The operator must exclude those 13 SKUs from future WooCommerce/Clover
+checkout publication and enforce their rejection at the order
+ingress. Having an excluded SKU in the approval artifact alone
+**does not** disable the Woo product or the existing checkout. Never
+classify a generic `NOTAX` label as an exemption.
+
+The owner-approved CSV artifact should be copied to the server as a
+private review file before running the approval step. The reviewed
+artifact intentionally remains outside the repository. The approval
+still verifies all **132** original SKU-to-Ecwid-ID pairs and refuses
+changes to the original source hash; only **119** become approved
+`item_classes` entries.
+ The owner
 must explicitly select one of `grocery_food`, `cultivation_supply` or
 `other_reviewed` and provide a short product-specific rationale for
 **every SKU**, including disabled/legacy POS entries. `other_reviewed`
@@ -353,8 +384,8 @@ python3 scripts/commerce_tax_classification.py \
   --output "$HOME/commerce-migration/tax-class-map-132.json"
 ```
 
-The resulting `0600` JSON maps each exact ERP Item SKU to the reviewed
-tax class and records reviewer, review CSV checksum, and source hash.
+The resulting `0600` JSON maps each approved ERP Item SKU to the reviewed
+tax class and records reviewer, review CSV checksum, source hash, and explicit\nblocked identifiers for generic price buttons.
 The command **never** changes ERPNext, products, tax rules, WooCommerce or
 permissions. Keep the CSV and mapping out of the Git repository. The
 approved mapping is an input to the eventual ERPNext
