@@ -55,7 +55,7 @@ sudo docker exec erpnext-backend \
 ```
 
 Expect `item_count=132`, `content_count=132`, `matched=132`,
-`updates_needed=132`, `conflicts=[]`, `writes=false`. Do not proceed if these
+`updates_needed=132` before the approved backfill, `conflicts=[]`, `writes=false`. Do not proceed if these
 expectations or the source provenance differ.
 
 Review and explicitly approve the printed digest. Only then:
@@ -63,7 +63,7 @@ Review and explicitly approve the printed digest. Only then:
 ```bash
 sudo docker exec erpnext-backend \
   bench --site erp.danks.store execute rootedops_commerce.catalog_sync.reconcile \
-  --kwargs '{"apply": true, "approve_digest": "PASTE_THE_REVIEWED_64_CHAR_DIGEST", "expected_count": 132}'
+  --kwargs '{"apply": True, "approve_digest": "PASTE_THE_REVIEWED_64_CHAR_DIGEST", "expected_count": 132}'
 
 # Verify a second read-only run reports zero pending changes.
 sudo docker exec erpnext-backend \
@@ -85,23 +85,31 @@ tree and the Dockerfile already installs both modules. **This does not establish
 a missing site install**. It establishes that the current image should not be
 relied upon for clean recovery until rebuilt and separately verified.
 
-Build a *candidate with a distinct tag*, rather than overwriting a running
-image tag or recreating production containers:
+The owner applied the approved 132-description backfill on November 3, 2026:
+`updates_applied=132`, and the independent read-only follow-up reported
+`updates_needed=0`, `conflicts=[]`, `writes=false`. The post-write
+digest is `de50cb8c15a2fcb6fd96a6949fd69d39aa0787483868d8a895a03a5ad3153f5c`.
+This is accepted native Item parity; do not run the historical apply again.
+
+Build a *candidate with a distinct tag*, rather than overwriting the live
+`rootedops-erpnext:version-16` tag or recreating production containers.
+The helper derives the base image and HRMS/ESS branches from resolved
+Compose configuration, without printing other .env settings:
 
 ```bash
 cd ~/RootedOps
-# Confirm configured base tag/branches in .env privately.
-# Replace values below with actual .env values if different.
-sudo docker build -f docker/erpnext-custom.Dockerfile \
-  --build-arg ERPNEXT_IMAGE_TAG=version-16 \
-  --build-arg ERPNEXT_HRMS_BRANCH=version-16 \
-  --build-arg ERPNEXT_ESS_BRANCH=version-16 \
-  -t rootedops-erpnext:commerce-candidate .
-sudo docker run --rm \
-  --entrypoint /home/frappe/frappe-bench/env/bin/python \
-  rootedops-erpnext:commerce-candidate \
-  -c 'import rootedops_payroll, rootedops_commerce; print("Both imports OK")'
+bash -n scripts/erpnext_image_candidate.sh
+bash scripts/erpnext_image_candidate.sh --help
+# Explicitly build a separate review-tagged candidate (no service restart).
+bash scripts/erpnext_image_candidate.sh --build
+# Rerun verification without rebuilding.
+bash scripts/erpnext_image_candidate.sh
 ```
+
+The helper checks imports of both payroll and commerce in a fresh
+`--network none` container without the shared apps volume. Its candidate
+tag is based on the Git commit and will not match the production tag.
+A successful run still does **not** retag or deploy the production image.
 
 A passed candidate import check is **not** authorization to replace the
 production image. Verify the versioned app wheel/editable install and a
