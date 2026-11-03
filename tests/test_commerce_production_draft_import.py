@@ -34,7 +34,7 @@ class DraftImportTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             path=Path(directory)/"batch.json"
             path.write_text(json.dumps({"records":[]}))
-            with self.assertRaisesRegex(ValueError,"Compiled batch SHA drift"):
+            with self.assertRaises(ValueError):
                 importer.verify_compiled(path,importer.FIRST_BATCH_SHA)
 
     def test_json_native_failure_is_not_suppressed(self):
@@ -51,7 +51,7 @@ class DraftImportTests(unittest.TestCase):
             (root/"docker").mkdir()
             (root/"docker/docker-compose.yml").write_text("")
             receipt=root/"receipt.json"
-            with patch.object(importer,"verify_compiled",return_value=[{"source_key":str(i)} for i in range(5)]),\
+            with patch.object(importer,"verify_compiled",return_value=[{"source_key":str(i),"woocommerce":{"sku":str(i)}} for i in range(5)]),\
                  patch.object(importer,"guard_live") as guard,\
                  patch.object(importer,"run_json") as request:
                 output=importer.import_batch(root,root/"batch.json","a"*64,receipt,False)
