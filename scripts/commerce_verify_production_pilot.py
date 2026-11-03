@@ -13,7 +13,7 @@ import sys
 ROOT=Path(__file__).resolve().parents[1]
 sys.path.insert(0,str(ROOT/"scripts"))
 from commerce_production_draft_import import verify_compiled
-from commerce_production_batch_readiness import run_native, ERP as _unused
+from commerce_production_batch_readiness import run_native
 from commerce_production_media import guard_live
 
 ERP_READ = r"""
@@ -21,7 +21,7 @@ import sys,json,frappe,rootedops_commerce
 from decimal import Decimal
 from rootedops_commerce.api import catalog
 a=json.load(sys.stdin)
-frappe.init(site='erp.danks.store');frappe.connect()
+frappe.init(site='erp.danks.store');frappe.connect();frappe.set_user('Administrator')
 try:
  assert rootedops_commerce.__version__=='0.3.1'
  before={d:frappe.db.count(d) for d in ('Sales Order','Sales Invoice',
