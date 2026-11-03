@@ -7,6 +7,7 @@ app_license = "gpl-3.0"
 required_apps = ["erpnext"]
 
 doc_events = {
+    'Item': {'validate': 'rootedops_commerce.item_guard.enforce_canonical_item_display'},
     'Sales Order': {'before_submit': 'rootedops_commerce.order_service.protect_order_submission'},
     'Sales Invoice': {'before_submit': 'rootedops_commerce.order_service.protect_invoice_submission'},
 }
