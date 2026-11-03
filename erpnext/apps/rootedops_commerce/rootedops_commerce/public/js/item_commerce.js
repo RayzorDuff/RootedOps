@@ -34,6 +34,11 @@ frappe.ui.form.on("Item", {
           html += '<p><strong>' + esc(label) + '</strong></p>';
           html += '<div style="white-space:pre-wrap;margin-bottom:12px">' + esc(value) + '</div>';
         });
+        html += '<p><strong>' + esc(__("MushroomProcess available quantity (read-only)")) + '</strong></p>';
+        (d.operational_availability || []).forEach(row => {
+          html += '<p>' + esc(row.mushroomprocess_ecommerce_id) + ': ' +
+            esc(row.available_quantity) + ' (' + esc(row.source_observed_at) + ')</p>';
+        });
         html += '<p><strong>' + esc(__("Gallery / alt text")) + ' (' + d.gallery.length + ')</strong></p>';
         d.gallery.forEach((row) => {
           html += '<p>' + esc(row.image) + ' — ' + esc(row.alt_text) + ' — ' + esc(row.source_url) + '</p>';
