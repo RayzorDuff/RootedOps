@@ -57,8 +57,9 @@ try:
  if frappe.db.exists("DocType","Accounts Settings"):
   meta=frappe.get_meta("Accounts Settings")
   for field in meta.fields:
-   if any(token in field.fieldname for token in ("tax","address","shipping")) and
-      field.fieldtype in ("Check","Select","Data","Link"):
+   if (field.fieldname and
+       any(token in field.fieldname for token in ("tax","address","shipping")) and
+       field.fieldtype in ("Check","Select","Data","Link")):
     account_settings[field.fieldname]=frappe.db.get_single_value(
       "Accounts Settings",field.fieldname)
  tax_meta={}
