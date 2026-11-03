@@ -76,11 +76,12 @@ def compiled_guard(compiled):
         if original is False:
             # Full-catalog disabled import follows after validated 22-product acceptance.
             raise ValueError("Disabled-source imports are not yet authorized for production")
-        if (r["woocommerce"].get("status") != "draft" or
-            r["woocommerce"].get("catalog_visibility") != "hidden" or
-            r["woocommerce"].get("stock_quantity") != 0 or
-            r["woocommerce"].get("manage_stock") is not True or
-            r["woocommerce"].get("backorders") != "no" or
+        wc = r["woocommerce"]
+        if (wc.get("status") != "draft" or
+            wc.get("catalog_visibility", "hidden") != "hidden" or
+            wc.get("stock_quantity", 0) != 0 or
+            wc.get("manage_stock", True) is not True or
+            wc.get("backorders", "no") != "no" or
             r["mapping"].get("sync_enabled") != 0):
             raise ValueError("Draft-only/non-sellable guard failed")
     return hashlib.sha256(raw).hexdigest()
@@ -95,6 +96,10 @@ def main():
     args = p.parse_args()
     if compiled_guard(args.compiled) != args.sha256:
         raise ValueError("Compiled batch SHA mismatch")
+    if args.apply:
+        raise ValueError("Production --apply is not yet enabled: credentials, "
+                         "media, native production isolation and reconciliation "
+                         "must be accepted first")
     # Never touch the test2 runner's source. Replace only exact integration
     # execution targets while preserving its transactional write checks.
     original = batch.NATIVE
