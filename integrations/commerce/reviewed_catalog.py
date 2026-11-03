@@ -127,9 +127,18 @@ def compile_catalog(plan, review, media_manifest=()):
                         for i in product['content'].get('gallery', [])]
         price = None
         if not is_template:
-            rate = money(product['price'])
-            price = {'currency': currency, 'price_list': review['selling_price_list'], 'item_price_rate': rate}
-            wc['regular_price'] = rate
+            if product['price'] is None:
+                # Preserve missing source prices as unpriced, non-sellable
+                # drafts; never invent a zero-dollar price.
+                if not (review.get('allow_unpriced_drafts') is True and
+                        review.get('draft_only') is True):
+                    raise ValueError('Missing source price requires draft-only review')
+                wc['regular_price'] = ''
+                wc['meta_data'].append({'key': '_rootedops_source_price_missing', 'value': 'yes'})
+            else:
+                rate = money(product['price'])
+                price = {'currency': currency, 'price_list': review['selling_price_list'], 'item_price_rate': rate}
+                wc['regular_price'] = rate
         mapping = dict(product['mapping'], item=code)
         records.append({'source_key': product['source_key'], 'expected_currency':currency, 'item': item, 'content': content,
                         'mapping': mapping, 'price': price, 'woocommerce': wc,

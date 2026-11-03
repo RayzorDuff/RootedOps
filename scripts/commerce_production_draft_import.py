@@ -138,6 +138,7 @@ if (!class_exists('WooCommerce')) throw new Exception('WooCommerce unavailable')
 if (get_option('siteurl')!=='https://shop-test.danks.store' ||
     get_option('woocommerce_coming_soon')!=='yes' ||
     get_option('woocommerce_calc_taxes')!=='no' ||
+    get_woocommerce_currency()!=='USD' ||
     (int)wp_count_posts('product')->publish!==0 ||
     count(WC()->payment_gateways()->get_available_payment_gateways())!==0 ||
     count(get_posts(['post_type'=>'shop_webhook','post_status'=>'publish','numberposts'=>1]))!==0 ||
@@ -152,14 +153,21 @@ if ($p['status']!=='draft' || $p['catalog_visibility']!=='hidden' ||
   throw new Exception('Non-sellable draft policy drift');
 $sku=$p['sku'];
 $source=$record['source_key'];
+$sourceproduct=json_decode($record['content']['source_payload'],true,512,JSON_THROW_ON_ERROR)['product'];
+if (!is_bool($sourceproduct['enabled']??null)) throw new Exception('Invalid Ecwid enabled status');
 $meta=[];
 foreach ($p['meta_data'] as $m) $meta[$m['key']]=$m['value'];
 if (($meta['_rootedops_source_key']??null)!==$source ||
-    ($meta['_rootedops_ecwid_enabled']??null)!=='yes' ||
+    ($meta['_rootedops_ecwid_enabled']??null)!==($sourceproduct['enabled']?'yes':'no') ||
     ($meta['_rootedops_tax_mapping_pending']??null)!=='yes')
   throw new Exception('Provenance or deferred tax policy drift');
 $allowed=['16'=>'Gourmet Mushrooms','17'=>'Miscellaneous',
           '18'=>'Grow Kits and Mycology Supplies'];
+$defaultcat=(int)get_option('default_product_cat');
+$defaultterm=get_term($defaultcat,'product_cat');
+if (!$defaultcat || !$defaultterm || is_wp_error($defaultterm))
+ throw new Exception('Missing Woo default product category');
+$allowed[(string)$defaultcat]=$defaultterm->name;
 $catids=[];
 foreach ($p['categories'] as $c) {
  $id=(int)$c['id'];$t=get_term($id,'product_cat');
