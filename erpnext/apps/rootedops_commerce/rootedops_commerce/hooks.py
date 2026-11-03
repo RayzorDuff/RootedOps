@@ -10,3 +10,7 @@ doc_events = {
     'Sales Order': {'before_submit': 'rootedops_commerce.order_service.protect_order_submission'},
     'Sales Invoice': {'before_submit': 'rootedops_commerce.order_service.protect_invoice_submission'},
 }
+
+# Extend ERPNext's standard Item form without replacing its native controller.
+doctype_js = {"Item": "public/js/item_commerce.js"}
+after_migrate = ["rootedops_commerce.setup.ensure_item_commerce_section"]
