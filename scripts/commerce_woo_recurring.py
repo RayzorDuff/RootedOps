@@ -162,7 +162,10 @@ def one_write(db,r,s,w,auth,identity_receipt):
         (r["mp_id"],w["id"],revision,h,s["last_qty"],r["qty"],"pending",ts,ts))
     # Pending is committed to disk before network request. On a crash,
     # subsequent runs stop rather than replay the unknown outcome.
-    from ecwid_migrate import api\n    def put_stock(shop, id, quantity, authorization):\n        response=api(shop+'/wp-json/wc/v3/products/'+str(id),authorization,'PUT',{'stock_quantity':quantity})\n        if response.get('id')!=id: raise ValueError('Woo product ID changed during PUT')
+    from ecwid_migrate import api
+    def put_stock(shop, id, quantity, authorization):
+        response=api(shop+'/wp-json/wc/v3/products/'+str(id),authorization,'PUT',{'stock_quantity':quantity})
+        if response.get('id')!=id: raise ValueError('Woo product ID changed during PUT')
     try:
         put_stock(SHOP,w["id"],r["qty"],auth)
         after=owned_product(w["id"],r,auth)
