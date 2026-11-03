@@ -10,13 +10,13 @@ set -Eeuo pipefail
 #
 # Optional site / app selection:
 #   ./erpnext/deploy.sh erp.danks.store commerce
-#   ./erpnext/deploy.sh erp.danks.store both
+#   ./erpnext/deploy.sh erp.danks.store all
 
 usage() {
   cat <<'USAGE'
-Usage: erpnext/deploy.sh [site] [payroll|commerce|both]
-       erpnext/deploy.sh [payroll|commerce|both]
-       erpnext/deploy.sh [--site SITE] [--app payroll|commerce|both]
+Usage: erpnext/deploy.sh [site] [payroll|commerce|all]
+       erpnext/deploy.sh [payroll|commerce|all]
+       erpnext/deploy.sh [--site SITE] [--app payroll|commerce|all]
        erpnext/deploy.sh --help
 Aliases: rootedops_payroll, rootedops_commerce
 Defaults: site=erp.danks.store, app=payroll
@@ -26,7 +26,8 @@ normalize_app() {
   case "$1" in
     payroll|rootedops_payroll) echo payroll ;;
     commerce|rootedops_commerce) echo commerce ;;
-    both) echo both ;;
+    all) echo all ;;
+    both) echo all ;; # backward-compatible alias; use 'all'
     *) return 1 ;;
   esac
 }
@@ -58,11 +59,6 @@ while (($#)); do
       shift ;;
   esac
 done
-case "$SELECTION" in
-  payroll) APPS=(rootedops_payroll) ;;
-  commerce) APPS=(rootedops_commerce) ;;
-  both) APPS=(rootedops_payroll rootedops_commerce) ;;
-esac
 REPO_ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$REPO_ROOT"
 COMPOSE=(sudo docker compose --env-file ./.env -f docker/docker-compose.yml)
@@ -94,6 +90,21 @@ LOCAL_HEAD="$(git rev-parse HEAD)"
 REMOTE_HEAD="$(git rev-parse origin/main)"
 [[ "$LOCAL_HEAD" == "$REMOTE_HEAD" ]] || die "Local main is not identical to origin/main."
 
+# Resolve 'all' only after pulling main so new committed RootedOps apps are
+# included automatically. Never deploy arbitrary untracked local directories.
+case "$SELECTION" in
+  payroll) APPS=(rootedops_payroll) ;;
+  commerce) APPS=(rootedops_commerce) ;;
+  all)
+    mapfile -t APPS < <(
+      git ls-tree -r --name-only HEAD -- erpnext/apps |
+        sed -n 's@^erpnext/apps/\(rootedops_[^/]*\)/pyproject\.toml$@\1@p' |
+        sort -u
+    )
+    (("${#APPS[@]}" > 0)) || die "No committed RootedOps application packages found."
+    ;;
+esac
+
 echo "Commit:    $(git rev-parse --short HEAD)"
 echo "Message:   $(git log -1 --pretty=%s)"
 
@@ -123,15 +134,23 @@ for APP_NAME in "${APPS[@]}"; do
     die "Cannot list installed apps on site $SITE."
   printf '%s\n' "$installed_apps" | grep -Eq "^$APP_NAME([[:space:]]|$)" ||
     die "$APP_NAME is not installed on $SITE; this script updates only installed apps."
-  # All ERPNext services use the built image and shared apps volume.
-  # Check the *bench virtualenv* in a fresh image, not system Python.
-  # flit_core is a PEP 517 build dependency (installed in pip's isolated
-  # build environment), and is not required to import the installed app.
+  # The app volume may have been updated after the image was built. Verify
+  # the actual running bench environment, which will execute the migration.
+  "${COMPOSE[@]}" exec -T "$BACKEND" \
+    /home/frappe/frappe-bench/env/bin/python -c \
+    'import importlib, sys; importlib.import_module(sys.argv[1])' "$APP_NAME" ||
+    die "$APP_NAME is not importable in the running ERPNext bench environment."
+
+  # Image drift is important for disaster recovery, but does not prevent
+  # source-only deployments into the existing shared apps volume.
   IMAGE="$(sudo docker inspect "$BACKEND" --format '{{.Config.Image}}')"
-  sudo docker run --rm \
+  if ! sudo docker run --rm \
     --entrypoint /home/frappe/frappe-bench/env/bin/python "$IMAGE" \
-    -c 'import importlib, sys; importlib.import_module(sys.argv[1])' "$APP_NAME" ||
-    die "$APP_NAME is not importable in the ERPNext image bench environment; rebuild the persistent image before deployment."
+    -c 'import importlib, sys; importlib.import_module(sys.argv[1])' "$APP_NAME" >/dev/null 2>&1; then
+    echo "WARNING: $APP_NAME is absent from the persistent ERPNext image ($IMAGE)." >&2
+    echo "         Live source deployment can proceed, but rebuild the ERPNext" >&2
+    echo "         custom image before recreating services or disaster recovery." >&2
+  fi
 done
 
 log "Deploy selected RootedOps app sources"
