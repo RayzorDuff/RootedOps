@@ -176,6 +176,27 @@ performs the guarded five-product import. Do not execute the provisional
 does not support batches 2-5 or disabled-source imports; those require a
 separate follow-up approval after complete first-batch reconciliation.
 
+## Independent five-product reconciliation after import
+
+After the first five-product import returns `erp_committed: true` and
+`woo_receipted: 5`, reconcile **without writing any destination records**:
+
+```sh
+sudo python3 "$HOME/RootedOps-commerce-pr57/scripts/commerce_verify_production_pilot.py" \
+  --repo-root "$HOME/RootedOps" \
+  --compiled "$HOME/commerce-migration/pilot-batches-1/pilot-01.json" \
+  --sha256 ed49bd43b49cb9f705bd780f5f8d2220bd7aec32b2e4cc17c7dbde1a53f389d6 \
+  --receipt "$HOME/commerce-migration/media-preparation-1/pilot-01-import-receipt.json"
+```
+
+Expected: five ERP Items, Contents, Mappings and Prices, five Woo drafts,
+zero Woo published products, no Sales Orders, Sales Invoices, Payment
+Entries, Stock Entries or Bins, all source payloads/gallery/prices reconciled,
+and `receipt_matches: true`, `reconciliation: PASSED`, `writes: false`.
+This stricter 5/0 count gate is specific to the first pilot and **must not be
+reused blindly after other sales, orders or inventory operations begin**.
+If it fails, stop and investigate; preserve both media and import receipts.
+
 ## Production-staging runner — guarded first cohort
 
 - Existing `scripts/commerce_catalog_batch.py` remains test2-only. The new
