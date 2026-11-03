@@ -25,7 +25,7 @@ class ReconciliationTests(unittest.TestCase):
         with patch.object(verified,"verify_compiled",return_value=[{}]*5),\
              patch.object(verified,"guard_live") as guard:
             with self.assertRaisesRegex(ValueError,"Import receipt required"):
-                verified.reconcile(Path("/tmp"),Path("/tmp/unimportant"),"a"*64,
+                verified.reconcile(Path("/tmp"),Path("/tmp/unimportant"),verified.BATCHES[1][0],
                     Path("/tmp/pilot-01-import-receipt.json"))
             guard.assert_not_called()
 
