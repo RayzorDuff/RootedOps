@@ -7,6 +7,11 @@ app_license = "gpl-3.0"
 required_apps = ["erpnext"]
 
 doc_events = {
+    'Item': {'validate': 'rootedops_commerce.item_guard.enforce_canonical_item_display'},
     'Sales Order': {'before_submit': 'rootedops_commerce.order_service.protect_order_submission'},
     'Sales Invoice': {'before_submit': 'rootedops_commerce.order_service.protect_invoice_submission'},
 }
+
+# Extend ERPNext's standard Item form without replacing its native controller.
+doctype_js = {"Item": "public/js/item_commerce.js"}
+after_migrate = ["rootedops_commerce.setup.ensure_item_commerce_section"]
