@@ -24,7 +24,8 @@ def get_item_editorial(item):
     ]
     overrides = [
         {"provider": row.provider, "site_key": row.site_key,
-         "title": row.title, "short_description": row.short_description,\n         "full_description": row.full_description}
+         "title": row.title, "short_description": row.short_description,
+         "full_description": row.full_description}
         for row in doc.get("channel_overrides", [])
     ]
     return {
