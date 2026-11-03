@@ -180,7 +180,9 @@ if (!$actual || !$actual->is_type('simple') ||
     $actual->get_tax_status()!=='none' ||
     $actual->get_meta('_rootedops_source_key',true)!==$source)
  throw new Exception('Draft readback mismatch');
-if (array_map('intval',$actual->get_category_ids())!==$catids)
+$actualcats=array_map('intval',$actual->get_category_ids());
+$expectedcats=$catids;sort($actualcats);sort($expectedcats);
+if ($actualcats!==$expectedcats)
  throw new Exception('Category readback mismatch');
 $actual_images=array_values(array_filter(array_merge(
  [$actual->get_image_id()],$actual->get_gallery_image_ids())));
@@ -245,6 +247,15 @@ def import_batch(deployment,compiled,sha,receipt_path,apply):
                  "erp_committed":False,"products":{}}
     if receipt_path.parent.stat().st_mode & 0o077:
         raise ValueError("Receipt directory must be 0700")
+    if not isinstance(receipt.get("erp_committed"),bool) or not isinstance(receipt.get("products"),dict):
+        raise ValueError("Malformed import receipt")
+    known={r["source_key"]:r["woocommerce"]["sku"] for r in records}
+    if not set(receipt["products"]).issubset(known):
+        raise ValueError("Receipt contains unreviewed source identities")
+    for key,entry in receipt["products"].items():
+        if (entry.get("source_key")!=key or entry.get("sku")!=known[key] or
+            type(entry.get("woocommerce_id")) is not int or entry["woocommerce_id"]<=0):
+            raise ValueError("Receipt product identity drift")
     guard_live(deployment)
     if not apply:
         return {"apply":False,"source_products":len(records),
