@@ -180,7 +180,9 @@ foreach ($names as $id=>$name) {
 }
 $id=(int)get_option('default_product_cat');
 $term=get_term($id,'product_cat');
-if (!$id || !$term || is_wp_error($term))throw new Exception('No valid default Woo category');
+if (!$id || !$term || is_wp_error($term) || isset($names[$id]) ||
+    strtolower(trim($term->name))!=='uncategorized')
+ throw new Exception('Woo default category is not the reviewed Uncategorized category');
 echo json_encode(['default_category_id'=>$id],JSON_THROW_ON_ERROR);
 """
 
