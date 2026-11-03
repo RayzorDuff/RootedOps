@@ -143,7 +143,7 @@ def plan(data):
                 'price': source.get('price', row.get('price')),
                 'variant_options': source.get('options', []),
                 'category_ids': row.get('categoryIds', []),
-                'source_enabled': row.get('enabled', False)})
+                'source_enabled': row.get('enabled')})
     return {'schema_version': 1, 'source_sha256': digest(data), 'products': products,
             'archives': records, 'errors': errors,
             'counts': {k: len(data.get(k, [])) for k in ('products', 'customers', 'orders', 'categories')},
