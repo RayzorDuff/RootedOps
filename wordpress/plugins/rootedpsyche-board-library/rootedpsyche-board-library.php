@@ -142,7 +142,7 @@ add_action('template_redirect', function (): void {
     }
     status_header(200);
     header('Content-Type: application/octet-stream');
-    header('Content-Disposition: attachment; filename="board-document"; filename*=UTF-8\'\'' . rawurlencode(basename($file)));
+    header("Content-Disposition: attachment; filename=\"board-document\"; filename*=UTF-8''" . rawurlencode(basename($file)));
     header('X-Content-Type-Options: nosniff');
     header('Content-Length: ' . $size);
     $handle = fopen($file, 'rb');
