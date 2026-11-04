@@ -10,7 +10,7 @@
  */
 defined('ABSPATH') || exit;
 
-const RP_BOARD_LIBRARY_ROOT = '/srv/rootedpsyche-board-meetings';
+defined('RP_BOARD_LIBRARY_ROOT') || define('RP_BOARD_LIBRARY_ROOT', '/srv/rootedpsyche-board-meetings');
 const RP_BOARD_LIBRARY_MAX_BYTES = 30 * 1024 * 1024;
 
 function rp_board_library_authorized(): bool {
