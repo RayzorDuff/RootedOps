@@ -17,6 +17,7 @@ define('ABSPATH', $root);
 define('RP_BOARD_LIBRARY_ROOT', $root);
 function add_action(...$args): void {}
 function add_shortcode(...$args): void {}
+function wp_json_encode($value): string { return json_encode($value, JSON_THROW_ON_ERROR); }
 require __DIR__ . '/../wordpress/plugins/rootedpsyche-board-library/rootedpsyche-board-library.php';
 
 function expect(bool $condition, string $message): void {
