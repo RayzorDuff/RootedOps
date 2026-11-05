@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Rooted Psyche Board Meeting Library
  * Description: Read-only, role-gated meeting, governance and treasury documents plus BookWorks working links.
- * Version: 0.2.0
+ * Version: 0.3.0
  * Requires PHP: 8.1
  * License: GPL-2.0-or-later
  *
@@ -192,3 +192,6 @@ add_shortcode('rootedpsyche_board_meetings', function (): string {
 
 // Additional curated board sections; legacy meeting functionality remains intact.
 require_once __DIR__ . '/board-sections.php';
+
+// Nested governance records and independent Board resolutions.
+require_once __DIR__ . '/board-hierarchy.php';
