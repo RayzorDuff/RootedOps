@@ -5,3 +5,4 @@ services:
   rootedpsyche-wordpress:
     volumes:
       - ${ROOTEDPSYCHE_BOARD_MEETINGS_HOST_PATH:?Set ROOTEDPSYCHE_BOARD_MEETINGS_HOST_PATH in .env}:/srv/rootedpsyche-board-meetings:ro
+      - ${ROOTEDPSYCHE_BOARD_SUPPLEMENTS_HOST_PATH:?Set ROOTEDPSYCHE_BOARD_SUPPLEMENTS_HOST_PATH in .env}:/srv/rootedpsyche-board-supplements:ro
