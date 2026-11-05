@@ -14,24 +14,24 @@
 - Approved records should separately be frozen/versioned in BookWorks; files in this live folder are working board materials, not automatically adopted records.
 
 ## Host hierarchy
-Use a separate root **RootedPsycheBoard**, outside both `BookWorksSources` and `BookWorksArtifacts`:
+Use the operator-created **BookWorksSupplements/RootedPsycheBoard** root, alongside `BookWorksSources` and `BookWorksArtifacts`. This is an operational supplement reusable by other BookWorks publications, not the immutable BookWorks source catalog:
 
 ```text
-/mnt/GoogleDrive-ray@edanks.com/RootedPsycheBoard/
+/mnt/GoogleDrive-ray@edanks.com/BookWorksSupplements/RootedPsycheBoard/
   Meeting Minutes/
     2026-10-01/
     2026-11-10/
 ```
 
-This is an independent **board operational share**, not a BookWorks source dump. The existing folder named `DankMushrooms/Rooted Psyche/Legal Framework/Meeting Minutes` is the historical *input*; do not serve that entire tree. The root is created on the mounted Google Drive only by the operator. The secretary may be given edit access to the Meeting Minutes directory in Google Drive, while the WordPress container receives read-only access. Avoid allowing broadly shared source trees to become board downloadable.
+This is a **BookWorks operational supplements hierarchy**, not a BookWorks source dump. The existing folder named `DankMushrooms/Rooted Psyche/Legal Framework/Meeting Minutes` is the historical *input*; do not serve that entire tree. The root is created on the mounted Google Drive only by the operator. The secretary may be given edit access to the Meeting Minutes directory in Google Drive, while the WordPress container receives read-only access. Avoid allowing broadly shared source trees to become board downloadable.
 
-## Provision folders (read-only source, no deletes)
-On the production Linode after verifying the mount:
+## Provisioning completed by operator (November 4/5, 2026)
+The operator already verified the `gdrive2:` mount and created `2026-10-01` and `2026-11-10`. These commands are idempotent verification/recovery steps, **not new work required**:
 
 ```bash
 set -euo pipefail
 MOUNT='/mnt/GoogleDrive-ray@edanks.com'
-ROOT="$MOUNT/RootedPsycheBoard/Meeting Minutes"
+ROOT="$MOUNT/BookWorksSupplements/RootedPsycheBoard/Meeting Minutes"
 findmnt --target "$MOUNT" -t fuse.rclone
 mkdir -p "$ROOT/2026-10-01" "$ROOT/2026-11-10"
 ls -ld "$ROOT" "$ROOT"/20*
@@ -47,13 +47,13 @@ Operator inventory from November 4 identified these immediate source PDFs:
 - `05-Governance-Document-Conformity-Resolution.pdf`
 - `Interim Board Meeting Minutes _ 20261001.pdf`
 
-Review sensitivity and whether each copy is the approved version **before** copying. All copy operations preserve the source and will not overwrite existing target files.
+The operator already copied these five PDFs into the new `BookWorksSupplements` location (reported total approximately 849 KiB). The copy commands below are retained for disaster recovery; all preserve the source and do not overwrite existing target files. The presence of a file in this library does **not** confirm that it has been adopted or legally executed; verify status separately.
 
 ```bash
 set -euo pipefail
 MOUNT='/mnt/GoogleDrive-ray@edanks.com'
 SRC="$MOUNT/DankMushrooms/Rooted Psyche/Legal Framework/Meeting Minutes/October 1, 2026"
-DST="$MOUNT/RootedPsycheBoard/Meeting Minutes/2026-10-01"
+DST="$MOUNT/BookWorksSupplements/RootedPsycheBoard/Meeting Minutes/2026-10-01"
 for name in \
   '01-Initial-Interim-Board-Resolution.pdf' \
   '02-Initial-Board-Conflict-Disclosure-and-Assessment.pdf' \
@@ -74,14 +74,14 @@ ls -lah "$DST"
 
 Do not bulk-copy the nested `Rooted-Psyche-Initial-Board-Meeting-Packet 3` folder, counsel review, DOCX drafts, or `Signed` folder. The user can curate and copy specific approved signed records later (the plugin intentionally does not recurse). For example, first verify what is signed and appropriate, then use `cp -n -- "$SRC/Signed/<exact-file>.pdf" "$DST/"`. Duplicate draft/final filenames should be renamed to a clear reviewed name *in the destination*, never overwrite an original.
 
-The `2026-11-10` folder is initially empty. The secretary can add notes, reports, and meeting packet files as they become available. New files become visible after a page refresh with no BookWorks build.
+The `2026-11-10` folder has been created and was initially empty. The secretary can add notes, reports, and meeting packet files as they become available. New files become visible after a page refresh with no BookWorks build.
 
 ## Deploy after PR review
 **Do not deploy automatically.** Confirm a recent WordPress backup and restore procedure. Make sure the rclone mount is active and the new directory exists. Preserve the existing WordPress Compose file and TLS config.
 
 1. Add to the private `~/RootedOps/.env` (do not put secrets into Git):
    ```dotenv
-   ROOTEDPSYCHE_BOARD_MEETINGS_HOST_PATH=/mnt/GoogleDrive-ray@edanks.com/RootedPsycheBoard/Meeting Minutes
+   ROOTEDPSYCHE_BOARD_MEETINGS_HOST_PATH=/mnt/GoogleDrive-ray@edanks.com/BookWorksSupplements/RootedPsycheBoard/Meeting Minutes
    ```
 2. After merging and pulling, validate combined Compose:
    ```bash
