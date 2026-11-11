@@ -120,7 +120,7 @@ For ERPNext continuation work, start with:
 
 ### WordPress
 
-Rooted Psyche is hosted on WordPress using `docker/docker-compose.wordpress.yml`, with persistent WordPress HTML and MariaDB volumes. Nginx forwards to the loopback WordPress port (production: 8096). Grav is retired; historical sources are archival only.
+Rooted Psyche is hosted on WordPress using `docker/docker-compose.wordpress.yml`, with persistent WordPress HTML and MariaDB volumes. Nginx forwards to the loopback WordPress port (production: 8096).
 
 ### Rooted Psyche scheduling: Tymeslot and Rallly
 
@@ -208,8 +208,6 @@ nginx/               HTTP reverse-proxy site configs
 backup/              Backup, restore, and rclone service helpers
 erpnext/             ERPNext/HRMS templates, scripts, and handoff notes
 n8n/                 Workflow exports that are part of this ops baseline
-grav/                Historical Grav archive (not deployed)
-grav.mysite/         Historical Grav site source
 doc/                 Canonical documentation, including scheduling and BookWorks WordPress guides
 README_MINECRAFT.md  Optional Minecraft Bedrock sidecar service notes
 LINODE_SETUP.md      Practical Linode deployment guide
@@ -235,7 +233,7 @@ The backup script handles:
 - Docker volume archives for NocoDB, n8n, Appsmith, ERPNext sites/apps/logs, and other persistent service state
 - Cold scheduling archives for Tymeslot app/PostgreSQL volumes and Rallly database/Garage volumes plus the upstream Rallly environment configuration; scheduling containers are paused briefly and previously running containers restarted
 - bind-mounted Listmonk media uploads
-- bind-mounted operational files such as `.env`, nginx configs, archived Grav files and WordPress volumes, Documenso certificate material, and optional Minecraft Bedrock data
+- bind-mounted operational files such as `.env`, nginx configs, WordPress persistent volumes, Documenso certificate material, and optional Minecraft Bedrock data
 - upload/copy to an rclone remote such as Google Drive
 - retention pruning for old remote backup directories
 
