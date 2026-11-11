@@ -29,7 +29,8 @@ def read_env(path):
 
 
 def copy_counts(path):
-    """Count standard public-schema pg_dump COPY rows without retaining data."""
+    """Count public-schema pg_dump COPY rows without retaining data."""
+    header = re.compile(r'COPY (?:public|"public")\.([a-z_][a-z_0-9]*|"(?:[^"\n]|"")+") \(.*\) FROM stdin;\n?')
     counts = {}
     table = None
     with gzip.open(path, 'rt', encoding='utf-8') as stream:
@@ -40,15 +41,22 @@ def copy_counts(path):
                 else:
                     counts[table] += 1
             else:
-                match = re.fullmatch(r'COPY public\.([a-z_][a-z_0-9]*) \(.*\) FROM stdin;\n?', line)
+                match = header.fullmatch(line)
                 if match:
                     table = match[1]
+                    if table.startswith('"'):
+                        table = table[1:-1].replace('""', '"')
                     if table in counts:
                         raise ValueError('Duplicate COPY table')
                     counts[table] = 0
     if table is not None:
         raise ValueError('Unterminated COPY data')
     return counts
+
+
+def copy_count_query(table):
+    identifier = table.replace('"', '""')
+    return f'SELECT count(*) FROM public."{identifier}"'
 
 
 def preflight(environment, backup, components, source_site):
@@ -181,7 +189,7 @@ class Restore:
                 actual = self.dc('exec', '-T', 'mushroomprocess-bridge-postgres', 'psql', '-v',
                                  'ON_ERROR_STOP=1', '-U', self.env['MP_BRIDGE_DB_USER'], '-d',
                                  self.env['MP_BRIDGE_DB_NAME'], '-Atc',
-                                 f'SELECT count(*) FROM public."{table}"', capture_output=True, text=True)
+                                 copy_count_query(table), capture_output=True, text=True)
                 if int(actual.stdout.strip()) != count:
                     raise ValueError('Restored COPY row count mismatch: '+table)
             print(f'Verified {len(expected)} restored COPY table counts.')
