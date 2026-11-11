@@ -10,7 +10,7 @@ import tempfile
 
 import yaml
 from recovery_bundle import (GROUPS, IMAGE_ARCHIVE, MANIFEST, VOLUME_SPECS,
-                             make_inventory, select_images, prepare_images, verify_images)
+                             make_inventory, select_images, registry_json, prepare_images, verify_images)
 
 
 def main():
@@ -36,8 +36,7 @@ def main():
     images = json.loads(subprocess.check_output(['docker', 'image', 'inspect', image, custom], text=True))
     with tempfile.TemporaryDirectory() as anonymous_config:
         def inspect_manifest(reference):
-            return json.loads(subprocess.check_output(['docker', '--config', anonymous_config,
-                                                      'manifest', 'inspect', reference], text=True))
+            return registry_json(['docker'], anonymous_config, reference)
         select_images(manifest, images, inspect_manifest)
     assert manifest['image_summary']['archived_images'] == 1
     assert manifest['image_summary']['registry_images'] == 1

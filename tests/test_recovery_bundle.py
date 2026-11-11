@@ -176,10 +176,23 @@ class ImageSelectionTests(unittest.TestCase):
         digest = 'postgres@sha256:' + '2' * 64
         inventory = {'services': [{'project': 'core', 'service': 'postgres', 'image_id': image['Id']}],
                      'required_payloads': [bundle.IMAGE_ARCHIVE]}
-        bundle.select_images(inventory, [image], lambda ref: {'schemaVersion': 2, 'config': {'digest': image['Id']}}, lambda tag: [digest])
+        def inspect(reference):
+            if reference != digest:
+                raise RuntimeError('Config digest is not a registry manifest')
+            return {'schemaVersion': 2, 'config': {'digest': image['Id']}}
+        bundle.select_images(inventory, [image], inspect, lambda tag: [digest])
         self.assertEqual(inventory['images'][0]['reference'], digest)
         self.assertIsNone(inventory['image_archive'])
         self.assertNotIn(bundle.IMAGE_ARCHIVE, inventory['required_payloads'])
+
+    def test_loaded_public_index_identity_avoids_unnecessary_archival(self):
+        image = {'Id': 'sha256:' + '1' * 64, 'Size': 10, 'Os': 'linux', 'Architecture': 'amd64',
+                 'RepoDigests': [], 'RepoTags': ['postgres:16']}
+        inventory = {'services': [{'project': 'core', 'service': 'postgres', 'image_id': image['Id']}],
+                     'required_payloads': [bundle.IMAGE_ARCHIVE]}
+        bundle.select_images(inventory, [image], lambda ref: {'schemaVersion': 2}, lambda tag: [])
+        self.assertEqual(inventory['images'][0]['reference'], 'postgres@' + image['Id'])
+        self.assertIsNone(inventory['image_archive'])
 
     def test_wrong_registry_content_never_silently_becomes_a_large_archive(self):
         image = {'Id': 'sha256:' + '1' * 64, 'Size': 10, 'Os': 'linux', 'Architecture': 'amd64',
@@ -188,6 +201,29 @@ class ImageSelectionTests(unittest.TestCase):
                      'required_payloads': []}
         with self.assertRaisesRegex(ValueError, 'no automatic image-archive fallback'):
             bundle.select_images(inventory, [image], lambda ref: {'schemaVersion': 2, 'config': {'digest': 'sha256:' + '3' * 64}})
+
+    def test_local_build_repository_digest_does_not_mean_image_was_published(self):
+        image = {'Id': 'sha256:' + '1' * 64, 'Size': 10, 'Os': 'linux', 'Architecture': 'amd64',
+                 'RepoDigests': ['local-build@sha256:' + '1' * 64]}
+        inventory = {'services': [{'project': 'core', 'service': 'documenso', 'image_id': image['Id']}],
+                     'required_payloads': []}
+        def missing(reference):
+            raise bundle.RegistryNotPublished('never pushed')
+        bundle.select_images(inventory, [image], missing)
+        self.assertEqual(inventory['images'][0]['recovery'], 'archive')
+        self.assertIn(bundle.IMAGE_ARCHIVE, inventory['required_payloads'])
+
+    def test_registry_not_published_is_distinct_from_outage_rate_limit_or_bad_response(self):
+        for error, expected in [
+            (subprocess.CalledProcessError(1, ['docker'], stderr='denied: requested access to the resource is denied'), bundle.RegistryNotPublished),
+            (subprocess.CalledProcessError(1, ['docker'], stderr='toomanyrequests: retry later'), RuntimeError),
+            (subprocess.TimeoutExpired(['docker'], 30), RuntimeError),
+        ]:
+            with patch.object(bundle.subprocess, 'run', side_effect=error):
+                with self.assertRaises(expected) as caught:
+                    bundle.registry_json(['docker'], '/anonymous', 'repo@sha256:' + '1' * 64)
+                if expected == RuntimeError:
+                    self.assertNotIsInstance(caught.exception, bundle.RegistryNotPublished)
 
 
 class CompletenessTests(unittest.TestCase):
@@ -287,10 +323,11 @@ elif args[:2]==['image','inspect']:
  for image in args[2:]:
   custom=any(c['Image']==image and c['Name'] in ('/documenso','/erpnext-backend') for c in state)
   if os.environ.get('REGISTRY_ONLY'):custom=False
-  result.append({'Id':image,'Size':4096,'Os':'linux','Architecture':'amd64','RepoDigests':[] if custom else ['docker.io/fixture/runtime@'+image]})
+  result.append({'Id':image,'Size':4096,'Os':'linux','Architecture':'amd64','RepoDigests':['docker.io/fixture/'+('unpublished' if custom else 'runtime')+'@'+image]})
  print(json.dumps(result))
 elif args[:2]==['manifest','inspect']:
  if os.environ.get('FAIL_REGISTRY'):sys.exit(25)
+ if '/unpublished@' in args[-1]:print('denied: requested access to the resource is denied',file=sys.stderr);sys.exit(26)
  print(json.dumps({'schemaVersion':2,'config':{'digest':args[-1].split('@')[1]}}))
 elif args[:2]==['image','save']:
  if os.environ.get('FAIL_IMAGES'):sys.exit(22)

@@ -88,6 +88,27 @@ def checked_output(command):
         raise RuntimeError('Docker recovery inventory command failed; inspect private diagnostics') from None
 
 
+class RegistryNotPublished(RuntimeError):
+    """The registry explicitly reports no anonymously accessible image here."""
+
+
+def registry_json(docker, config, reference, verbose=False):
+    args = docker + ['--config', config, 'manifest', 'inspect']
+    if verbose:
+        args.append('--verbose')
+    try:
+        result = subprocess.run(args + [reference], capture_output=True, text=True, timeout=30, check=True)
+        return json.loads(result.stdout)
+    except subprocess.CalledProcessError as error:
+        message = (error.stderr or '').lower()
+        if any(text in message for text in ('no such manifest', 'manifest unknown', 'name unknown',
+                                           'pull access denied', 'unauthorized', 'denied:')):
+            raise RegistryNotPublished('No anonymously accessible published image at this reference') from None
+        raise RuntimeError('Registry verification unavailable; no automatic image-archive fallback') from None
+    except (subprocess.SubprocessError, ValueError):
+        raise RuntimeError('Registry verification unavailable; no automatic image-archive fallback') from None
+
+
 def registry_matches(reference, image, inspect_manifest, depth=0):
     """Prove a registry digest contains this local image on its recorded platform.
 
@@ -131,33 +152,47 @@ def select_images(inventory, images, inspect_manifest, resolve_tag=None):
                  'source_tags': sorted(set(image.get('RepoTags') or [])),
                  'services': sorted(r['project'] + '/' + r['service'] for r in inventory['services'] if r['image_id'] == image_id)}
         digests = image.get('RepoDigests') or []
-        if not digests and resolve_tag:
+        verified, uncertain = None, False
+        for reference in sorted(set(digests)):
+            try:
+                if registry_matches(reference, image, inspect_manifest):
+                    verified = reference
+                    break
+                uncertain = True
+            except RegistryNotPublished:
+                # Docker 29 can assign RepoDigests to builds never pushed.
+                # Actual registry rejection, rather than local metadata alone,
+                # establishes that those bytes need to be archived.
+                continue
+            except (RuntimeError, ValueError, subprocess.SubprocessError):
+                uncertain = True
+        if digests and not verified and uncertain:
+            raise ValueError('Cannot anonymously verify a matching registry digest for ' + ', '.join(entry['services']) + '; no automatic image-archive fallback')
+        if not verified and resolve_tag:
             # A docker-loaded public image can lose RepoDigests while retaining
             # versioned RepoTags. Resolve those anonymously, then prove that the
             # resulting immutable content still matches the deployed image.
             for tag in sorted(set(image.get('RepoTags') or [])):
                 if not re.fullmatch(r'[a-zA-Z0-9][a-zA-Z0-9._:/-]*', tag) or tag.startswith('sha256:'):
                     continue
+                repository = tag.rsplit(':', 1)[0] if ':' in tag.rsplit('/', 1)[-1] else tag
+                direct = repository + '@' + image_id
+                try:
+                    if registry_matches(direct, image, inspect_manifest):
+                        # containerd-backed stores can preserve an index digest
+                        # as Id after load even if RepoDigests were lost.
+                        verified = direct
+                        break
+                except (RuntimeError, ValueError, subprocess.SubprocessError):
+                    pass  # Classic config IDs aren't registry manifest digests.
                 candidates = resolve_tag(tag)
                 for reference in candidates:
                     if registry_matches(reference, image, inspect_manifest):
-                        digests = [reference]
-                        break
-                if digests:
-                    break
-        if digests:
-            verified = None
-            for reference in sorted(set(digests)):
-                try:
-                    if registry_matches(reference, image, inspect_manifest):
                         verified = reference
                         break
-                except (RuntimeError, ValueError, subprocess.SubprocessError):
-                    continue
-            if not verified:
-                # A transient registry outage must not inflate nightly backups
-                # with every public image. Refuse before pausing applications.
-                raise ValueError('Cannot anonymously verify a matching registry digest for ' + ', '.join(entry['services']) + '; no automatic image-archive fallback')
+                if verified:
+                    break
+        if verified:
             entry.update(recovery='registry', reference=verified,
                          reason='Published digest verified anonymously against source identity and platform')
         else:
@@ -273,25 +308,12 @@ def capture(backup, docker):
     # Verify public recovery without borrowing the production Docker login.
     with tempfile.TemporaryDirectory(prefix='rootedops-registry-check-') as config:
         def inspect_manifest(reference):
-            try:
-                result = subprocess.run(docker + ['--config', config, 'manifest', 'inspect', reference],
-                                        capture_output=True, text=True, timeout=30, check=True)
-                return json.loads(result.stdout)
-            except (subprocess.SubprocessError, ValueError):
-                raise RuntimeError('Anonymous registry verification failed') from None
+            return registry_json(docker, config, reference)
         def resolve_tag(tag):
             try:
-                result = subprocess.run(docker + ['--config', config, 'manifest', 'inspect', '--verbose', tag],
-                                        capture_output=True, text=True, timeout=30, check=True)
-                records = json.loads(result.stdout)
-            except subprocess.CalledProcessError as error:
-                message = (error.stderr or '').lower()
-                if any(text in message for text in ('no such manifest', 'manifest unknown', 'name unknown',
-                                                     'pull access denied', 'unauthorized', 'denied:')):
-                    return []  # No public image exists under this local tag.
-                raise RuntimeError('Registry tag verification unavailable; refusing automatic image-archive fallback') from None
-            except (subprocess.SubprocessError, ValueError):
-                raise RuntimeError('Registry tag verification unavailable; refusing automatic image-archive fallback') from None
+                records = registry_json(docker, config, tag, verbose=True)
+            except RegistryNotPublished:
+                return []
             records = records if isinstance(records, list) else [records]
             repository = tag.rsplit(':', 1)[0] if ':' in tag.rsplit('/', 1)[-1] else tag
             return [repository + '@' + digest for record in records

@@ -77,9 +77,11 @@ External clients writing directly to databases must also be quiesced by the
 operator. Do not deploy/change containers while the backup runs.
 
 Registry verification and any necessary custom-image export precede the application
-pause. If a known published digest cannot be verified, the job fails **before**
-pausing applications; it never silently archives every public image during a
-registry outage. Restore needs registry/network availability for those pinned
+pause. Timeouts, rate limits, transient errors or mismatching registry content fail
+the job **before** pausing applications; they never silently archive every public
+image during an outage. An explicit registry response that an image is unpublished
+or not publicly accessible classifies it for archival. A local RepoDigest alone
+is not proof of publication: Docker 29 can assign one to an unpushed build. Restore needs registry/network availability for those pinned
 public images; registry retirement or removal will block recovery, not trigger an
 unreviewed upgrade. The operator can decide how to preserve a retired image if
 that occurs.
