@@ -100,7 +100,6 @@ sudo ln -sf /etc/nginx/sites-available/nocodb.conf /etc/nginx/sites-enabled/noco
 sudo ln -sf /etc/nginx/sites-available/appsmith.conf /etc/nginx/sites-enabled/appsmith.conf
 sudo ln -sf /etc/nginx/sites-available/documenso.conf /etc/nginx/sites-enabled/documenso.conf
 sudo ln -sf /etc/nginx/sites-available/listmonk.conf /etc/nginx/sites-enabled/listmonk.conf
-sudo ln -sf /etc/nginx/sites-available/grav.conf /etc/nginx/sites-enabled/grav.conf
 sudo ln -sf /etc/nginx/sites-available/erpnext.conf /etc/nginx/sites-enabled/erpnext.conf
 sudo ln -sf /etc/nginx/sites-available/qr.conf /etc/nginx/sites-enabled/qr.conf
 sudo nginx -t
@@ -370,7 +369,6 @@ These Redis volumes can still be backed up if you want a more literal snapshot, 
 
 ### Bind-mounted paths to preserve
 - `documenso/certs/cert.p12`
-- `grav/`
 - `listmonk/uploads/` - Listmonk media uploads; configure Listmonk Media path to `/listmonk/uploads`
 - `minecraft/bedrock/` - official Bedrock Dedicated Server config, worlds, players, allow list, and map data
 - `.env`
@@ -505,14 +503,14 @@ If signed documents get stuck in `Processing document...`, inspect the Documenso
 
 ## 7. Rooted Psyche WordPress
 
-Rooted Psyche runs from `docker/docker-compose.wordpress.yml` with persistent database and HTML volumes. Nginx proxies to `127.0.0.1:8096` in production; use the appropriate test hostname and port on test Linodes. The former Grav container is retired and must not be started in routine deployment.
+Rooted Psyche runs from `docker/docker-compose.wordpress.yml` with persistent database and HTML volumes. Nginx proxies to `127.0.0.1:8096` in production; use the appropriate test hostname and port on test Linodes.
 
 ```bash
 sudo docker compose --env-file ./.env -f docker/docker-compose.wordpress.yml config --quiet
 sudo docker compose --env-file ./.env -f docker/docker-compose.wordpress.yml up -d
 ```
 
-See `doc/rooted-psyche-wordpress-migration.md` for migration history and restore considerations. Preserve historical Grav archives.
+WordPress database and HTML-volume recovery is included in the full-stack restore workflow.
 
 ## 8. ERPNext + Frappe HR
 
@@ -838,7 +836,7 @@ bash backup/restore-stack.sh /tmp/rootedops-restore/20260313-023000
 What the restore helper does:
 - Verifies checksums if `SHA256SUMS` is present
 - Restores the non-database Docker volumes
-- Restores `documenso/certs`, `grav`, and `nginx`
+- Restores `documenso/certs` and `nginx`
 - Starts only the database containers
 - Imports the Postgres and MariaDB dumps
 

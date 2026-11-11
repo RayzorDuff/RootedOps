@@ -284,7 +284,6 @@ fi
 
 # Repo bind mounts and config required for a full restore.
 backup_bind_path "$REPO_ROOT/documenso/certs" documenso-certs.tgz
-backup_bind_path "$REPO_ROOT/grav" grav.tgz
 backup_bind_path "$REPO_ROOT/listmonk" listmonk.tgz
 backup_bind_path "$REPO_ROOT/nginx" nginx.tgz
 backup_bind_path "$REPO_ROOT/LINODE_SETUP.md" linode-setup-md.tgz
