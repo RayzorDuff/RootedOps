@@ -7,7 +7,6 @@ import json
 import os
 from pathlib import Path
 import re
-import shutil
 import subprocess
 import tarfile
 import time
@@ -15,31 +14,14 @@ import yaml
 from host_recovery import ROOT,projects,command
 from commerce_restore import read_env,copy_counts
 
-# Archive names are stable even though destination Compose project names differ.
-VOLUMES=[('core','nocodb','/usr/app/data','nocodb_data.tgz'),
- ('core','n8n','/home/node/.n8n','n8n_data.tgz'),
- ('core','appsmith','/appsmith-stacks','appsmith_stacks.tgz'),
- *[('core','erpnext-backend','/home/frappe/frappe-bench/'+kind,'erpnext_'+kind+'.tgz') for kind in ('sites','apps','logs')],
- ('core','erpnext-redis-cache','/data','erpnext_redis_cache_data.tgz'),
- ('core','erpnext-redis-queue','/data','erpnext_redis_queue_data.tgz'),
- ('rootedpsyche','rootedpsyche-wordpress','/var/www/html','rootedpsyche-wordpress-html.tgz'),
- ('dank','dank-wordpress','/var/www/html','dank-wordpress-html.tgz'),
- ('tymeslot','tymeslot','/app/data','rootedops-scheduling_tymeslot_data.tgz'),
- ('tymeslot','tymeslot','/var/lib/postgresql/data','rootedops-scheduling_tymeslot_pg.tgz'),
- ('rallly','db',None,'rallly-selfhosted_db-data.tgz'),
- ('rallly','garage','/var/lib/garage/meta','rallly-selfhosted_garage-meta.tgz'),
- ('rallly','garage','/var/lib/garage/data','rallly-selfhosted_garage-data.tgz')]
-for kind in ('','-kids'):
- for service,target,archive in [('librechat'+kind+'-mongodb','/data/db','mongodb'),
-   ('librechat'+kind,'/app/data','data'),('librechat'+kind,'/app/uploads','uploads'),
-   ('librechat'+kind,'/app/api/logs','logs')]:
-  VOLUMES.append(('core',service,target,'librechat'+kind+'-'+archive+'.tgz'))
-PG=[('signaturegate-postgres','SIG'),('mushroomprocess-bridge-postgres','MP_BRIDGE'),
- ('listmonk-postgres','LISTMONK'),('nocodb-meta-postgres','NC'),('documenso-postgres','DOCUMENSO')]
+# One archive contract is shared with the nightly producer.
+from recovery_bundle import (VOLUME_SPECS as VOLUMES, PG,
+                             prepare_images, verify_images)
+
 LOCAL_KEYS=('N8N_ENCRYPTION_KEY','APPSMITH_ENCRYPTION_PASSWORD','APPSMITH_ENCRYPTION_SALT',
  'TYMESLOT_DATA_ENCRYPTION_KEY','TYMESLOT_SECRET_KEY_BASE','TYMESLOT_GOOGLE_STATE_SECRET',
  'LIBRECHAT_CREDS_KEY','LIBRECHAT_CREDS_IV','LIBRECHAT_KIDS_CREDS_KEY','LIBRECHAT_KIDS_CREDS_IV',
- 'DOCUMENSO_ENCRYPTION_KEY','DOCUMENSO_ENCRYPTION_SECONDARY_KEY','DOCUMENSO_SIGNING_PASSPHRASE','NC_AUTH_JWT_SECRET')
+ 'DOCUMENSO_ENCRYPTION_KEY','DOCUMENSO_ENCRYPTION_SECONDARY_KEY','NC_AUTH_JWT_SECRET')
 
 COMMERCE_COMPONENTS=('mushroomprocess','erpnext','appsmith','n8n','dank-wordpress')
 COMPONENT_FILES={
@@ -73,6 +55,7 @@ class Recovery:
     self.key_file=Path(key_file) if key_file is not None else None
     self.allow_removed_secret_metadata=allow_removed_secret_metadata
     self.removed_secret_metadata=[]
+    self.bundle=None
     if self.components is None and (self.key_file or allow_removed_secret_metadata):
         raise ValueError('Secret-minimal options require an explicit component selection')
     self.commands={name:command(self.output/'.env',self.output/(name+'.yml'),[]) for name in ('core','rootedpsyche','dank','tymeslot')}
@@ -147,7 +130,10 @@ class Recovery:
         for kind in ('container','volume'):
             cmd=['docker','ps','-aq','--filter','label=com.docker.compose.project='+project] if kind=='container' else ['docker','volume','ls','-q','--filter','label=com.docker.compose.project='+project]
             if subprocess.check_output(cmd,text=True).strip():raise ValueError('Existing test project; refusing destructive reuse')
-    if not (self.output/'IMAGE_COMPATIBILITY_REVIEWED').is_file():raise ValueError('Review backup app/image versions first; create IMAGE_COMPATIBILITY_REVIEWED only after compatibility is confirmed')
+    if self.components is None:
+        self.bundle=verify_images(self.output,self.backup)
+    elif not (self.output/'IMAGE_COMPATIBILITY_REVIEWED').is_file():
+        raise ValueError('Review backup app/image versions first; create IMAGE_COMPATIBILITY_REVIEWED only after compatibility is confirmed')
     if self.components is None and not (self.backup/'meta/.env').is_file():raise ValueError('Source local encryption keys are required in meta/.env')
     for path in self.archives('volumes','*.tgz'):
         subprocess.run(['bash','-c','source "$1"; validate_managed_volume_archive "$2"','preflight',str(ROOT/'backup/volume-tools.sh'),str(path)],check=True)
@@ -173,7 +159,8 @@ class Recovery:
             while stream.read(1024*1024):pass
     # Validate bind archives too, before *any* mutation.
     for path in self.bind_archives():
-        subprocess.run(['bash','-c','source "$1"; validate_volume_archive "$2"','preflight',str(ROOT/'backup/volume-tools.sh'),str(path)],check=True)
+        allow='allow-empty' if path.name.startswith('runtime-bind-') else 'required'
+        subprocess.run(['bash','-c','source "$1"; validate_volume_archive "$2" "$3"','preflight',str(ROOT/'backup/volume-tools.sh'),str(path),allow],check=True)
  def volume(self,project,service,destination,archive):
     self.dc(project,'up','--no-start','--no-deps',service)
     cid=self.dc(project,'ps','-a','-q',service,capture_output=True,text=True).stdout.strip()
@@ -369,18 +356,35 @@ class Recovery:
         destination=quarantine/path.stem;destination.mkdir(mode=0o700)
         subprocess.run(['tar','-xzf',str(path),'-C',str(destination)],check=True)
         restored.append(path.name)
-        if path.name=='documenso-certs.tgz':
-            cert=destination/'certs/cert.p12'
-            if not cert.is_file():raise ValueError('Missing Documenso signing certificate')
-            shutil.copyfile(cert,self.output/'certs/cert.p12');(self.output/'certs/cert.p12').chmod(0o644)
         if path.name=='listmonk.tgz':
             uploads=destination/'listmonk/uploads'
             if uploads.is_dir():
                 config=yaml.safe_load((self.output/'core.yml').read_text())
                 config['services']['listmonk']['volumes']=[str(uploads)+':/listmonk/uploads:rw']
                 (self.output/'core.yml').write_text(yaml.safe_dump(config,sort_keys=False))
+    if self.bundle:
+        changed={}
+        for record in self.bundle['binds']:
+            # Production signing keys stay archived. The generated TEST-only
+            # signing certificate/passphrase are intentionally retained.
+            if record['service']=='documenso' and record['destination']=='/opt/documenso/cert.p12':
+                continue
+            project=record['project']
+            path=self.output/('rallly/compose.yml' if project=='rallly' else project+'.yml')
+            config=changed.setdefault(path,yaml.safe_load(path.read_text()))
+            spec=config['services'][record['service']]
+            destination=record['destination']
+            mounts=spec.get('volumes',[])
+            mounts=[m for m in mounts if (m.split(':')[1] if isinstance(m,str) else m['target'])!=destination]
+            source=quarantine/Path(record['archive']).stem/'payload'
+            if not source.exists():raise ValueError('Missing restored runtime bind payload')
+            mounts.append({'type':'bind','source':str(source),'target':destination,'read_only':record['read_only']})
+            spec['volumes']=mounts
+        for path,config in changed.items():
+            path.write_text(yaml.safe_dump(config,sort_keys=False));path.chmod(0o600)
     report={'restored':restored,'selected_components':sorted(self.components) if self.components is not None else 'full-stack',
       'removed_secret_metadata':self.removed_secret_metadata,
+      'source_groups':self.bundle['groups'] if self.bundle else None,
       'scope':'Selected components only; not full-stack recovery acceptance' if self.components is not None else 'Full archive recovery',
       'postgres_copy_tables_verified':verified,'apps_started':False,'external_egress':False,'migrations_run':False,
       'acceptance':'Pending endpoint remapping, health/data checks and operator review. Do not start schedulers.'}
@@ -391,11 +395,15 @@ class Recovery:
 if __name__=='__main__':
  p=argparse.ArgumentParser(description=__doc__);p.add_argument('environment',type=Path);p.add_argument('backup',type=Path);p.add_argument('--source-site')
  p.add_argument('--components',nargs='+',choices=COMMERCE_COMPONENTS,help='Restore only these commerce components; omit for full recovery')
+ p.add_argument('--prepare-images',action='store_true',help='Load exact nightly runtime images and pin isolated Compose; start no containers')
  p.add_argument('--check-only',action='store_true',help='Validate the complete snapshot and restore prerequisites without mutation')
  p.add_argument('--resume-test2-checkpoint',action='store_true',help='Resume only the verified October 30 test2 partial checkpoint')
  p.add_argument('--key-file',type=Path,help='Private file containing exactly the selected original Appsmith/n8n encryption keys')
  p.add_argument('--allow-removed-secret-metadata',action='store_true',help='Acknowledge removed meta/.env/Rallly env archive only; all other hashes remain mandatory')
  a=p.parse_args();recovery=Recovery(a.environment,a.backup,a.components,a.key_file,a.allow_removed_secret_metadata)
- if a.check_only and a.resume_test2_checkpoint:recovery.verify_test2_resume(a.source_site);print('Interrupted test2 checkpoint verified; no changes made.')
+ if a.prepare_images:
+  if a.components or a.key_file or a.allow_removed_secret_metadata or a.check_only or a.resume_test2_checkpoint:p.error('--prepare-images is a separate full-stack preparation action')
+  prepare_images(a.environment.resolve(),a.backup.resolve())
+ elif a.check_only and a.resume_test2_checkpoint:recovery.verify_test2_resume(a.source_site);print('Interrupted test2 checkpoint verified; no changes made.')
  elif a.check_only:recovery.preflight(a.source_site);print('Restore prerequisites validated; no volumes or databases created.')
  else:recovery.run(a.source_site,resume_test2=a.resume_test2_checkpoint)

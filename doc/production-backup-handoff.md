@@ -1,3 +1,11 @@
+> **November 10, 2026 update:** The full nightly backup now uses the format-2
+> self-contained image/data inventory. Follow
+> [nightly-recovery-bundle.md](nightly-recovery-bundle.md) for the next production
+> pull, backup and fresh-snapshot transfer. The historical instructions below
+> describe the earlier empty-volume repair and do not establish current full-stack
+> coverage. Do not export extra image files alongside an old snapshot or merge
+> files across timestamps.
+
 # Production backup changes and operator handoff
 
 Merge RootedOps PR #21 first. No production backup or deployment was executed by
