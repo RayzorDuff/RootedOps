@@ -44,10 +44,11 @@ with tarfile.open(sys.argv[1],'r:gz') as archive:
 PY
 }
 
-# Redis cache/queue snapshots may legitimately contain no persistent state.
+# Cache, unused standalone Mongo configdb and upload/log directories can be empty.
+# Primary MongoDB/Appsmith/n8n/scheduling databases must contain real files.
 validate_managed_volume_archive() {
   case "${1##*/}" in
-    erpnext_redis_cache_data.tgz|erpnext_redis_queue_data.tgz)
+    erpnext_redis_cache_data.tgz|erpnext_redis_queue_data.tgz|librechat-data.tgz|librechat-uploads.tgz|librechat-logs.tgz|librechat-kids-data.tgz|librechat-kids-uploads.tgz|librechat-kids-logs.tgz|librechat-mongodb-config.tgz|librechat-kids-mongodb-config.tgz)
       validate_volume_archive "$1" allow-empty ;;
     *) validate_volume_archive "$1" ;;
   esac

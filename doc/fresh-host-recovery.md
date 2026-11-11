@@ -71,22 +71,49 @@ copies only required encryption keys, not production API/SMTP/OAuth credentials.
 The original Frappe site encryption key, n8n encryption key, Appsmith encryption
 material, Rallly storage keys and Tymeslot data encryption key must survive.
 
-Before restoring, review `meta/frappe-app-versions.txt`, Docker image metadata
-and the archived Compose files. Build/load **matching** application images;
-do not silently migrate old data using floating newer Frappe/ERPNext/HRMS/ESS
-or MongoDB images. Adjust the private test `.env` build refs/tags and review the
-rendered files. The restored Frappe apps volume is retained. Record the review:
+A full recovery now requires a **format-2 nightly snapshot** produced by the
+repaired `backup/backup-stack.sh`. Its checksummed `meta/recovery-bundle.json`
+identifies installed groups, every required payload, actual mounts and immutable
+runtime image IDs, platforms and recovery methods. Published images use verified
+immutable registry digests; their bytes are omitted. The optional
+`images/runtime-images.tar.gz` contains only required local/custom images with
+no verified published source, such as locally built ERPNext/Documenso. No separate manual image
+export, floating-tag rebuild or `IMAGE_COMPATIBILITY_REVIEWED` marker substitutes
+for this bundle. Older snapshots remain available for explicitly scoped subset
+recovery; they cannot prove complete full-stack acceptance.
+
+Review the inventory and `meta/frappe-app-versions.txt`, then load and verify the
+public digests and necessary custom images and pin the **generated isolated**
+Compose files. This step starts
+no containers and preserves their internal networks, loopback ports and generated
+test credentials. The source ERP backend image also supplies the initializer and
+bootstrap services. Source groups explicitly recorded as not installed remain
+behind an inactive profile, rather than becoming misleading fresh installations.
 
 ```bash
-# Build only after selecting matching source/image versions in the private .env.
-sudo docker compose --env-file .test-deployment/.env -f .test-deployment/core.yml build
-printf '%s\n' 'Reviewed matching source backup and image/app versions' > .test-deployment/IMAGE_COMPATIBILITY_REVIEWED
+sudo python3 scripts/full_restore.py "$PWD/.test-deployment" "$HOME/restore-input" --prepare-images
+sudo python3 scripts/host_recovery.py validate "$PWD/.test-deployment"
+sudo python3 scripts/full_restore.py "$PWD/.test-deployment" "$HOME/restore-input" --source-site erp.danks.store --check-only
 sudo python3 scripts/full_restore.py "$PWD/.test-deployment" "$HOME/restore-input" --source-site erp.danks.store
 ```
 
+Image preparation verifies snapshot checksums/completeness, pulls pinned public
+images, loads only the archived custom bytes, checks exact local IDs and removes
+floating builds from restored runtime
+services and sets `pull_policy: never`. Its private receipt binds source inventory
+to the generated Compose files. Restore refuses missing service payloads even when
+a hand-edited SHA256SUMS would otherwise pass. Source bind mounts (including Board
+supplements and LibreChat configuration) are restored into private local quarantine
+and remounted there; original external paths are not contacted. The production
+Documenso signing certificate/passphrase stay archived and the generated TEST-only
+certificate/passphrase remain active in the test configuration.
+
+See [nightly-recovery-bundle.md](nightly-recovery-bundle.md) for the producer-side
+repair, maintenance pause, image selection/size report and operator rerun.
+
 Replace `--source-site` with the actual site directory in `erpnext_sites.tgz`.
 Restoration requires a fresh project, checksum verification, safe/nonempty archive
-validation and the explicit compatibility review. Unknown volume/database archives
+validation and an exact-image preparation receipt. Unknown volume/database archives
 fail instead of being silently skipped. A `RESTORE_STARTED` marker prevents
 silent retry after failure; inspect partial state and use a fresh environment.
 
@@ -97,8 +124,8 @@ imported. ERP gets the test hostname and maintenance/scheduler pause. Rallly's
 raw cluster retains its PostgreSQL major and original encryption/storage keys.
 Appsmith/n8n/NocoDB, WordPress, scheduling and any backed-up LibreChat volumes are
 mapped. Bind archives are retained privately; production NGINX is **not**
-installed. Documenso signing material and Listmonk uploads are remapped to their
-restored private paths. Historical Grav/Minecraft data is retained, not started.
+installed. Production Documenso signing material stays quarantined; Listmonk uploads and
+other runtime bind payloads are remapped to restored private paths. Historical Grav/Minecraft data is retained, not started.
 
 Applications remain stopped after recovery. `restore-receipt.json` lists recovered
 archives. This is deliberate: **do not run the fresh-install `start` command after
@@ -114,11 +141,10 @@ the generated Compose files; leave ERP workers/scheduler stopped until verified.
 Record SQL/table counts, app record counts, authenticated UI checks, a second
 backup/restore round-trip and a host reboot under #22.
 
-The currently supplied migration archives cover MushroomProcess, Appsmith, n8n
-and NocoDB only. They cannot demonstrate full ERP/WordPress/scheduling/LibreChat
-recovery; those need the complete selected production snapshot. Existing backup
-scripts may not have archived LibreChat volumes. If absent, record that as a
-missing backup dependency rather than accepting an empty/fresh app as restored.
+Earlier migration-only archives and the November 10 pre-repair snapshot cannot
+prove complete full-stack recovery. Use the repaired nightly job and a new
+format-2 snapshot. Installed LibreChat/WordPress/scheduling groups require their
+complete data; an empty fresh install cannot substitute for a missing payload.
 
 ## DNS and HTTPS
 

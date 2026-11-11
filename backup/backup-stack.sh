@@ -38,6 +38,9 @@ MINECRAFT_BACKUP_STOP_CONTAINER="${MINECRAFT_BACKUP_STOP_CONTAINER:-true}"
 KEEP_DAILY_DAYS="${KEEP_DAILY_DAYS:-7}"
 
 mkdir -p "$LOCAL_STAGING_PARENT"
+# Cron and manual runs must never overlap while applications are quiesced.
+exec 9>"$LOCAL_STAGING_PARENT/.rootedops-backup.lock"
+flock -n 9 || { echo "Another RootedOps backup is running" >&2; exit 1; }
 LOCAL_STAGE_ROOT="$(mktemp -d "$LOCAL_STAGING_PARENT/${BACKUP_PREFIX}-${TIMESTAMP}-XXXXXX")"
 BACKUP_DIR="$LOCAL_STAGE_ROOT/$TIMESTAMP"
 LATEST_LINK="$LOCAL_STAGE_ROOT/latest"
@@ -47,20 +50,31 @@ cleanup() {
     rm -rf "$LOCAL_STAGE_ROOT"
   fi
 }
-# Scheduling containers are paused only during the cold volume snapshots.
+# Application writers and raw database containers are paused for the snapshot.
 # If archiving fails, resume them before removing the temporary staging directory.
 PAUSED_CONTAINERS=()
 resume_paused_containers() {
-  local container
-  for container in "${PAUSED_CONTAINERS[@]}"; do
+  local container index failed=0
+  local -a remaining=()
+  # Raw databases/cache were stopped last, so resume them before applications.
+  for ((index=${#PAUSED_CONTAINERS[@]}-1; index>=0; index--)); do
+    container="${PAUSED_CONTAINERS[index]}"
     log "Restarting paused container $container"
-    $DOCKER_BIN start "$container" >/dev/null || true
+    if ! $DOCKER_BIN start "$container" >/dev/null; then
+      echo "Failed to restart $container; backup is not complete" >&2
+      remaining+=("$container")
+      failed=1
+    fi
   done
-  PAUSED_CONTAINERS=()
+  PAUSED_CONTAINERS=("${remaining[@]}")
+  return "$failed"
 }
 cleanup_and_resume() {
-  resume_paused_containers
+  local status=$?
+  trap - EXIT
+  resume_paused_containers || status=1
   cleanup
+  exit "$status"
 }
 trap cleanup_and_resume EXIT
 
@@ -78,6 +92,7 @@ require_cmd() {
 require_cmd bash
 require_cmd date
 require_cmd find
+require_cmd flock
 require_cmd gzip
 require_cmd mktemp
 require_cmd python3
@@ -99,7 +114,15 @@ if ! rclone listremotes | grep -Fxq "${REMOTE_NAME}:"; then
   exit 1
 fi
 
-mkdir -p "$BACKUP_DIR"/{db,volumes,bind_mounts,meta}
+mkdir -p "$BACKUP_DIR"/{db,volumes,bind_mounts,meta,images}
+
+# Discover the actual deployed services/mounts before stopping anything. No raw
+# container environment or credentials are written to the inventory.
+python3 "$REPO_ROOT/scripts/recovery_bundle.py" capture "$BACKUP_DIR" --docker-command "$DOCKER_BIN"
+if [[ "${BACKUP_IMAGE_PLAN_ONLY:-false}" == true ]]; then
+  log "Image plan only: no image exports, application pauses, SQL dumps or uploads performed"
+  exit 0
+fi
 
 log "Writing metadata"
 git -C "$REPO_ROOT" rev-parse HEAD > "$BACKUP_DIR/meta/git_commit.txt" 2>/dev/null || true
@@ -110,6 +133,19 @@ $DOCKER_BIN image ls --digests --no-trunc > "$BACKUP_DIR/meta/docker-images.txt"
 $DOCKER_BIN exec erpnext-backend bench version > "$BACKUP_DIR/meta/frappe-app-versions.txt"
 cp "$COMPOSE_FILE" "$BACKUP_DIR/meta/docker-compose.yml"
 cp "$ENV_FILE" "$BACKUP_DIR/meta/.env"
+
+# Export only local/custom images without a recoverable repository digest.
+# Public images use verified immutable registry references, without image bytes.
+# This happens before the maintenance pause and never retags production images.
+mapfile -t runtime_images < <(python3 "$REPO_ROOT/scripts/recovery_bundle.py" records "$BACKUP_DIR" --kind images)
+if [[ ${#runtime_images[@]} -gt 0 ]]; then
+  log "Saving local/custom runtime images only (${#runtime_images[@]} unique images)"
+  $DOCKER_BIN image save "${runtime_images[@]}" | gzip -1 > "$BACKUP_DIR/images/runtime-images.tar.gz"
+  log "Custom image archive compressed bytes: $(stat -c %s "$BACKUP_DIR/images/runtime-images.tar.gz")"
+else
+  log "All runtime images recover from verified registry digests; no image archive needed"
+fi
+python3 "$REPO_ROOT/scripts/recovery_bundle.py" finalize-images "$BACKUP_DIR"
 
 pg_dump_container() {
   local container="$1" user="$2" db="$3" password="$4" outfile="$5"
@@ -133,7 +169,7 @@ backup_volume() {
   $DOCKER_BIN volume inspect "$volume_name" >/dev/null
   log "Archiving volume $volume_name"
   mkdir -p "$BACKUP_DIR/volumes"
-  $DOCKER_BIN run --rm \
+  $DOCKER_BIN run --rm --network none \
     -v "$volume_name:/volume:ro" \
     -v "$BACKUP_DIR/volumes:/backup" \
     alpine:3.20 \
@@ -141,29 +177,6 @@ backup_volume() {
   validate_managed_volume_archive "$BACKUP_DIR/volumes/$archive_name"
 }
 
-backup_mounted_volume() {
-  local container="$1" destination="$2" archive_name="$3" actual_volume
-  actual_volume="$(resolve_mounted_volume "$container" "$destination")"
-  # n8n SQLite and Appsmith embedded MongoDB need cold snapshots.
-  local paused=false
-  if [[ "$container" == n8n || "$container" == appsmith ]] && container_is_running "$container"; then
-    log "Stopping $container for a consistent application volume backup"
-    $DOCKER_BIN stop "$container" >/dev/null
-    PAUSED_CONTAINERS+=("$container")
-    paused=true
-  fi
-  backup_volume "$actual_volume" "$archive_name"
-  if [[ "$paused" == true ]]; then
-    $DOCKER_BIN start "$container" >/dev/null
-    # Remove only the container successfully restarted; EXIT retries on failure.
-    local -a remaining=()
-    local entry
-    for entry in "${PAUSED_CONTAINERS[@]}"; do
-      [[ "$entry" == "$container" ]] || remaining+=("$entry")
-    done
-    PAUSED_CONTAINERS=("${remaining[@]}")
-  fi
-}
 
 backup_bind_path() {
   local src="$1" archive_name="$2"
@@ -204,6 +217,17 @@ backup_minecraft_bedrock() {
   fi
 }
 
+# Quiesce all managed application writers, then raw cluster/cache containers.
+# Logical PostgreSQL/MariaDB servers remain up for their transactional dumps.
+# Keep a list before stop, so EXIT can recover even if stop reports an error.
+python3 "$REPO_ROOT/scripts/recovery_bundle.py" verify-sources "$BACKUP_DIR" --docker-command "$DOCKER_BIN"
+mapfile -t cold_containers < <(python3 "$REPO_ROOT/scripts/recovery_bundle.py" records "$BACKUP_DIR" --kind cold)
+for container in "${cold_containers[@]}"; do
+  PAUSED_CONTAINERS+=("$container")
+  log "Stopping $container for coordinated SQL/file snapshot"
+  $DOCKER_BIN stop "$container" >/dev/null
+done
+
 pg_dump_container signaturegate-postgres "$SIG_DB_USER" "$SIG_DB_NAME" "$SIG_DB_PASSWORD" \
   "$BACKUP_DIR/db/signaturegate-postgres.sql.gz"
 pg_dump_container mushroomprocess-bridge-postgres "$MP_BRIDGE_DB_USER" "$MP_BRIDGE_DB_NAME" "$MP_BRIDGE_DB_PASSWORD" \
@@ -216,87 +240,44 @@ pg_dump_container documenso-postgres "$DOCUMENSO_DB_USER" "$DOCUMENSO_DB_NAME" "
   "$BACKUP_DIR/db/documenso-postgres.sql.gz"
 mariadb_dump_all erpnext-db "$ERPNEXT_DB_ROOT_PASSWORD" "$BACKUP_DIR/db/erpnext-all-databases.sql.gz"
 # WordPress is deployed with a separate Compose file but shares the default docker project.
-mariadb_dump_all docker-rootedpsyche-wordpress-db-1 "$ROOTEDPSYCHE_WP_DB_ROOT_PASSWORD" "$BACKUP_DIR/db/rootedpsyche-wordpress-all-databases.sql.gz"
+rootedpsyche_db="$(python3 "$REPO_ROOT/scripts/recovery_bundle.py" records "$BACKUP_DIR" --kind rootedpsyche)"
+mariadb_dump_all "$rootedpsyche_db" "$ROOTEDPSYCHE_WP_DB_ROOT_PASSWORD" "$BACKUP_DIR/db/rootedpsyche-wordpress-all-databases.sql.gz"
 
-# Non-database Docker volumes needed for a practical restore.
-backup_mounted_volume nocodb /usr/app/data nocodb_data.tgz
-backup_mounted_volume n8n /home/node/.n8n n8n_data.tgz
-backup_mounted_volume appsmith /appsmith-stacks appsmith_stacks.tgz
-backup_mounted_volume erpnext-backend /home/frappe/frappe-bench/sites erpnext_sites.tgz
-backup_mounted_volume erpnext-backend /home/frappe/frappe-bench/apps erpnext_apps.tgz
-backup_mounted_volume erpnext-backend /home/frappe/frappe-bench/logs erpnext_logs.tgz
-# The full WordPress HTML volume includes uploads, plugins, themes, and MU plugins.
-backup_mounted_volume docker-rootedpsyche-wordpress-1 /var/www/html rootedpsyche-wordpress-html.tgz
+# Independent Dank WordPress deployment: use the actual Compose-labelled DB.
+dank_db="$(python3 "$REPO_ROOT/scripts/recovery_bundle.py" records "$BACKUP_DIR" --kind dank)"
+if [[ -n "$dank_db" ]]; then
+  mariadb_dump_all "$dank_db" "${DANK_WP_DB_ROOT_PASSWORD:?Dank WordPress root password required}" "$BACKUP_DIR/db/dank-wordpress-all-databases.sql.gz"
+fi
 
-# Usually disposable, but keeping them may help preserve in-flight state.
-backup_mounted_volume erpnext-redis-cache /data erpnext_redis_cache_data.tgz
-backup_mounted_volume erpnext-redis-queue /data erpnext_redis_queue_data.tgz
+# Inventory includes both LibreChat MongoDB clusters, uploads/data/logs, both
+# WordPress sites, and all five cold scheduling volumes. Missing mounts fail.
+python3 "$REPO_ROOT/scripts/recovery_bundle.py" records "$BACKUP_DIR" --kind volumes > "$LOCAL_STAGE_ROOT/volume-plan.tsv"
+while IFS=$'\t' read -r volume archive; do
+  backup_volume "$volume" "$archive"
+done < "$LOCAL_STAGE_ROOT/volume-plan.tsv"
+rm "$LOCAL_STAGE_ROOT/volume-plan.tsv"
 
+# Capture all actual runtime bind mounts (including Board supplements and
+# LibreChat/Rallly configuration) privately, without assuming host paths.
+python3 "$REPO_ROOT/scripts/recovery_bundle.py" records "$BACKUP_DIR" --kind binds > "$LOCAL_STAGE_ROOT/bind-plan.tsv"
+while IFS=$'\t' read -r src archive; do
+  log "Archiving runtime bind $archive"
+  $DOCKER_BIN run --rm --network none \
+    --mount "type=bind,source=$src,target=/source/payload,readonly" -v "$BACKUP_DIR/bind_mounts:/backup" \
+    alpine:3.20 sh -ec 'tar -czf "/backup/$1" --numeric-owner -C /source payload' archive "$archive"
+  validate_volume_archive "$BACKUP_DIR/bind_mounts/$archive" allow-empty
+done < "$LOCAL_STAGE_ROOT/bind-plan.tsv"
+rm "$LOCAL_STAGE_ROOT/bind-plan.tsv"
 
-# Dedicated Compose projects created during the scheduling deployment:
-# rootedops-scheduling (Tymeslot), rallly-selfhosted (Rallly).
-# Cold volume archives protect embedded Postgres and Rallly's Garage metadata/data.
-# We do not quietly create an empty backup for a missing, configured installation.
-backup_scheduling() {
-  local -a running=()
-  local volume container
-  local -a containers=(rootedops-tymeslot rallly-selfhosted-web-1 rallly-selfhosted-db-1 rallly-selfhosted-garage-1)
-  local -a volumes=(
-    rootedops-scheduling_tymeslot_data
-    rootedops-scheduling_tymeslot_pg
-    rallly-selfhosted_db-data
-    rallly-selfhosted_garage-meta
-    rallly-selfhosted_garage-data
-  )
-  local present=0
-  for volume in "${volumes[@]}"; do
-    if $DOCKER_BIN volume inspect "$volume" >/dev/null 2>&1; then
-      present=$((present+1))
-    fi
-  done
-  if [[ "$present" -eq 0 ]]; then
-    log "Scheduling volumes not installed; skipping scheduling backup"
-    return 0
-  fi
-  if [[ "$present" -ne "${#volumes[@]}" ]]; then
-    echo "Scheduling volumes partially installed ($present/${#volumes[@]}); refusing incomplete backup" >&2
-    return 1
-  fi
-  # Check whether each container is running before stopping; only resume those.
-  for container in "${containers[@]}"; do
-    if container_is_running "$container"; then
-      running+=("$container")
-    fi
-  done
-  for container in "${running[@]}"; do
-    log "Pausing scheduling container $container for consistent volume archive"
-    $DOCKER_BIN stop "$container" >/dev/null
-    PAUSED_CONTAINERS+=("$container")
-  done
-  for volume in "${volumes[@]}"; do
-    backup_volume "$volume" "$volume.tgz"
-  done
-  # The upstream setup-generated Rallly .env contains secrets needed to recover
-  # OAuth, signing, Postgres and Garage; it is not in the RootedOps root .env.
-  local rallly_env="$REPO_ROOT/docker/scheduling/rallly-selfhosted/.env"
-  if [[ ! -f "$rallly_env" ]]; then
-    echo "Rallly .env missing; refusing incomplete scheduling backup" >&2
-    return 1
-  fi
-  # setup generates mode 600/root-owned credentials; read via Docker root helper
-  # rather than relaxing permissions on host credentials.
-  log "Archiving protected Rallly configuration"
-  $DOCKER_BIN run --rm \
-    -v "$rallly_env:/source/.env:ro" \
-    -v "$BACKUP_DIR/bind_mounts:/backup" \
-    alpine:3.20 \
-    sh -lc 'cd /source && tar -czf /backup/rallly-selfhosted-env.tgz .env'
+# Rallly credentials are required separately from the host's root .env.
+if [[ -f "$BACKUP_DIR/volumes/rallly-selfhosted_db-data.tgz" ]]; then
+  rallly_env="$REPO_ROOT/docker/scheduling/rallly-selfhosted/.env"
+  [[ -f "$rallly_env" ]] || { echo "Rallly .env missing; incomplete backup" >&2; exit 1; }
+  $DOCKER_BIN run --rm --network none \
+    -v "$rallly_env:/source/.env:ro" -v "$BACKUP_DIR/bind_mounts:/backup" \
+    alpine:3.20 sh -ec 'cd /source && tar -czf /backup/rallly-selfhosted-env.tgz .env'
   cp "$REPO_ROOT/docker/scheduling/tymeslot.compose.yml" "$BACKUP_DIR/meta/tymeslot.compose.yml"
-  log "Scheduling volumes and credentials captured"
-  resume_paused_containers
-}
-
-backup_scheduling
+fi
 
 # Repo bind mounts and config required for a full restore.
 backup_bind_path "$REPO_ROOT/documenso/certs" documenso-certs.tgz
@@ -304,13 +285,34 @@ backup_bind_path "$REPO_ROOT/grav" grav.tgz
 backup_bind_path "$REPO_ROOT/listmonk" listmonk.tgz
 backup_bind_path "$REPO_ROOT/nginx" nginx.tgz
 backup_bind_path "$REPO_ROOT/LINODE_SETUP.md" linode-setup-md.tgz
+
+# Writers can resume before image validation, upload and retention. Any restart
+# failure is fatal; the EXIT trap retries, and no successful backup is published.
+python3 "$REPO_ROOT/scripts/recovery_bundle.py" verify-sources "$BACKUP_DIR" --docker-command "$DOCKER_BIN" --allow-stopped
+resume_paused_containers
+
 backup_minecraft_bedrock "$MINECRAFT_BEDROCK_DATA_PATH" minecraft-bedrock.tgz
+
+# Match the consumer's archive checks before declaring the snapshot usable.
+for archive in "$BACKUP_DIR"/bind_mounts/*.tgz; do
+  [[ -f "$archive" ]] || continue
+  case "${archive##*/}" in
+    runtime-bind-*) validate_volume_archive "$archive" allow-empty ;;
+    *) validate_volume_archive "$archive" ;;
+  esac
+done
+for dump in "$BACKUP_DIR"/db/*.gz; do
+  gzip -t "$dump"
+done
 
 (
   cd "$BACKUP_DIR"
   find . -type f ! -name 'SHA256SUMS' -print0 | sort -z | xargs -0 sha256sum > SHA256SUMS
 )
 
+# A checksummed but incomplete snapshot must never be uploaded as successful.
+python3 "$REPO_ROOT/scripts/recovery_bundle.py" validate "$BACKUP_DIR"
+(cd "$BACKUP_DIR" && sha256sum --check --quiet SHA256SUMS)
 ln -sfn "$TIMESTAMP" "$LATEST_LINK"
 
 log "Syncing staged backup to $REMOTE_PREFIX_PATH"
