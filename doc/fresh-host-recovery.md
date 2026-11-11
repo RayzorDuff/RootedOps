@@ -131,6 +131,12 @@ Applications remain stopped after recovery. `restore-receipt.json` lists recover
 archives. This is deliberate: **do not run the fresh-install `start` command after
 restoring production data**, because it starts workers and scheduling.
 
+Rallly uses the local Mailpit service on port 1025 without SMTP authentication.
+Leave both `SMTP_USER` and `SMTP_PWD` absent from the generated Rallly
+`.env`. An older generated configuration with only `SMTP_USER` set causes
+Rallly to fail environment validation and return HTTP 500. For an existing test
+deployment, remove both fields and recreate only the Rallly web container.
+
 Before launching restored apps, inspect/repoint Appsmith/NocoDB datasource URLs,
 disable all n8n workflows with its version-matched CLI, disable ERP outbound email,
 webhooks and scheduled jobs, and rewrite each WordPress `home`/`siteurl` plus
