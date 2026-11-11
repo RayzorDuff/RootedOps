@@ -25,6 +25,8 @@ jobs:
         run: python scripts/restore_volume_ci.py
       - name: Native registry-first and custom-image recovery
         run: python scripts/recovery_bundle_ci.py
+      - name: Native nested ERP assets volume round trip
+        run: python scripts/erp_assets_ci.py
       - name: Native ERP MariaDB healthcheck
         run: |
           cfg="$RUNNER_TEMP/rootedops-recovery"

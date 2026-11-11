@@ -69,6 +69,45 @@ LIVE_DATABASES = {s for s, _ in PG} | {'erpnext-db', 'rootedpsyche-wordpress-db'
 DISPOSABLE_MOUNTS = {('documenso', '/home/nodejs/.cache/ms-playwright')}
 HEX_ID = re.compile(r'sha256:[0-9a-f]{64}')
 REGISTRY_REF = re.compile(r'[a-zA-Z0-9][a-zA-Z0-9._:/-]*@sha256:[0-9a-f]{64}')
+ERP_ASSETS_TARGET = '/home/frappe/frappe-bench/sites/assets'
+ERP_ASSET_SERVICES = {s for s in CORE if s.startswith('erpnext-')} - {
+    'erpnext-db', 'erpnext-redis-cache', 'erpnext-redis-queue'}
+
+
+def asset_volume_records(manifest):
+    """Validate optional image-declared nested assets and their sharing topology."""
+    records = [r for r in manifest['volumes'] if r.get('kind') == 'erp-assets']
+    consumers, names = set(), set()
+    for index, record in enumerate(records):
+        if (record['archive'] != 'volumes/erpnext_assets_%02d.tgz' % index or
+                record['project'] != 'core' or record['destination'] != ERP_ASSETS_TARGET or
+                not record.get('volume') or record['volume'] in names):
+            raise ValueError('Invalid/duplicate ERP assets volume identity')
+        names.add(record['volume'])
+        users = record.get('consumers', [])
+        if not users or users[0] != record['service']:
+            raise ValueError('ERP assets volume requires its original consumers')
+        readonly = record.get('read_only_consumers', [])
+        if len(readonly) != len(set(readonly)) or not set(readonly) <= set(users):
+            raise ValueError('Invalid ERP assets mount access inventory')
+        for service in users:
+            if service not in ERP_ASSET_SERVICES or service in consumers:
+                raise ValueError('Invalid/duplicate ERP assets consumer')
+            consumers.add(service)
+    return records
+
+
+def configure_asset_volumes(config, manifest):
+    """Preserve shared vs distinct source assets; never reuse source volume names."""
+    for index, record in enumerate(asset_volume_records(manifest)):
+        name = 'recovered_erp_assets_%02d' % index
+        config.setdefault('volumes', {})[name] = None
+        for service in record['consumers']:
+            spec = config['services'][service]
+            mounts = [m for m in spec.get('volumes', []) if
+                      (m.split(':')[1] if isinstance(m, str) else m['target']) != ERP_ASSETS_TARGET]
+            mounts.append(name + ':' + ERP_ASSETS_TARGET + (':ro' if service in record.get('read_only_consumers', []) else ''))
+            spec['volumes'] = mounts
 
 
 def private_json(path, value):
@@ -262,6 +301,31 @@ def make_inventory(containers, volume_names):
                         'destination': mount['Destination'], 'volume': mount['Name'],
                         'archive': 'volumes/' + archive})
         covered.add((record['container'], mount['Destination']))
+    # Images can declare a separate anonymous sites/assets volume even when
+    # Compose only declares the parent sites mount. The parent archive does not
+    # contain that child volume. Preserve each distinct child once and its users.
+    assets_by_name = {}
+    for record in records:
+        if record['project'] != 'core' or record['service'] not in ERP_ASSET_SERVICES:
+            continue
+        for mount in source_by_name[record['container']].get('Mounts', []):
+            if mount['Destination'] != ERP_ASSETS_TARGET or mount['Type'] != 'volume':
+                continue  # Bind mounts retain the existing runtime-bind path.
+            name = mount.get('Name')
+            if not name or name in {r['volume'] for r in volumes if r.get('kind') != 'erp-assets'}:
+                raise ValueError('Ambiguous nested ERP assets volume identity')
+            asset = assets_by_name.get(name)
+            if asset is None:
+                asset = {'project': 'core', 'service': record['service'], 'container': record['container'],
+                         'destination': ERP_ASSETS_TARGET, 'volume': name, 'kind': 'erp-assets',
+                         'archive': 'volumes/erpnext_assets_%02d.tgz' % len(assets_by_name),
+                         'consumers': [], 'read_only_consumers': []}
+                assets_by_name[name] = asset
+                volumes.append(asset)
+            asset['consumers'].append(record['service'])
+            if mount.get('RW', True) is False:
+                asset['read_only_consumers'].append(record['service'])
+            covered.add((record['container'], ERP_ASSETS_TARGET))
     backed_volume_names = {r['volume'] for r in volumes}
     for record in records:
         service = record['service']
@@ -378,6 +442,7 @@ def validate_bundle(backup):
         raise ValueError('Image archive does not match image selection')
     required = set(manifest['required_payloads'])
     expected_volumes = {('volumes/' + a, p, s) for p, s, _, a in VOLUME_SPECS if (p, s) in expected_services}
+    expected_volumes |= {(r['archive'], r['project'], r['service']) for r in asset_volume_records(manifest)}
     actual_volumes = {(r['archive'], r['project'], r['service']) for r in manifest['volumes']}
     if expected_volumes != actual_volumes or len(actual_volumes) != len(manifest['volumes']):
         raise ValueError('Incomplete/duplicate volume inventory')
@@ -506,6 +571,8 @@ def prepare_images(output, backup):
                 # Tool-profile images aren't started by full_restore.
                 if not spec.get('profiles'):
                     spec['profiles'] = ['not-in-backup']
+        if project == 'core':
+            configure_asset_volumes(config, manifest)
         path.write_text(yaml.safe_dump(config, sort_keys=False))
         path.chmod(0o600)
     receipt = {'backup_inventory_sha256': hashlib.sha256((backup / MANIFEST).read_bytes()).hexdigest(),
