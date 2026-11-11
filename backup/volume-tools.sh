@@ -44,7 +44,7 @@ with tarfile.open(sys.argv[1],'r:gz') as archive:
         if member.name.startswith('/') or name=='..' or name.startswith('../'):
             raise SystemExit('Unsafe archive path: '+member.name)
         if member.isdev() or member.isfifo():
-            raise SystemExit('Unsafe archive special file')
+            raise SystemExit('Unsafe archive special file in '+archive_name+': '+member.name)
         if member.issym() or member.islnk():
             target=posixpath.normpath(posixpath.join(posixpath.dirname(name) if member.issym() else '',member.linkname))
             if target.startswith('/') or target=='..' or target.startswith('../'):

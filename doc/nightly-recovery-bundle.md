@@ -21,6 +21,22 @@ The inventory failure occurs before image export, SQL dumps or application pause
 After merging the correction, rerun the same image plan and normal backup commands.
 No volume removal, bootstrap rerun or crontab change is required for this failure.
 
+The pinned Rallly setup mounts `/dev/null` read-only at
+`/etc/ssl/certs/rallly-custom-ca.pem` when no custom root CA is configured. This
+exact placeholder is recorded under `non_data_mounts`, not tarred as a character
+device. Recovery retains the same local read-only placeholder. A real custom CA
+file is still archived as a regular runtime bind; other device mounts are not
+implicitly exempted. Device/FIFO entries remain forbidden in data archives.
+
+Successful completion requires the final `Backup complete: REMOTE/TIMESTAMP`
+line after remote verification. Returning to the shell after restart messages is
+not success: a failed archive invokes the restart/cleanup handler too. Failures
+now end with `Backup FAILED`; bind logs identify project/service and destination,
+and archive validation errors identify the exact archive member. If failure
+occurs before `Syncing staged backup`, upload was never attempted and no new
+timestamp should appear in Drive. Use `rclone lsf REMOTE/TIMESTAMP` on the source
+host to distinguish an actually uploaded snapshot from local Drive sync delay.
+
 The repaired **existing nightly job** produces a new, complete timestamp directory.
 Do not supplement the old `20261110-231728` snapshot with separately exported
 images. Keep that set unchanged as historical evidence and use a fresh snapshot
