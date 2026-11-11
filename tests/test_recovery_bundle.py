@@ -282,11 +282,92 @@ class ImageSelectionTests(unittest.TestCase):
             (subprocess.CalledProcessError(1, ['docker'], stderr='toomanyrequests: retry later'), RuntimeError),
             (subprocess.TimeoutExpired(['docker'], 30), RuntimeError),
         ]:
-            with patch.object(bundle.subprocess, 'run', side_effect=error):
+            with patch.object(bundle.subprocess, 'run', side_effect=error), patch.object(bundle.time, 'sleep'):
                 with self.assertRaises(expected) as caught:
                     bundle.registry_json(['docker'], '/anonymous', 'repo@sha256:' + '1' * 64)
                 if expected == RuntimeError:
                     self.assertNotIsInstance(caught.exception, bundle.RegistryNotPublished)
+
+
+class RegistryProbeTests(unittest.TestCase):
+    digest = 'sha256:' + '1' * 64
+
+    class Response:
+        def __init__(self, body=b'', headers=None):
+            self.body = body
+            self.headers = headers or {}
+        def __enter__(self):
+            return self
+        def __exit__(self, *args):
+            return False
+        def read(self, limit):
+            return self.body[:limit]
+
+    def responses(self, digest=None):
+        return [self.Response(b'{"token":"synthetic-anonymous-pull-token"}'),
+                self.Response(headers={'Docker-Content-Digest': digest or self.digest,
+                                       'Content-Type': 'application/vnd.oci.image.index.v1+json'})]
+
+    def test_matching_dockerhub_source_uses_head_without_manifest_cli_or_image_download(self):
+        from unittest.mock import Mock
+        opener = Mock()
+        opener.open.side_effect = self.responses()
+        ref = 'wordpress@' + self.digest
+        with patch.object(bundle.urllib.request, 'build_opener', return_value=opener), patch.object(bundle, 'registry_json') as cli:
+            result = bundle.source_manifest(['docker'], '/anonymous', ref, {self.digest})
+            cli.assert_not_called()
+        self.assertEqual(result['verification'], 'anonymous-registry-head')
+        requests = [call.args[0] for call in opener.open.call_args_list]
+        self.assertEqual([r.get_method() for r in requests], ['GET', 'HEAD'])
+        self.assertEqual(requests[1].full_url, 'https://registry-1.docker.io/v2/library/wordpress/manifests/' + self.digest)
+        self.assertNotIn('synthetic-anonymous-pull-token', str(result))
+        self.assertEqual(bundle.dockerhub_repository('docker.io/library/wordpress@' + self.digest), 'library/wordpress')
+        self.assertIsNone(bundle.dockerhub_repository('registry.example.com/wordpress@' + self.digest))
+
+    def test_classic_config_identity_and_other_registries_retain_full_manifest_matching(self):
+        ref = 'wordpress@' + self.digest
+        with patch.object(bundle, 'registry_json', return_value={'schemaVersion': 2}) as cli, patch.object(bundle, 'dockerhub_head') as head:
+            bundle.source_manifest(['docker'], '/anonymous', ref, {'sha256:' + '2' * 64})
+            bundle.source_manifest(['docker'], '/anonymous', 'registry.example.com/app@' + self.digest, {self.digest})
+            self.assertEqual(cli.call_count, 2)
+            head.assert_not_called()
+
+    def test_transient_head_failure_retries_and_can_recover(self):
+        from unittest.mock import Mock
+        opener = Mock()
+        token, response = self.responses()
+        opener.open.side_effect = [token, bundle.urllib.error.HTTPError('https://registry-1.docker.io/', 503, 'unavailable', {}, None), token, response]
+        with patch.object(bundle.urllib.request, 'build_opener', return_value=opener), patch.object(bundle.time, 'sleep') as sleep:
+            bundle.dockerhub_head('wordpress@' + self.digest)
+            self.assertEqual(opener.open.call_count, 4)
+            sleep.assert_called_once_with(1)
+
+    def test_rate_limit_and_auth_server_failures_are_not_unpublished_images(self):
+        from unittest.mock import Mock
+        for code in (429, 403, 401, 404, 503):
+            opener = Mock()
+            opener.open.side_effect = bundle.urllib.error.HTTPError('https://auth.docker.io/token', code, 'private-response-marker', {}, None)
+            with patch.object(bundle.urllib.request, 'build_opener', return_value=opener), patch.object(bundle.time, 'sleep'):
+                with self.assertRaises(RuntimeError) as caught:
+                    bundle.dockerhub_head('wordpress@' + self.digest)
+                self.assertNotIsInstance(caught.exception, bundle.RegistryNotPublished)
+                self.assertIn('after 3 attempts', str(caught.exception))
+                self.assertIn(str(code), str(caught.exception))
+                self.assertNotIn('private-response-marker', str(caught.exception))
+
+    def test_missing_manifest_is_not_retried_but_wrong_digest_is_never_accepted(self):
+        from unittest.mock import Mock
+        opener = Mock()
+        token, response = self.responses()
+        opener.open.side_effect = [token, bundle.urllib.error.HTTPError('https://registry-1.docker.io/', 404, 'missing', {}, None)]
+        with patch.object(bundle.urllib.request, 'build_opener', return_value=opener), patch.object(bundle.time, 'sleep') as sleep:
+            with self.assertRaises(bundle.RegistryNotPublished):
+                bundle.dockerhub_head('wordpress@' + self.digest)
+            sleep.assert_not_called()
+        opener.open.side_effect = self.responses('sha256:' + '2' * 64) * 3
+        with patch.object(bundle.urllib.request, 'build_opener', return_value=opener), patch.object(bundle.time, 'sleep'):
+            with self.assertRaisesRegex(RuntimeError, 'different manifest digest'):
+                bundle.dockerhub_head('wordpress@' + self.digest)
 
 
 class CompletenessTests(unittest.TestCase):
@@ -386,7 +467,7 @@ elif args[:2]==['image','inspect']:
  for image in args[2:]:
   custom=any(c['Image']==image and c['Name'] in ('/documenso','/erpnext-backend') for c in state)
   if os.environ.get('REGISTRY_ONLY'):custom=False
-  result.append({'Id':image,'Size':4096,'Os':'linux','Architecture':'amd64','RepoDigests':['docker.io/fixture/'+('unpublished' if custom else 'runtime')+'@'+image]})
+  result.append({'Id':image,'Size':4096,'Os':'linux','Architecture':'amd64','RepoDigests':['registry.fixture.invalid/'+('unpublished' if custom else 'runtime')+'@'+image]})
  print(json.dumps(result))
 elif args[:2]==['manifest','inspect']:
  if os.environ.get('FAIL_REGISTRY'):sys.exit(25)

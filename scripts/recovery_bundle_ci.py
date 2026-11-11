@@ -10,7 +10,7 @@ import tempfile
 
 import yaml
 from recovery_bundle import (GROUPS, IMAGE_ARCHIVE, MANIFEST, VOLUME_SPECS,
-                             make_inventory, select_images, registry_json, prepare_images, verify_images)
+                             make_inventory, select_images, source_manifest, prepare_images, verify_images)
 
 
 def main():
@@ -36,8 +36,13 @@ def main():
     images = json.loads(subprocess.check_output(['docker', 'image', 'inspect', image, custom], text=True))
     with tempfile.TemporaryDirectory() as anonymous_config:
         def inspect_manifest(reference):
-            return registry_json(['docker'], anonymous_config, reference)
+            return source_manifest(['docker'], anonymous_config, reference, {image, custom})
         select_images(manifest, images, inspect_manifest)
+        # The reported repeated-verification failure involved this WordPress
+        # digest. Verify its publication by HEAD without pulling image bytes.
+        wordpress_digest = 'sha256:12ec50e21cb81a5ea964669d434578b7da4a101a45aef83f5f1c2227bcd1b058'
+        proof = source_manifest(['docker'], anonymous_config, 'wordpress@' + wordpress_digest, {wordpress_digest})
+        assert proof['verification'] == 'anonymous-registry-head'
     assert manifest['image_summary']['archived_images'] == 1
     assert manifest['image_summary']['registry_images'] == 1
     with tempfile.TemporaryDirectory() as directory:

@@ -121,6 +121,19 @@ This performs read-only local inventory and anonymous registry verification and
 prints the selection/size report. It is not a backup or a successful recovery
 receipt. Use the normal job afterward to create the fresh complete snapshot.
 
+For Docker Hub manifest/index IDs that exactly match the deployed image ID,
+verification uses an anonymous registry `HEAD` request and requires an exact
+`Docker-Content-Digest` header plus a supported manifest media type. This avoids
+re-fetching multiarchitecture manifest trees when a plan is followed by a backup;
+it downloads no image layers. Classic config-ID images and other registries keep
+full manifest/platform matching. Transient probes retry up to three times with
+1- and 3-second backoff. Persistent failures identify the reference and category
+(rate limit, HTTP status, timeout, content mismatch) before any application pause.
+Anonymous pull tokens stay in memory; production Docker login credentials are
+not read. A registry failure never silently adds published images to the archive.
+If a rate limit persists, wait for the provider's reset before retrying; rerunning
+bootstrap or changing the source images does not repair that condition.
+
 The producer checks its complete inventory and image archive before upload.
 Remote verification must pass before retention. A failed job never prints a
 successful completion line. Review failures in the protected log; do not publish

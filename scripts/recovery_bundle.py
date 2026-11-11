@@ -15,6 +15,10 @@ import shlex
 import subprocess
 import tarfile
 import tempfile
+import time
+import urllib.error
+import urllib.parse
+import urllib.request
 
 
 IMAGE_ARCHIVE = 'images/runtime-images.tar.gz'
@@ -131,21 +135,128 @@ class RegistryNotPublished(RuntimeError):
     """The registry explicitly reports no anonymously accessible image here."""
 
 
+def retry_registry(operation, reference):
+    """Retry transient probes, never turn outages into image archives."""
+    for attempt in range(3):
+        try:
+            return operation()
+        except RegistryNotPublished:
+            raise
+        except RuntimeError as error:
+            reason = str(error)
+            if attempt == 2:
+                raise RuntimeError('Registry verification failed for ' + reference +
+                                   ' after 3 attempts: ' + reason) from None
+            time.sleep((1, 3)[attempt])
+
+
+def dockerhub_repository(reference):
+    if not REGISTRY_REF.fullmatch(reference):
+        return None
+    repository = reference.rsplit('@', 1)[0]
+    parts = repository.split('/')
+    if len(parts) > 1 and ('.' in parts[0] or ':' in parts[0] or parts[0] == 'localhost'):
+        if parts[0] not in ('docker.io', 'index.docker.io', 'registry-1.docker.io'):
+            return None
+        parts = parts[1:]
+    if len(parts) == 1:
+        parts.insert(0, 'library')
+    if not all(re.fullmatch(r'[a-z0-9][a-z0-9._-]*', p) and p not in ('.', '..') for p in parts):
+        return None
+    return '/'.join(parts)
+
+
+class NoRegistryRedirect(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, request, fp, code, msg, headers, newurl):
+        raise RuntimeError('Unexpected registry redirect')
+
+
+def dockerhub_head(reference):
+    """Check one exact manifest digest without fetching a multiarch manifest tree.
+
+    This fast path is used only when the deployed image ID equals the requested
+    manifest/index digest. Older config-ID stores still use full manifest matching.
+    Anonymous pull tokens exist only in memory and are never logged or persisted.
+    """
+    repository = dockerhub_repository(reference)
+    if repository is None:
+        raise ValueError('Docker Hub HEAD requires a Docker Hub digest reference')
+    digest = reference.rsplit('@', 1)[1]
+    media_types = ('application/vnd.oci.image.index.v1+json',
+                   'application/vnd.oci.image.manifest.v1+json',
+                   'application/vnd.docker.distribution.manifest.list.v2+json',
+                   'application/vnd.docker.distribution.manifest.v2+json')
+    def probe():
+        opener = urllib.request.build_opener(NoRegistryRedirect())
+        phase = 'token'
+        try:
+            query = urllib.parse.urlencode({'service': 'registry.docker.io',
+                                           'scope': 'repository:' + repository + ':pull'})
+            request = urllib.request.Request('https://auth.docker.io/token?' + query,
+                                             headers={'Accept': 'application/json'})
+            with opener.open(request, timeout=15) as response:
+                body = response.read(1024 * 1024 + 1)
+            if len(body) > 1024 * 1024:
+                raise RuntimeError('Registry token response too large')
+            payload = json.loads(body)
+            if not isinstance(payload, dict):
+                raise RuntimeError('Invalid registry token response')
+            token = payload.get('token') or payload.get('access_token')
+            if not isinstance(token, str) or not token:
+                raise RuntimeError('Registry returned no anonymous token')
+            phase = 'manifest'
+            request = urllib.request.Request('https://registry-1.docker.io/v2/' + repository + '/manifests/' + digest,
+                                             method='HEAD', headers={'Accept': ', '.join(media_types),
+                                                                     'Authorization': 'Bearer ' + token})
+            with opener.open(request, timeout=15) as response:
+                if response.headers.get('Docker-Content-Digest') != digest:
+                    raise RuntimeError('Registry returned a different manifest digest')
+                media_type = response.headers.get('Content-Type', '').split(';', 1)[0].strip()
+                if media_type not in media_types:
+                    raise RuntimeError('Registry returned an unsupported manifest media type')
+            return {'schemaVersion': 2, 'mediaType': media_type, 'verification': 'anonymous-registry-head'}
+        except urllib.error.HTTPError as error:
+            status = error.code
+            error.close()
+            if phase == 'manifest' and status in (401, 404):
+                raise RegistryNotPublished('Registry HTTP ' + str(status) + ': no anonymously accessible published image') from None
+            if status == 429:
+                raise RuntimeError('Registry rate-limited (HTTP 429)') from None
+            raise RuntimeError('Registry HTTP ' + str(status)) from None
+        except (urllib.error.URLError, TimeoutError):
+            raise RuntimeError('Registry network connection or timeout error') from None
+        except (ValueError, KeyError, TypeError):
+            raise RuntimeError('Invalid registry response') from None
+    return retry_registry(probe, reference)
+
+
 def registry_json(docker, config, reference, verbose=False):
     args = docker + ['--config', config, 'manifest', 'inspect']
     if verbose:
         args.append('--verbose')
-    try:
-        result = subprocess.run(args + [reference], capture_output=True, text=True, timeout=30, check=True)
-        return json.loads(result.stdout)
-    except subprocess.CalledProcessError as error:
-        message = (error.stderr or '').lower()
-        if any(text in message for text in ('no such manifest', 'manifest unknown', 'name unknown',
-                                           'pull access denied', 'unauthorized', 'denied:')):
-            raise RegistryNotPublished('No anonymously accessible published image at this reference') from None
-        raise RuntimeError('Registry verification unavailable; no automatic image-archive fallback') from None
-    except (subprocess.SubprocessError, ValueError):
-        raise RuntimeError('Registry verification unavailable; no automatic image-archive fallback') from None
+    def probe():
+        try:
+            result = subprocess.run(args + [reference], capture_output=True, text=True, timeout=30, check=True)
+            return json.loads(result.stdout)
+        except subprocess.CalledProcessError as error:
+            message = (error.stderr or '').lower()
+            if any(text in message for text in ('toomanyrequests', 'too many requests', 'rate limit', '429')):
+                raise RuntimeError('Registry rate-limited (HTTP 429)') from None
+            if any(text in message for text in ('no such manifest', 'manifest unknown', 'name unknown',
+                                               'pull access denied', 'unauthorized', 'denied:')):
+                raise RegistryNotPublished('No anonymously accessible published image at this reference') from None
+            raise RuntimeError('Docker registry command failed (exit ' + str(error.returncode) + ')') from None
+        except subprocess.TimeoutExpired:
+            raise RuntimeError('Docker registry request timed out') from None
+        except (subprocess.SubprocessError, ValueError):
+            raise RuntimeError('Invalid Docker registry response') from None
+    return retry_registry(probe, reference)
+
+
+def source_manifest(docker, config, reference, local_ids):
+    if reference.rsplit('@', 1)[-1] in local_ids and dockerhub_repository(reference) is not None:
+        return dockerhub_head(reference)
+    return registry_json(docker, config, reference)
 
 
 def registry_matches(reference, image, inspect_manifest, depth=0):
@@ -191,22 +302,23 @@ def select_images(inventory, images, inspect_manifest, resolve_tag=None):
                  'source_tags': sorted(set(image.get('RepoTags') or [])),
                  'services': sorted(r['project'] + '/' + r['service'] for r in inventory['services'] if r['image_id'] == image_id)}
         digests = image.get('RepoDigests') or []
-        verified, uncertain = None, False
+        verified, uncertain = None, []
         for reference in sorted(set(digests)):
             try:
                 if registry_matches(reference, image, inspect_manifest):
                     verified = reference
                     break
-                uncertain = True
+                uncertain.append(reference + ': manifest content/platform does not match source image')
             except RegistryNotPublished:
                 # Docker 29 can assign RepoDigests to builds never pushed.
                 # Actual registry rejection, rather than local metadata alone,
                 # establishes that those bytes need to be archived.
                 continue
-            except (RuntimeError, ValueError, subprocess.SubprocessError):
-                uncertain = True
+            except (RuntimeError, ValueError, subprocess.SubprocessError) as error:
+                uncertain.append(str(error) if isinstance(error, RuntimeError) else 'Invalid registry manifest response')
         if digests and not verified and uncertain:
-            raise ValueError('Cannot anonymously verify a matching registry digest for ' + ', '.join(entry['services']) + '; no automatic image-archive fallback')
+            raise ValueError('Cannot anonymously verify a matching registry digest for ' + ', '.join(entry['services']) +
+                             ': ' + '; '.join(uncertain) + '; no automatic image-archive fallback')
         if not verified and resolve_tag:
             # A docker-loaded public image can lose RepoDigests while retaining
             # versioned RepoTags. Resolve those anonymously, then prove that the
@@ -372,7 +484,7 @@ def capture(backup, docker):
     # Verify public recovery without borrowing the production Docker login.
     with tempfile.TemporaryDirectory(prefix='rootedops-registry-check-') as config:
         def inspect_manifest(reference):
-            return registry_json(docker, config, reference)
+            return source_manifest(docker, config, reference, set(image_ids))
         def resolve_tag(tag):
             try:
                 records = registry_json(docker, config, tag, verbose=True)
