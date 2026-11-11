@@ -20,6 +20,19 @@ class BackupTests(unittest.TestCase):
                 info=tarfile.TarInfo('.');info.type=tarfile.DIRTYPE;t.addfile(info)
             self.assertNotEqual(self.validate(p).returncode,0)
 
+    def test_device_and_fifo_archives_still_fail_with_member_diagnostics(self):
+        with tempfile.TemporaryDirectory() as directory:
+            for kind in (tarfile.CHRTYPE, tarfile.BLKTYPE, tarfile.FIFOTYPE):
+                path = Path(directory) / 'runtime-bind-006.tgz'
+                with tarfile.open(path, 'w:gz') as archive:
+                    regular = tarfile.TarInfo('regular'); regular.size = 1
+                    archive.addfile(regular, io.BytesIO(b'x'))
+                    special = tarfile.TarInfo('payload'); special.type = kind
+                    archive.addfile(special)
+                result = self.validate(path)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn('runtime-bind-006.tgz: payload', result.stderr)
+
     def test_nonempty_and_unsafe_archives(self):
         with tempfile.TemporaryDirectory() as d:
             for name,expected in [('database.sqlite',0),('../outside',1)]:

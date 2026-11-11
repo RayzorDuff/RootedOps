@@ -35,6 +35,9 @@ def containers(groups=None):
                 if (p, s) == (project, service):
                     record['Mounts'].append({'Destination': target or '/var/lib/postgresql',
                                              'Type': 'volume', 'Name': 'actual_' + archive[:-4]})
+            if project == 'rallly' and service == 'web':
+                record['Mounts'].append({'Type': 'bind', 'Source': '/dev/null',
+                                         'Destination': bundle.RALLLY_NULL_CA['destination'], 'RW': False})
             result.append(record)
     return result
 
@@ -67,6 +70,24 @@ def write_fixture(root, manifest=None):
 
 
 class InventoryTests(unittest.TestCase):
+    def test_rallly_null_ca_is_recorded_as_non_data_and_never_archived(self):
+        inventory = bundle.make_inventory(containers(), [])
+        self.assertEqual(bundle.validate_non_data_mounts(inventory), [bundle.RALLLY_NULL_CA])
+        self.assertFalse(any(r['source'] == '/dev/null' for r in inventory['binds']))
+
+    def test_real_custom_ca_is_data_and_other_device_bindings_are_not_allowlisted(self):
+        for source, target, writable in [('/private/custom-ca.pem', bundle.RALLLY_NULL_CA['destination'], False),
+                                         ('/dev/null', '/other/path', False),
+                                         ('/dev/zero', bundle.RALLLY_NULL_CA['destination'], False),
+                                         ('/dev/null', bundle.RALLLY_NULL_CA['destination'], True)]:
+            records = containers()
+            web = next(c for c in records if c['Name'] == '/rallly-selfhosted-web-1')
+            web['Mounts'] = [{'Type': 'bind', 'Source': source, 'Destination': target, 'RW': writable}]
+            inventory = bundle.make_inventory(records, [])
+            self.assertEqual(bundle.validate_non_data_mounts(inventory), [])
+            self.assertTrue(any(r['source'] == source for r in inventory['binds']))
+        with self.assertRaisesRegex(ValueError, 'non-data'):
+            bundle.validate_non_data_mounts({'non_data_mounts': [dict(bundle.RALLLY_NULL_CA, source='/dev/zero')], 'binds': []})
     def test_nested_erp_assets_capture_once_and_preserve_distinct_and_shared_mounts(self):
         source = containers()
         for service, volume in [('erpnext-backend', 'shared-assets'), ('erpnext-websocket', 'shared-assets'),
@@ -437,6 +458,11 @@ class CompletenessTests(unittest.TestCase):
                 self.assertFalse(any('up' in c or 'start' in c or 'build' in c for c in commands))
                 bundle.verify_images(output, backup)
                 core = yaml.safe_load((output / 'core.yml').read_text())
+                rallly = yaml.safe_load((output / 'rallly/compose.yml').read_text())
+                null_mount = next(m for m in rallly['services']['web']['volumes'] if m['target'] == bundle.RALLLY_NULL_CA['destination'])
+                self.assertEqual(null_mount['source'], '/dev/null')
+                self.assertTrue(null_mount['read_only'])
+                self.assertFalse(null_mount['bind']['create_host_path'])
                 for service in core['services'].values():
                     self.assertNotIn('build', service)
                     self.assertEqual(service['pull_policy'], 'never')
@@ -552,11 +578,13 @@ class NightlyScriptTests(unittest.TestCase):
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
             backup = next(p for p in (root / 'remote').iterdir() if p.is_dir() and not p.is_symlink())
             inventory = bundle.validate_bundle(backup)
+            self.assertEqual(inventory['non_data_mounts'], [bundle.RALLLY_NULL_CA])
             self.assertEqual(inventory['groups']['dank'], 'installed')
             self.assertEqual(inventory['image_summary']['archived_images'], 2)
             self.assertGreater(inventory['image_summary']['registry_images'], 2)
             self.assertGreater(inventory['image_summary']['stored_archive_bytes'], 0)
             events = [json.loads(line) for line in (root / 'events').read_text().splitlines()]
+            self.assertFalse(any('source=/dev/null,' in str(c) for c in events if c[0] == 'run'))
             saved = next(c for c in events if c[:2] == ['image', 'save'])
             self.assertEqual(set(saved[2:]), {r['image_id'] for r in inventory['images'] if r['recovery'] == 'archive'})
             self.assertFalse(set(saved[2:]) & {r['image_id'] for r in inventory['images'] if r['recovery'] == 'registry'})
@@ -597,6 +625,7 @@ class NightlyScriptTests(unittest.TestCase):
             env['FAIL_ARCHIVE'] = 'librechat-mongodb.tgz'
             result = subprocess.run(['bash', str(checkout / 'backup/backup-stack.sh')], env=env, capture_output=True, text=True)
             self.assertNotEqual(result.returncode, 0)
+            self.assertIn('Backup FAILED', result.stdout)
             self.assertFalse((root / 'remote').exists())
             self.assertEqual((root / 'remote-events').read_text().splitlines(), ['listremotes'])
             events = [json.loads(line) for line in (root / 'events').read_text().splitlines()]

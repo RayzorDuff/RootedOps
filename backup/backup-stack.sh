@@ -73,6 +73,9 @@ cleanup_and_resume() {
   local status=$?
   trap - EXIT
   resume_paused_containers || status=1
+  if [[ "$status" -ne 0 ]]; then
+    log "Backup FAILED (exit $status); no verified completion. Review the error above."
+  fi
   cleanup
   exit "$status"
 }
@@ -260,8 +263,8 @@ rm "$LOCAL_STAGE_ROOT/volume-plan.tsv"
 # Capture all actual runtime bind mounts (including Board supplements and
 # LibreChat/Rallly configuration) privately, without assuming host paths.
 python3 "$REPO_ROOT/scripts/recovery_bundle.py" records "$BACKUP_DIR" --kind binds > "$LOCAL_STAGE_ROOT/bind-plan.tsv"
-while IFS=$'\t' read -r src archive; do
-  log "Archiving runtime bind $archive"
+while IFS=$'\t' read -r src archive project service destination; do
+  log "Archiving runtime bind $archive ($project/$service -> $destination)"
   $DOCKER_BIN run --rm --network none \
     --mount "type=bind,source=$src,target=/source/payload,readonly" -v "$BACKUP_DIR/bind_mounts:/backup" \
     alpine:3.20 sh -ec 'tar -czf "/backup/$1" --numeric-owner -C /source payload' archive "$archive"

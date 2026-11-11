@@ -76,6 +76,20 @@ REGISTRY_REF = re.compile(r'[a-zA-Z0-9][a-zA-Z0-9._:/-]*@sha256:[0-9a-f]{64}')
 ERP_ASSETS_TARGET = '/home/frappe/frappe-bench/sites/assets'
 ERP_ASSET_SERVICES = {s for s in CORE if s.startswith('erpnext-')} - {
     'erpnext-db', 'erpnext-redis-cache', 'erpnext-redis-queue'}
+RALLLY_NULL_CA = {'project': 'rallly', 'service': 'web', 'source': '/dev/null',
+                  'destination': '/etc/ssl/certs/rallly-custom-ca.pem', 'read_only': True}
+
+
+def validate_non_data_mounts(manifest):
+    records = manifest.get('non_data_mounts', [])
+    # A device is never an archive payload. Permit only the exact placeholder
+    # declared by pinned upstream Rallly, without generalizing other /dev mounts.
+    if records not in ([], [RALLLY_NULL_CA]):
+        raise ValueError('Unsupported non-data mount inventory')
+    if records and any((r['project'], r['service'], r['destination']) ==
+                       ('rallly', 'web', RALLLY_NULL_CA['destination']) for r in manifest['binds']):
+        raise ValueError('Rallly CA mount cannot be both data and a null placeholder')
+    return records
 
 
 def asset_volume_records(manifest):
@@ -397,7 +411,7 @@ def make_inventory(containers, volume_names):
                             'running': bool(container.get('State', {}).get('Running'))})
     by_key = {(r['project'], r['service']): r for r in records}
     source_by_name = {c['Name'].lstrip('/'): c for c in containers}
-    volumes, binds = [], []
+    volumes, binds, non_data_mounts = [], [], []
     covered = set()
     for project, service, target, archive in VOLUME_SPECS:
         record = by_key.get((project, service))
@@ -456,6 +470,11 @@ def make_inventory(containers, volume_names):
             source = mount['Source']
             if any(c in source + dest for c in '\t\r\n,') or not source.startswith('/'):
                 raise ValueError('Unsupported bind path')
+            descriptor = {'project': record['project'], 'service': service, 'source': source,
+                          'destination': dest, 'read_only': not mount.get('RW', False)}
+            if descriptor == RALLLY_NULL_CA:
+                non_data_mounts.append(descriptor)
+                continue
             binds.append({'project': record['project'], 'service': service, 'source': source,
                           'destination': dest, 'read_only': not mount.get('RW', False),
                           'archive': 'bind_mounts/runtime-bind-%03d.tgz' % len(binds)})
@@ -468,7 +487,8 @@ def make_inventory(containers, volume_names):
         payloads += ['bind_mounts/rallly-selfhosted-env.tgz', 'meta/tymeslot.compose.yml']
     payloads += [r['archive'] for r in volumes + binds]
     return {'format_version': 2, 'groups': groups, 'services': records,
-            'volumes': volumes, 'binds': binds, 'required_payloads': sorted(payloads),
+            'volumes': volumes, 'binds': binds, 'non_data_mounts': non_data_mounts,
+            'required_payloads': sorted(payloads),
             'image_archive': IMAGE_ARCHIVE,
             'excluded': {'minecraft': 'legacy bind snapshot only; not started during full test recovery',
                          'documenso_playwright_cache': 'rebuildable browser cache; not application data'}}
@@ -496,6 +516,9 @@ def capture(backup, docker):
                     if HEX_ID.fullmatch(digest := record.get('Descriptor', {}).get('digest', record.get('Digest', '')))]
         select_images(inventory, images, inspect_manifest, resolve_tag)
     private_json(backup / MANIFEST, inventory)
+    for record in validate_non_data_mounts(inventory):
+        print('NON-DATA ' + record['project'] + '/' + record['service'] + ' ' +
+              record['source'] + ' -> ' + record['destination'] + ' (read-only CA placeholder; no archive)')
     print('Image selection: ' + json.dumps(inventory['image_summary'], sort_keys=True))
     for image in inventory['images']:
         print(image['recovery'].upper() + ' ' + ','.join(image['services']) + ' ' +
@@ -513,7 +536,7 @@ def verify_sources(backup, docker, allow_stopped=False):
         for inventory in (current, original):
             for record in inventory['services']:
                 record.pop('running', None)
-    if any(current[key] != original[key] for key in ('groups', 'services', 'volumes', 'binds')):
+    if any(current.get(key, []) != original.get(key, []) for key in ('groups', 'services', 'volumes', 'binds', 'non_data_mounts')):
         raise ValueError('Source containers, images, mounts or installation changed during backup; refusing mixed snapshot')
 
 
@@ -522,6 +545,7 @@ def validate_bundle(backup):
     if not path.is_file():
         raise ValueError('Full recovery requires a fresh format-2 nightly backup with runtime images and service inventory')
     manifest = json.loads(path.read_text())
+    validate_non_data_mounts(manifest)
     if manifest.get('format_version') != 2 or manifest.get('image_archive') not in (None, IMAGE_ARCHIVE):
         raise ValueError('Unsupported recovery bundle format')
     expected_groups = set(GROUPS)
@@ -685,6 +709,15 @@ def prepare_images(output, backup):
                     spec['profiles'] = ['not-in-backup']
         if project == 'core':
             configure_asset_volumes(config, manifest)
+        if project == 'rallly' and validate_non_data_mounts(manifest):
+            # Preserve the declared null placeholder locally; never extract a
+            # character device from an archive or contact an old host path.
+            spec = config['services']['web']
+            target = RALLLY_NULL_CA['destination']
+            spec['volumes'] = [m for m in spec.get('volumes', []) if
+                               (m.split(':')[1] if isinstance(m, str) else m['target']) != target]
+            spec['volumes'].append({'type': 'bind', 'source': '/dev/null', 'target': target,
+                                    'read_only': True, 'bind': {'create_host_path': False}})
         path.write_text(yaml.safe_dump(config, sort_keys=False))
         path.chmod(0o600)
     receipt = {'backup_inventory_sha256': hashlib.sha256((backup / MANIFEST).read_bytes()).hexdigest(),
@@ -738,7 +771,7 @@ def main():
                 print(r['volume'] + '\t' + Path(r['archive']).name)
         elif args.kind == 'binds':
             for r in m['binds']:
-                print(r['source'] + '\t' + Path(r['archive']).name)
+                print('\t'.join((r['source'], Path(r['archive']).name, r['project'], r['service'], r['destination'])))
         elif args.kind == 'cold':
             # Stop clients before embedded/raw database services; restart in reverse.
             records = [r for r in m['services'] if r['running'] and r['service'] not in LIVE_DATABASES]

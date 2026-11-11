@@ -9,7 +9,7 @@ import subprocess
 import tempfile
 
 import yaml
-from recovery_bundle import (GROUPS, IMAGE_ARCHIVE, MANIFEST, VOLUME_SPECS,
+from recovery_bundle import (GROUPS, IMAGE_ARCHIVE, MANIFEST, VOLUME_SPECS, RALLLY_NULL_CA,
                              make_inventory, select_images, source_manifest, prepare_images, verify_images)
 
 
@@ -24,10 +24,12 @@ def main():
                    input=b'FROM alpine:3.20\nLABEL rootedops.recovery.fixture=custom\n', check=True)
     custom = subprocess.check_output(['docker', 'image', 'inspect', '--format', '{{.Id}}', 'rootedops-ci-custom:fixture'], text=True).strip()
     source = []
-    for group in ('core', 'rootedpsyche'):
+    for group in ('core', 'rootedpsyche', 'scheduling'):
         for project, service, name in GROUPS[group]:
-            mounts = [{'Destination': target, 'Type': 'volume', 'Name': archive[:-4]}
+            mounts = [{'Destination': target or '/var/lib/postgresql', 'Type': 'volume', 'Name': archive[:-4]}
                       for p, s, target, archive in VOLUME_SPECS if (p, s) == (project, service)]
+            if project == 'rallly' and service == 'web':
+                mounts.append({'Type': 'bind', 'Source': '/dev/null', 'Destination': RALLLY_NULL_CA['destination'], 'RW': False})
             source.append({'Name': '/' + (name or 'fixture-' + service),
                            'Image': custom if service in ('erpnext-backend', 'documenso') else image,
                            'Config': {'Labels': {'com.docker.compose.service': service}},
@@ -87,6 +89,23 @@ def main():
         for project in ('core', 'rootedpsyche'):
             config = yaml.safe_load((output / (project + '.yml')).read_text())
             assert all(s['pull_policy'] == 'never' and 'build' not in s for s in config['services'].values())
+        rallly = yaml.safe_load((output / 'rallly/compose.yml').read_text())
+        null_mount = next(m for m in rallly['services']['web']['volumes'] if m['target'] == RALLLY_NULL_CA['destination'])
+        assert null_mount['source'] == '/dev/null' and null_mount['read_only'] is True
+        assert manifest['non_data_mounts'] == [RALLLY_NULL_CA]
+        assert not any(r['source'] == '/dev/null' for r in manifest['binds'])
+        # Reproduce the exact tar operation that failed on production. The
+        # validator must keep rejecting real character devices despite the
+        # explicit non-data mount exception in the producer's inventory.
+        rejected = root / 'runtime-bind-006.tgz'
+        subprocess.run(['docker', 'run', '--rm', '--network', 'none',
+                        '--mount', 'type=bind,source=/dev/null,target=/source/payload,readonly',
+                        '-v', str(root) + ':/backup', 'alpine:3.20', 'tar', '-czf',
+                        '/backup/' + rejected.name, '-C', '/source', 'payload'], check=True)
+        check = subprocess.run(['bash', '-c', 'source "$1"; validate_volume_archive "$2" allow-empty',
+                                'validate', str(Path(__file__).resolve().parents[1] / 'backup/volume-tools.sh'),
+                                str(rejected)], capture_output=True, text=True)
+        assert check.returncode != 0 and 'Unsafe archive special file' in check.stderr
     print('Native mixed recovery pulls the public digest, saves/loads only custom bytes, preserves exact IDs and starts no containers.')
 
 
