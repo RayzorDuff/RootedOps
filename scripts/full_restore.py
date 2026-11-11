@@ -138,6 +138,7 @@ class Recovery:
     for path in self.archives('volumes','*.tgz'):
         subprocess.run(['bash','-c','source "$1"; validate_managed_volume_archive "$2"','preflight',str(ROOT/'backup/volume-tools.sh'),str(path)],check=True)
     known={v[3] for v in VOLUMES}
+    if self.bundle:known.update(Path(r['archive']).name for r in self.bundle['volumes'])
     extra={p.name for p in self.archives('volumes','*.tgz')}-known
     if extra:raise ValueError('Unmapped archives require explicit recovery mapping: '+', '.join(sorted(extra)))
     known_db={service+'.sql.gz' for service,_ in PG}|{'erpnext-all-databases.sql.gz','rootedpsyche-wordpress-all-databases.sql.gz','dank-wordpress-all-databases.sql.gz'}
@@ -310,7 +311,9 @@ class Recovery:
     if resume_test2:
         restored.extend(p.name for p in self.archives('volumes','*.tgz'))
     else:
-        for project,service,destination,archive in VOLUMES:
+        volume_specs=([(r['project'],r['service'],r['destination'],Path(r['archive']).name)
+                       for r in self.bundle['volumes']] if self.bundle else VOLUMES)
+        for project,service,destination,archive in volume_specs:
             if self.selected(archive) and (self.backup/'volumes'/archive).is_file():
                 self.volume(project,service,destination,archive);restored.append(archive)
     for service,prefix in PG:

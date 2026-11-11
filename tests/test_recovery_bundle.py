@@ -67,6 +67,69 @@ def write_fixture(root, manifest=None):
 
 
 class InventoryTests(unittest.TestCase):
+    def test_nested_erp_assets_capture_once_and_preserve_distinct_and_shared_mounts(self):
+        source = containers()
+        for service, volume in [('erpnext-backend', 'shared-assets'), ('erpnext-websocket', 'shared-assets'),
+                                ('erpnext-frontend', 'frontend-assets')]:
+            c = next(c for c in source if c['Name'] == '/' + service)
+            c['Mounts'].append({'Type': 'volume', 'Name': volume,
+                                'Destination': bundle.ERP_ASSETS_TARGET, 'RW': service != 'erpnext-websocket'})
+        inventory = bundle.make_inventory(source, [])
+        assets = bundle.asset_volume_records(inventory)
+        self.assertEqual(len(assets), 2)
+        self.assertEqual(assets[0]['consumers'], ['erpnext-backend', 'erpnext-websocket'])
+        self.assertEqual(assets[1]['consumers'], ['erpnext-frontend'])
+        self.assertEqual(assets[0]['read_only_consumers'], ['erpnext-websocket'])
+        config = {'services': {s: {'volumes': ['sites:/home/frappe/frappe-bench/sites']} for s in bundle.ERP_ASSET_SERVICES}}
+        bundle.configure_asset_volumes(config, inventory)
+        mounts = {s: config['services'][s]['volumes'] for s in config['services']}
+        self.assertIn('recovered_erp_assets_00:' + bundle.ERP_ASSETS_TARGET, mounts['erpnext-backend'])
+        self.assertIn('recovered_erp_assets_00:' + bundle.ERP_ASSETS_TARGET + ':ro', mounts['erpnext-websocket'])
+        self.assertIn('recovered_erp_assets_01:' + bundle.ERP_ASSETS_TARGET, mounts['erpnext-frontend'])
+        self.assertEqual(mounts['erpnext-queue-short'], ['sites:/home/frappe/frappe-bench/sites'])
+        with tempfile.TemporaryDirectory() as directory:
+            backup = Path(directory)
+            write_fixture(backup, inventory)
+            bundle.validate_bundle(backup)
+            (backup / assets[0]['archive']).unlink()
+            write_sums(backup)
+            with self.assertRaisesRegex(ValueError, 'missing from SHA256SUMS'):
+                bundle.validate_bundle(backup)
+
+    def test_assets_not_declared_on_source_do_not_create_extra_archives(self):
+        inventory = bundle.make_inventory(containers(), [])
+        self.assertEqual(bundle.asset_volume_records(inventory), [])
+        self.assertFalse(any('erpnext_assets_' in p for p in inventory['required_payloads']))
+
+    def test_assets_consumer_aliases_are_validated_before_image_preparation(self):
+        inventory = {'volumes': [{'kind': 'erp-assets', 'project': 'core', 'service': 'erpnext-backend',
+                                  'destination': bundle.ERP_ASSETS_TARGET, 'volume': 'fixture',
+                                  'archive': 'volumes/erpnext_assets_00.tgz', 'consumers': ['erpnext-backend', 'n8n']}]}
+        with self.assertRaisesRegex(ValueError, 'consumer'):
+            bundle.asset_volume_records(inventory)
+
+    def test_full_restore_consumes_assets_from_the_verified_inventory(self):
+        import full_restore
+        from unittest.mock import Mock
+        source = containers()
+        next(c for c in source if c['Name'] == '/erpnext-backend')['Mounts'].append(
+            {'Type': 'volume', 'Name': 'anonymous-assets', 'Destination': bundle.ERP_ASSETS_TARGET})
+        inventory = bundle.make_inventory(source, [])
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory); backup = root / 'backup'; output = root / 'test'
+            for path in (backup / 'meta', backup / 'volumes', output):
+                path.mkdir(parents=True)
+            (backup / 'meta/.env').write_text('')
+            (output / '.env').write_text('N8N_ENCRYPTION_KEY=synthetic\n')
+            for record in bundle.asset_volume_records(inventory):
+                (backup / record['archive']).write_bytes(b'synthetic')
+            recovery = full_restore.Recovery(output, backup)
+            recovery.bundle = inventory
+            recovery.preflight = Mock(); recovery.volume = Mock()
+            recovery.run(None)
+            self.assertEqual([call.args for call in recovery.volume.call_args_list],
+                             [('core', 'erpnext-backend', bundle.ERP_ASSETS_TARGET, 'erpnext_assets_00.tgz')])
+
     def test_every_installed_service_image_and_persistent_volume_is_in_contract(self):
         source = containers()
         source[0]['Config']['Env'].append('PASSWORD=secret')
@@ -425,6 +488,26 @@ class NightlyScriptTests(unittest.TestCase):
                 state = next(c for c in json.loads((root / 'state.json').read_text()) if c['Name'].lstrip('/') == row['container'])
                 self.assertEqual(state['State']['Running'], row['running'])
             self.assertEqual((backup / bundle.MANIFEST).stat().st_mode & 0o777, 0o600)
+
+    def test_nightly_job_captures_shared_anonymous_assets_once(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            checkout, env = self.fixture(root)
+            state = json.loads((root / 'state.json').read_text())
+            for service in ('erpnext-backend', 'erpnext-frontend'):
+                next(c for c in state if c['Name'] == '/' + service)['Mounts'].append(
+                    {'Type': 'volume', 'Name': 'anonymous-assets-fixture', 'Destination': bundle.ERP_ASSETS_TARGET})
+            (root / 'state.json').write_text(json.dumps(state))
+            result = subprocess.run(['bash', str(checkout / 'backup/backup-stack.sh')], env=env, capture_output=True, text=True)
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            backup = next(p for p in (root / 'remote').iterdir() if p.is_dir() and not p.is_symlink())
+            inventory = bundle.validate_bundle(backup)
+            assets = bundle.asset_volume_records(inventory)
+            self.assertEqual(len(assets), 1)
+            self.assertEqual(assets[0]['consumers'], ['erpnext-backend', 'erpnext-frontend'])
+            self.assertTrue((backup / assets[0]['archive']).is_file())
+            events = [json.loads(line) for line in (root / 'events').read_text().splitlines()]
+            self.assertEqual(sum('anonymous-assets-fixture:/volume:ro' in c for c in events), 1)
 
     def test_failed_volume_resumes_apps_and_never_uploads_or_prunes(self):
         with tempfile.TemporaryDirectory() as directory:

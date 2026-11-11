@@ -6,6 +6,21 @@ deployed Dank WordPress site and both LibreChat installations, and had no
 completeness inventory. The full restorer could silently omit missing archives.
 Passing SHA256SUMS proved only that the files present had not changed.
 
+ERPNext images can also declare an anonymous child volume at
+`/home/frappe/frappe-bench/sites/assets`, even when Compose declares only the
+parent `sites` volume. This child is inventoried separately when actually mounted:
+each distinct child is saved once as `volumes/erpnext_assets_NN.tgz`, with the
+original shared/distinct consumer topology and read-only mount settings preserved.
+Recovery creates new project-local named child volumes and restores their bytes
+after the parent. It neither skips the child nor assumes the parent archive
+contains it. Hosts without that child need no additional assets archive. Only
+exact known Frappe public-asset symlinks may escape an assets archive into the
+restored apps volume; other escaping links remain rejected.
+
+The inventory failure occurs before image export, SQL dumps or application pause.
+After merging the correction, rerun the same image plan and normal backup commands.
+No volume removal, bootstrap rerun or crontab change is required for this failure.
+
 The repaired **existing nightly job** produces a new, complete timestamp directory.
 Do not supplement the old `20261110-231728` snapshot with separately exported
 images. Keep that set unchanged as historical evidence and use a fresh snapshot

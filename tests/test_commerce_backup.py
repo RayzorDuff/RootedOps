@@ -101,6 +101,30 @@ class BackupTests(unittest.TestCase):
             r=subprocess.run(['bash','-c','source "$1"; DOCKER_BIN="$2"; resolve_mounted_volume n8n /home/node/.n8n','test',str(HELPER),str(docker)],capture_output=True,text=True)
             self.assertEqual(r.returncode,0);self.assertEqual(r.stdout.strip(),'docker_n8n_data')
 
+    def test_nested_asset_links_are_scoped_to_exact_archive_names_and_targets(self):
+        with tempfile.TemporaryDirectory() as directory:
+            def check(filename, name, target):
+                path = Path(directory) / filename
+                with tarfile.open(path, 'w:gz') as archive:
+                    link = tarfile.TarInfo(name)
+                    link.type = tarfile.SYMTYPE
+                    link.linkname = target
+                    archive.addfile(link)
+                return subprocess.run(['bash', '-c', 'source "$1"; validate_managed_volume_archive "$2"',
+                                       'test', str(HELPER), str(path)], capture_output=True, text=True)
+            for app in ('frappe', 'erpnext', 'hrms', 'employee_self_service', 'rootedops_payroll', 'rootedops_commerce'):
+                for target in ('/home/frappe/frappe-bench/apps/' + app + '/' + app + '/public',
+                               '../../apps/' + app + '/' + app + '/public'):
+                    result = check('erpnext_assets_00.tgz', './' + app, target)
+                    self.assertEqual(result.returncode, 0, result.stderr)
+            for filename, name, target in [
+                ('other.tgz', 'frappe', '/home/frappe/frappe-bench/apps/frappe/frappe/public'),
+                ('erpnext_assets_evil.tgz', 'frappe', '../../apps/frappe/frappe/public'),
+                ('erpnext_assets_00.tgz', 'evil', '../../apps/frappe/frappe/public'),
+                ('erpnext_assets_00.tgz', 'frappe', '/etc/passwd'),
+            ]:
+                self.assertNotEqual(check(filename, name, target).returncode, 0)
+
     def test_restore_validates_before_mutating(self):
         code=(ROOT/'backup/restore-stack.sh').read_text()
         self.assertLess(code.index('for archive in "$BACKUP_DIR"/volumes/*.tgz'),code.index('restore_mounted_volume nocodb'))
