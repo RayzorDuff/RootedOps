@@ -61,6 +61,16 @@ class RecoveryTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, 'Unterminated'):
                 restore.copy_counts(path)
 
+    def test_copy_count_verifies_quoted_postgres_relations(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory)/'dump.gz'
+            with gzip.open(path, 'wt') as f:
+                f.write('COPY public."Document" (id) FROM stdin;\n1\n2\n\\.\n')
+                f.write('COPY "public"."User ""Alias""" (id) FROM stdin;\n\\.\n')
+            self.assertEqual(restore.copy_counts(path), {'Document': 2, 'User "Alias"': 0})
+            self.assertEqual(restore.copy_count_query('User "Alias"'),
+                             'SELECT count(*) FROM public."User ""Alias"""')
+
     def test_nginx_defaults_are_explicit_test_hosts(self):
         import re
         for path in (ROOT/'nginx').glob('*.conf'):

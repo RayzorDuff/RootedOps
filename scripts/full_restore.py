@@ -12,7 +12,7 @@ import tarfile
 import time
 import yaml
 from host_recovery import ROOT,projects,command
-from commerce_restore import read_env,copy_counts
+from commerce_restore import read_env,copy_counts,copy_count_query
 
 # One archive contract is shared with the nightly producer.
 from recovery_bundle import (VOLUME_SPECS as VOLUMES, PG,
@@ -250,7 +250,7 @@ class Recovery:
         dump=self.backup/'db'/(service+'.sql.gz')
         expected=copy_counts(dump)
         for table,count in expected.items():
-            query='SELECT count(*) FROM public."'+table.replace('"','""')+'"'
+            query=copy_count_query(table)
             result=self.dc('core','exec','-T',service,'psql','-v','ON_ERROR_STOP=1',
                '-U',env[prefix+'_DB_USER'],'-d',env[prefix+'_DB_NAME'],'-Atc',query,
                capture_output=True,text=True)
@@ -326,7 +326,7 @@ class Recovery:
         self.sql('core',file,['exec','-T',service,'psql','-v','ON_ERROR_STOP=1','-U',env[prefix+'_DB_USER'],'-d',env[prefix+'_DB_NAME']])
         expected=copy_counts(self.backup/'db'/file)
         for table,count in expected.items():
-            actual=self.dc('core','exec','-T',service,'psql','-v','ON_ERROR_STOP=1','-U',env[prefix+'_DB_USER'],'-d',env[prefix+'_DB_NAME'],'-Atc',f'SELECT count(*) FROM public."{table}"',capture_output=True,text=True).stdout.strip()
+            actual=self.dc('core','exec','-T',service,'psql','-v','ON_ERROR_STOP=1','-U',env[prefix+'_DB_USER'],'-d',env[prefix+'_DB_NAME'],'-Atc',copy_count_query(table),capture_output=True,text=True).stdout.strip()
             if int(actual)!=count:raise ValueError('Restored PostgreSQL COPY count mismatch')
         verified[file]=len(expected);restored.append(file)
     for project,service,file,password,database in [
