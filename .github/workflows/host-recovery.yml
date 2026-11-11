@@ -23,7 +23,7 @@ jobs:
       - run: python scripts/host_recovery.py validate "$RUNNER_TEMP/rootedops-recovery"
       - name: Native stopped-volume restore without dependency startup
         run: python scripts/restore_volume_ci.py
-      - name: Native exact runtime image backup and recovery
+      - name: Native registry-first and custom-image recovery
         run: python scripts/recovery_bundle_ci.py
       - name: Native ERP MariaDB healthcheck
         run: |

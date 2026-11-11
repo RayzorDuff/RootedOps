@@ -10,7 +10,7 @@ import tempfile
 
 import yaml
 from recovery_bundle import (GROUPS, IMAGE_ARCHIVE, MANIFEST, VOLUME_SPECS,
-                             make_inventory, prepare_images, verify_images)
+                             make_inventory, select_images, prepare_images, verify_images)
 
 
 def main():
@@ -18,15 +18,29 @@ def main():
         raise SystemExit('Run only on a disposable GitHub Actions runner')
     subprocess.run(['docker', 'pull', 'alpine:3.20'], check=True)
     image = subprocess.check_output(['docker', 'image', 'inspect', '--format', '{{.Id}}', 'alpine:3.20'], text=True).strip()
+    # A local derived image has no published repository digest. It is the only
+    # image whose bytes belong in this mixed registry/custom recovery fixture.
+    subprocess.run(['docker', 'build', '--network=none', '-t', 'rootedops-ci-custom:fixture', '-'],
+                   input=b'FROM alpine:3.20\nLABEL rootedops.recovery.fixture=custom\n', check=True)
+    custom = subprocess.check_output(['docker', 'image', 'inspect', '--format', '{{.Id}}', 'rootedops-ci-custom:fixture'], text=True).strip()
     source = []
     for group in ('core', 'rootedpsyche'):
         for project, service, name in GROUPS[group]:
             mounts = [{'Destination': target, 'Type': 'volume', 'Name': archive[:-4]}
                       for p, s, target, archive in VOLUME_SPECS if (p, s) == (project, service)]
-            source.append({'Name': '/' + (name or 'fixture-' + service), 'Image': image,
+            source.append({'Name': '/' + (name or 'fixture-' + service),
+                           'Image': custom if service in ('erpnext-backend', 'documenso') else image,
                            'Config': {'Labels': {'com.docker.compose.service': service}},
                            'State': {'Running': False}, 'Mounts': mounts})
     manifest = make_inventory(source, [])
+    images = json.loads(subprocess.check_output(['docker', 'image', 'inspect', image, custom], text=True))
+    with tempfile.TemporaryDirectory() as anonymous_config:
+        def inspect_manifest(reference):
+            return json.loads(subprocess.check_output(['docker', '--config', anonymous_config,
+                                                      'manifest', 'inspect', reference], text=True))
+        select_images(manifest, images, inspect_manifest)
+    assert manifest['image_summary']['archived_images'] == 1
+    assert manifest['image_summary']['registry_images'] == 1
     with tempfile.TemporaryDirectory() as directory:
         root = Path(directory)
         backup = root / 'backup'
@@ -36,7 +50,7 @@ def main():
             path.write_bytes(b'synthetic payload, not production data')
         (backup / MANIFEST).write_text(json.dumps(manifest))
         with gzip.open(backup / IMAGE_ARCHIVE, 'wb') as stream:
-            saved = subprocess.Popen(['docker', 'image', 'save', image], stdout=subprocess.PIPE)
+            saved = subprocess.Popen(['docker', 'image', 'save', custom], stdout=subprocess.PIPE)
             try:
                 while data := saved.stdout.read(1024 * 1024):
                     stream.write(data)
@@ -69,7 +83,7 @@ def main():
         for project in ('core', 'rootedpsyche'):
             config = yaml.safe_load((output / (project + '.yml')).read_text())
             assert all(s['pull_policy'] == 'never' and 'build' not in s for s in config['services'].values())
-    print('Native Docker image save/gzip/load preserves exact IDs and starts no containers.')
+    print('Native mixed recovery pulls the public digest, saves/loads only custom bytes, preserves exact IDs and starts no containers.')
 
 
 if __name__ == '__main__':

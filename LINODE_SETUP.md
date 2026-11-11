@@ -686,10 +686,11 @@ This repo now includes two helper scripts:
 Full-stack recovery uses the versioned nightly bundle described in
 [doc/nightly-recovery-bundle.md](doc/nightly-recovery-bundle.md). The same cron
 entry now captures installed Dank WordPress and both LibreChat instances, actual
-runtime bind mounts (including Board documents), and exact runtime image bytes.
-The full restorer requires that inventory; an older snapshot with passing
-checksums is not evidence of complete service coverage. Snapshot size and staging,
-upload and retention storage requirements increase because images are included.
+runtime bind mounts (including Board documents), verified public registry digests
+and only the necessary local/custom image bytes. The full restorer requires that
+inventory; an older snapshot with passing checksums is not evidence of complete
+service coverage. Public image bytes are omitted; custom images are archived once
+per used ID. The log/manifest report image selection, reasons and sizes.
 Application writers are stopped during the coordinated SQL/file snapshot, then
 only previously running containers are restarted, before upload. Schedule a quiet
 window; image export occurs before the application pause.
@@ -701,7 +702,7 @@ The staged backup contains:
 - The Minecraft Bedrock server bind mount, including `server.properties`, allow-list files, worlds, behavior packs, resource packs, and player/world state
 - Copies of `.env` and `docker/docker-compose.yml`
 - `meta/recovery-bundle.json` with installed service/mount/image inventory and required payloads
-- `images/runtime-images.tar.gz` with exact deployed runtime images, including custom builds
+- Optional `images/runtime-images.tar.gz` for required local/custom images with no verified public source
 - A SHA-256 manifest for integrity checking
 - A `latest` symlink pointing to the newest timestamped backup directory
 

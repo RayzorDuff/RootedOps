@@ -119,6 +119,10 @@ mkdir -p "$BACKUP_DIR"/{db,volumes,bind_mounts,meta,images}
 # Discover the actual deployed services/mounts before stopping anything. No raw
 # container environment or credentials are written to the inventory.
 python3 "$REPO_ROOT/scripts/recovery_bundle.py" capture "$BACKUP_DIR" --docker-command "$DOCKER_BIN"
+if [[ "${BACKUP_IMAGE_PLAN_ONLY:-false}" == true ]]; then
+  log "Image plan only: no image exports, application pauses, SQL dumps or uploads performed"
+  exit 0
+fi
 
 log "Writing metadata"
 git -C "$REPO_ROOT" rev-parse HEAD > "$BACKUP_DIR/meta/git_commit.txt" 2>/dev/null || true
@@ -130,12 +134,18 @@ $DOCKER_BIN exec erpnext-backend bench version > "$BACKUP_DIR/meta/frappe-app-ve
 cp "$COMPOSE_FILE" "$BACKUP_DIR/meta/docker-compose.yml"
 cp "$ENV_FILE" "$BACKUP_DIR/meta/.env"
 
-# Export all deployed runtime images as part of this same checksummed snapshot.
+# Export only local/custom images without a recoverable repository digest.
+# Public images use verified immutable registry references, without image bytes.
 # This happens before the maintenance pause and never retags production images.
 mapfile -t runtime_images < <(python3 "$REPO_ROOT/scripts/recovery_bundle.py" records "$BACKUP_DIR" --kind images)
-[[ ${#runtime_images[@]} -gt 0 ]] || { echo "No runtime images selected" >&2; exit 1; }
-log "Saving exact deployed runtime images (${#runtime_images[@]} unique images)"
-$DOCKER_BIN image save "${runtime_images[@]}" | gzip -1 > "$BACKUP_DIR/images/runtime-images.tar.gz"
+if [[ ${#runtime_images[@]} -gt 0 ]]; then
+  log "Saving local/custom runtime images only (${#runtime_images[@]} unique images)"
+  $DOCKER_BIN image save "${runtime_images[@]}" | gzip -1 > "$BACKUP_DIR/images/runtime-images.tar.gz"
+  log "Custom image archive compressed bytes: $(stat -c %s "$BACKUP_DIR/images/runtime-images.tar.gz")"
+else
+  log "All runtime images recover from verified registry digests; no image archive needed"
+fi
+python3 "$REPO_ROOT/scripts/recovery_bundle.py" finalize-images "$BACKUP_DIR"
 
 pg_dump_container() {
   local container="$1" user="$2" db="$3" password="$4" outfile="$5"

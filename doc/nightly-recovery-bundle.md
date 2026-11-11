@@ -16,9 +16,17 @@ for the next attempt. No production backup or restore is executed by this commit
 - `meta/recovery-bundle.json`: format version, explicit installed/not-installed
   groups, actual source container/mount identities, immutable image IDs and every
   required recovery payload. Raw container environments are never serialized.
-- `images/runtime-images.tar.gz`: one Docker image export containing all unique
-  image IDs actually used by those services, including custom ERPNext/Documenso
-  and older versions behind floating tags. Production images are never retagged.
+- Published runtime images use **anonymously verified immutable registry digests**
+  and the recorded platform. Their image bytes are omitted. This includes services
+  configured with floating tags: the snapshot records their exact deployed digest,
+  never whatever `latest` points to at restore time. Loaded public images missing
+  RepoDigests can use a matching digest resolved from their original tags.
+- `images/runtime-images.tar.gz` is optional and contains **only local/custom images
+  with no verified published source**, deduplicated by used image ID. Locally built
+  Documenso and ERPNext are expected candidates; a published matching image is
+  pulled instead whenever verified. Unused/candidate images are never selected.
+  Production image tags are never modified. A registry-only snapshot has no image
+  archive at all.
 - Existing five PostgreSQL logical dumps, ERPNext and Rooted Psyche MariaDB
   dumps, and the installed Dank WordPress MariaDB dump/content volume.
 - Both installed LibreChat MongoDB clusters and data/uploads/log volumes,
@@ -68,12 +76,33 @@ requires operator recovery; no shell EXIT handler can guarantee recovery then.
 External clients writing directly to databases must also be quiesced by the
 operator. Do not deploy/change containers while the backup runs.
 
-Image export precedes the application pause; image validation, remote upload and
-retention follow the restart. Snapshots now include image bytes and are larger:
-allow sufficient local staging space, backup storage and transfer time. Image
-layers are deduplicated within the one Docker export, not across nightly remote
-snapshots. The existing retention policy is unchanged, and this first manual run
-disables pruning. A single local lock prevents cron/manual backup overlap.
+Registry verification and any necessary custom-image export precede the application
+pause. If a known published digest cannot be verified, the job fails **before**
+pausing applications; it never silently archives every public image during a
+registry outage. Restore needs registry/network availability for those pinned
+public images; registry retirement or removal will block recovery, not trigger an
+unreviewed upgrade. The operator can decide how to preserve a retired image if
+that occurs.
+
+The private log and inventory report every selected image, recovery method, reason,
+source services and uncompressed size. The summary records registry bytes omitted,
+custom image counts/bytes and actual compressed archive bytes. Image sizes are
+Docker's reported sizes; shared layers can make the compressed export smaller than
+the sum. Only unavoidable custom-image bytes increase snapshot storage. Layers are
+deduplicated within their one export, not across nightly remote snapshots. The
+existing retention policy is unchanged; this first manual run disables pruning.
+A single local lock prevents cron/manual overlap.
+
+To review the exact image selection without pausing applications, exporting images,
+dumping databases or uploading a snapshot, run from the production checkout:
+
+```bash
+BACKUP_IMAGE_PLAN_ONLY=true bash backup/backup-stack.sh
+```
+
+This performs read-only local inventory and anonymous registry verification and
+prints the selection/size report. It is not a backup or a successful recovery
+receipt. Use the normal job afterward to create the fresh complete snapshot.
 
 The producer checks its complete inventory and image archive before upload.
 Remote verification must pass before retention. A failed job never prints a
@@ -113,8 +142,9 @@ sudo python3 scripts/full_restore.py "$PWD/.test-deployment" \
   "$HOME/backups/NEW_TIMESTAMP" --source-site erp.danks.store
 ```
 
-Preparation loads the exact saved runtime images, verifies their identities and
-pins only the already isolated generated Compose files. It never starts services,
+Preparation pulls the recorded public digests/platforms, loads only the necessary
+archived custom images, verifies every exact local identity and pins only the
+already isolated generated Compose files. It never starts services,
 builds floating application refs or copies production networking/port settings.
 The image receipt binds this snapshot inventory to those Compose files. Full
 restore refuses missing payloads, missing image preparation, changed images or
@@ -136,11 +166,13 @@ possible; it does not claim that the full production recovery acceptance passed.
 
 ## Validation and rollback
 
-Regression coverage includes a simulated complete nightly backup, SQL/image/
-volume coverage, explicit absence, corrupt/missing payload refusal, exact image
-pinning, source identity drift, previously stopped apps, failure-path restarts and
-no-upload-on-failure. CI also exercises native Docker image save/gzip/load and the
-existing stopped-volume recovery fixture. Full production backup/recovery awaits
+Regression coverage includes mixed public/custom and registry-only nightly
+snapshots, source-image/platform matching, missing-digest public-tag recovery,
+unused image exclusion, no export or pause during a registry outage, the read-only
+image plan, SQL/volume completeness, exact image pinning, source identity drift,
+previously stopped apps, failure-path restarts and no-upload-on-failure. CI exercises
+native pinned-registry pull plus custom-image save/gzip/load and the existing
+stopped-volume recovery fixture. Full production backup/recovery awaits
 the owner-generated fresh snapshot and the subsequent isolated acceptance run.
 
 To roll back code, revert this change through review, leaving existing snapshots

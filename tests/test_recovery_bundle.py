@@ -47,16 +47,21 @@ def write_sums(root):
 
 def write_fixture(root, manifest=None):
     manifest = manifest or bundle.make_inventory(containers(), [])
+    if 'images' not in manifest:
+        local = [{'Id': r['image_id'], 'Size': 4096, 'Os': 'linux', 'Architecture': 'amd64', 'RepoDigests': []}
+                 for r in manifest['services']]
+        bundle.select_images(manifest, local, lambda ref: {})
     for name in manifest['required_payloads']:
         p = root / name
         p.parent.mkdir(parents=True, exist_ok=True)
         p.write_bytes(b'synthetic nonempty payload')
     (root / bundle.MANIFEST).write_text(json.dumps(manifest))
-    with tarfile.open(root / bundle.IMAGE_ARCHIVE, 'w:gz') as archive:
-        data = json.dumps([{'Config': 'fixture.json', 'Layers': []}]).encode()
-        entry = tarfile.TarInfo('manifest.json')
-        entry.size = len(data)
-        archive.addfile(entry, io.BytesIO(data))
+    if manifest['image_archive']:
+        with tarfile.open(root / bundle.IMAGE_ARCHIVE, 'w:gz') as archive:
+            data = json.dumps([{'Config': 'fixture.json', 'Layers': []}]).encode()
+            entry = tarfile.TarInfo('manifest.json')
+            entry.size = len(data)
+            archive.addfile(entry, io.BytesIO(data))
     write_sums(root)
     return manifest
 
@@ -136,6 +141,53 @@ class InventoryTests(unittest.TestCase):
                 source[0]['Image'] = 'sha256:' + '9' * 64
                 with self.assertRaisesRegex(ValueError, 'changed during backup'):
                     bundle.verify_sources(root, ['docker'], allow_stopped=True)
+
+
+class ImageSelectionTests(unittest.TestCase):
+    def test_published_images_omit_bytes_and_only_used_custom_image_is_archived(self):
+        public, custom, unused = ['sha256:' + digit * 64 for digit in ('1', '2', '3')]
+        inventory = {'services': [{'project': 'core', 'service': name, 'image_id': image}
+                                 for name, image in [('postgres', public), ('documenso', custom), ('erp-worker', custom)]],
+                     'required_payloads': [bundle.IMAGE_ARCHIVE]}
+        images = [{'Id': image, 'Size': size, 'Os': 'linux', 'Architecture': 'amd64', 'RepoDigests': refs}
+                  for image, size, refs in [(public, 5000, ['docker.io/library/postgres@' + public]),
+                                            (custom, 7000, []), (unused, 99000, [])]]
+        bundle.select_images(inventory, images, lambda ref: {'schemaVersion': 2})
+        self.assertEqual([(r['image_id'], r['recovery']) for r in inventory['images']], [(public, 'registry'), (custom, 'archive')])
+        self.assertEqual(inventory['image_summary']['archived_uncompressed_bytes'], 7000)
+        self.assertEqual(inventory['image_summary']['registry_uncompressed_bytes_omitted'], 5000)
+        self.assertEqual(inventory['images'][1]['services'], ['core/documenso', 'core/erp-worker'])
+
+    def test_config_identity_and_multiarch_platform_must_match(self):
+        image = {'Id': 'sha256:' + '1' * 64, 'Os': 'linux', 'Architecture': 'amd64'}
+        root, arm, amd = ['sha256:' + digit * 64 for digit in ('2', '3', '4')]
+        manifests = {'repo@' + root: {'schemaVersion': 2, 'manifests': [
+            {'digest': arm, 'platform': {'os': 'linux', 'architecture': 'arm64'}},
+            {'digest': amd, 'platform': {'os': 'linux', 'architecture': 'amd64'}}]},
+            'repo@' + arm: {'schemaVersion': 2, 'config': {'digest': image['Id']}},
+            'repo@' + amd: {'schemaVersion': 2, 'config': {'digest': image['Id']}}}
+        self.assertTrue(bundle.registry_matches('repo@' + root, image, manifests.__getitem__))
+        manifests['repo@' + amd]['config']['digest'] = arm
+        self.assertFalse(bundle.registry_matches('repo@' + root, image, manifests.__getitem__))
+
+    def test_loaded_public_tag_is_resolved_to_immutable_matching_digest(self):
+        image = {'Id': 'sha256:' + '1' * 64, 'Size': 10, 'Os': 'linux', 'Architecture': 'amd64',
+                 'RepoDigests': [], 'RepoTags': ['postgres:16']}
+        digest = 'postgres@sha256:' + '2' * 64
+        inventory = {'services': [{'project': 'core', 'service': 'postgres', 'image_id': image['Id']}],
+                     'required_payloads': [bundle.IMAGE_ARCHIVE]}
+        bundle.select_images(inventory, [image], lambda ref: {'schemaVersion': 2, 'config': {'digest': image['Id']}}, lambda tag: [digest])
+        self.assertEqual(inventory['images'][0]['reference'], digest)
+        self.assertIsNone(inventory['image_archive'])
+        self.assertNotIn(bundle.IMAGE_ARCHIVE, inventory['required_payloads'])
+
+    def test_wrong_registry_content_never_silently_becomes_a_large_archive(self):
+        image = {'Id': 'sha256:' + '1' * 64, 'Size': 10, 'Os': 'linux', 'Architecture': 'amd64',
+                 'RepoDigests': ['postgres@sha256:' + '2' * 64]}
+        inventory = {'services': [{'project': 'core', 'service': 'postgres', 'image_id': image['Id']}],
+                     'required_payloads': []}
+        with self.assertRaisesRegex(ValueError, 'no automatic image-archive fallback'):
+            bundle.select_images(inventory, [image], lambda ref: {'schemaVersion': 2, 'config': {'digest': 'sha256:' + '3' * 64}})
 
 
 class CompletenessTests(unittest.TestCase):
@@ -219,6 +271,7 @@ import io,json,os,pathlib,sys,tarfile
 args=sys.argv[1:]; root=pathlib.Path(os.environ['FIXTURE_ROOT'])
 state=json.loads((root/'state.json').read_text())
 with (root/'events').open('a') as f:f.write(json.dumps(args)+'\n')
+if args[0]=='--config':args=args[2:]
 def archive(path,filename='fixture',data=b'synthetic'):
  path.parent.mkdir(parents=True,exist_ok=True)
  with tarfile.open(path,'w:gz') as t:
@@ -229,6 +282,16 @@ elif args[0]=='inspect':
  else:print(json.dumps([c for c in state if c['Name'].lstrip('/') in args[1:]]))
 elif args[:2]==['volume','ls']: print('\n'.join(m['Name'] for c in state for m in c['Mounts'] if m['Type']=='volume'))
 elif args[:2]==['volume','inspect']:pass
+elif args[:2]==['image','inspect']:
+ result=[]
+ for image in args[2:]:
+  custom=any(c['Image']==image and c['Name'] in ('/documenso','/erpnext-backend') for c in state)
+  if os.environ.get('REGISTRY_ONLY'):custom=False
+  result.append({'Id':image,'Size':4096,'Os':'linux','Architecture':'amd64','RepoDigests':[] if custom else ['docker.io/fixture/runtime@'+image]})
+ print(json.dumps(result))
+elif args[:2]==['manifest','inspect']:
+ if os.environ.get('FAIL_REGISTRY'):sys.exit(25)
+ print(json.dumps({'schemaVersion':2,'config':{'digest':args[-1].split('@')[1]}}))
 elif args[:2]==['image','save']:
  if os.environ.get('FAIL_IMAGES'):sys.exit(22)
  with tarfile.open(fileobj=sys.stdout.buffer,mode='w|') as t:
@@ -309,7 +372,13 @@ class NightlyScriptTests(unittest.TestCase):
             backup = next(p for p in (root / 'remote').iterdir() if p.is_dir() and not p.is_symlink())
             inventory = bundle.validate_bundle(backup)
             self.assertEqual(inventory['groups']['dank'], 'installed')
+            self.assertEqual(inventory['image_summary']['archived_images'], 2)
+            self.assertGreater(inventory['image_summary']['registry_images'], 2)
+            self.assertGreater(inventory['image_summary']['stored_archive_bytes'], 0)
             events = [json.loads(line) for line in (root / 'events').read_text().splitlines()]
+            saved = next(c for c in events if c[:2] == ['image', 'save'])
+            self.assertEqual(set(saved[2:]), {r['image_id'] for r in inventory['images'] if r['recovery'] == 'archive'})
+            self.assertFalse(set(saved[2:]) & {r['image_id'] for r in inventory['images'] if r['recovery'] == 'registry'})
             self.assertNotIn(['start', 'librechat-kids'], events)
             self.assertIn(['stop', 'librechat-mongodb'], events)
             self.assertIn(['start', 'librechat-mongodb'], events)
@@ -354,6 +423,48 @@ class NightlyScriptTests(unittest.TestCase):
             self.assertNotEqual(result.returncode, 0)
             events = [json.loads(line) for line in (root / 'events').read_text().splitlines()]
             self.assertFalse(any(c[0] == 'stop' for c in events))
+            self.assertFalse((root / 'remote').exists())
+
+    def test_registry_only_snapshot_omits_image_archive_entirely(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            checkout, env = self.fixture(root)
+            env['REGISTRY_ONLY'] = '1'
+            result = subprocess.run(['bash', str(checkout / 'backup/backup-stack.sh')], env=env, capture_output=True, text=True)
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            backup = next(p for p in (root / 'remote').iterdir() if p.is_dir() and not p.is_symlink())
+            inventory = bundle.validate_bundle(backup)
+            self.assertIsNone(inventory['image_archive'])
+            self.assertEqual(inventory['image_summary']['stored_archive_bytes'], 0)
+            self.assertFalse((backup / bundle.IMAGE_ARCHIVE).exists())
+            events = [json.loads(line) for line in (root / 'events').read_text().splitlines()]
+            self.assertFalse(any(c[:2] == ['image', 'save'] for c in events))
+
+    def test_registry_outage_never_inflates_backup_or_pauses_apps(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            checkout, env = self.fixture(root)
+            env['FAIL_REGISTRY'] = '1'
+            result = subprocess.run(['bash', str(checkout / 'backup/backup-stack.sh')], env=env, capture_output=True, text=True)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn('no automatic image-archive fallback', result.stderr)
+            events = [json.loads(line) for line in (root / 'events').read_text().splitlines()]
+            self.assertFalse(any(c[0] == 'stop' or c[:2] == ['image', 'save'] for c in events))
+            self.assertFalse((root / 'remote').exists())
+
+    def test_image_plan_reports_selection_without_exports_pauses_or_uploads(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            checkout, env = self.fixture(root)
+            env['BACKUP_IMAGE_PLAN_ONLY'] = 'true'
+            result = subprocess.run(['bash', str(checkout / 'backup/backup-stack.sh')], env=env, capture_output=True, text=True)
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertIn('Image selection:', result.stdout)
+            self.assertIn('ARCHIVE core/documenso', result.stdout)
+            self.assertIn('REGISTRY ', result.stdout)
+            self.assertIn('Image plan only:', result.stdout)
+            events = [json.loads(line) for line in (root / 'events').read_text().splitlines()]
+            self.assertFalse(any(c[0] in ('stop', 'start', 'exec') or c[:2] == ['image', 'save'] for c in events))
             self.assertFalse((root / 'remote').exists())
 
     def test_cron_and_manual_runs_cannot_overlap(self):

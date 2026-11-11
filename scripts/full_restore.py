@@ -395,7 +395,7 @@ class Recovery:
 if __name__=='__main__':
  p=argparse.ArgumentParser(description=__doc__);p.add_argument('environment',type=Path);p.add_argument('backup',type=Path);p.add_argument('--source-site')
  p.add_argument('--components',nargs='+',choices=COMMERCE_COMPONENTS,help='Restore only these commerce components; omit for full recovery')
- p.add_argument('--prepare-images',action='store_true',help='Load exact nightly runtime images and pin isolated Compose; start no containers')
+ p.add_argument('--prepare-images',action='store_true',help='Pull pinned public images/load custom archives and pin isolated Compose; start no containers')
  p.add_argument('--check-only',action='store_true',help='Validate the complete snapshot and restore prerequisites without mutation')
  p.add_argument('--resume-test2-checkpoint',action='store_true',help='Resume only the verified October 30 test2 partial checkpoint')
  p.add_argument('--key-file',type=Path,help='Private file containing exactly the selected original Appsmith/n8n encryption keys')

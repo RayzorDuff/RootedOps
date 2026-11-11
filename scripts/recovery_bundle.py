@@ -14,6 +14,7 @@ import re
 import shlex
 import subprocess
 import tarfile
+import tempfile
 
 
 IMAGE_ARCHIVE = 'images/runtime-images.tar.gz'
@@ -67,6 +68,7 @@ PG = [('signaturegate-postgres', 'SIG'), ('mushroomprocess-bridge-postgres', 'MP
 LIVE_DATABASES = {s for s, _ in PG} | {'erpnext-db', 'rootedpsyche-wordpress-db', 'dank-wordpress-db'}
 DISPOSABLE_MOUNTS = {('documenso', '/home/nodejs/.cache/ms-playwright')}
 HEX_ID = re.compile(r'sha256:[0-9a-f]{64}')
+REGISTRY_REF = re.compile(r'[a-zA-Z0-9][a-zA-Z0-9._:/-]*@sha256:[0-9a-f]{64}')
 
 
 def private_json(path, value):
@@ -84,6 +86,93 @@ def checked_output(command):
         return subprocess.check_output(command, text=True, stderr=subprocess.PIPE)
     except subprocess.CalledProcessError:
         raise RuntimeError('Docker recovery inventory command failed; inspect private diagnostics') from None
+
+
+def registry_matches(reference, image, inspect_manifest, depth=0):
+    """Prove a registry digest contains this local image on its recorded platform.
+
+    Older Docker stores identify images by config digest; containerd stores can
+    identify them by manifest/index digest. Follow only the matching platform.
+    """
+    if depth > 2 or not REGISTRY_REF.fullmatch(reference):
+        return False
+    manifest = inspect_manifest(reference)
+    if not isinstance(manifest, dict) or manifest.get('schemaVersion') != 2:
+        return False
+    if reference.rsplit('@', 1)[1] == image['Id']:
+        return True
+    if manifest.get('config', {}).get('digest') == image['Id']:
+        return True
+    for child in manifest.get('manifests', []):
+        platform = child.get('platform', {})
+        if platform.get('os') != image['Os'] or platform.get('architecture') != image['Architecture']:
+            continue
+        if image.get('Variant') and platform.get('variant') != image['Variant']:
+            continue
+        digest = child.get('digest', '')
+        if not HEX_ID.fullmatch(digest):
+            continue
+        child_ref = reference.rsplit('@', 1)[0] + '@' + digest
+        if registry_matches(child_ref, image, inspect_manifest, depth + 1):
+            return True
+    return False
+
+
+def select_images(inventory, images, inspect_manifest, resolve_tag=None):
+    selected = []
+    expected = {r['image_id'] for r in inventory['services']}
+    local = {r['Id']: r for r in images}
+    if not expected <= set(local):
+        raise ValueError('Missing source image inspection')
+    for image_id in sorted(expected):
+        image = local[image_id]
+        entry = {'image_id': image_id, 'size_bytes': image['Size'],
+                 'platform': '/'.join(v for v in (image['Os'], image['Architecture'], image.get('Variant')) if v),
+                 'source_tags': sorted(set(image.get('RepoTags') or [])),
+                 'services': sorted(r['project'] + '/' + r['service'] for r in inventory['services'] if r['image_id'] == image_id)}
+        digests = image.get('RepoDigests') or []
+        if not digests and resolve_tag:
+            # A docker-loaded public image can lose RepoDigests while retaining
+            # versioned RepoTags. Resolve those anonymously, then prove that the
+            # resulting immutable content still matches the deployed image.
+            for tag in sorted(set(image.get('RepoTags') or [])):
+                if not re.fullmatch(r'[a-zA-Z0-9][a-zA-Z0-9._:/-]*', tag) or tag.startswith('sha256:'):
+                    continue
+                candidates = resolve_tag(tag)
+                for reference in candidates:
+                    if registry_matches(reference, image, inspect_manifest):
+                        digests = [reference]
+                        break
+                if digests:
+                    break
+        if digests:
+            verified = None
+            for reference in sorted(set(digests)):
+                try:
+                    if registry_matches(reference, image, inspect_manifest):
+                        verified = reference
+                        break
+                except (RuntimeError, ValueError, subprocess.SubprocessError):
+                    continue
+            if not verified:
+                # A transient registry outage must not inflate nightly backups
+                # with every public image. Refuse before pausing applications.
+                raise ValueError('Cannot anonymously verify a matching registry digest for ' + ', '.join(entry['services']) + '; no automatic image-archive fallback')
+            entry.update(recovery='registry', reference=verified,
+                         reason='Published digest verified anonymously against source identity and platform')
+        else:
+            entry.update(recovery='archive', reason='Local/custom image has no verified published source digest')
+        selected.append(entry)
+    inventory['images'] = selected
+    archived = [r for r in selected if r['recovery'] == 'archive']
+    inventory['image_archive'] = IMAGE_ARCHIVE if archived else None
+    inventory['required_payloads'] = sorted((set(inventory['required_payloads']) - {IMAGE_ARCHIVE}) | ({IMAGE_ARCHIVE} if archived else set()))
+    inventory['image_summary'] = {
+        'registry_images': len(selected) - len(archived), 'archived_images': len(archived),
+        'archived_uncompressed_bytes': sum(r['size_bytes'] for r in archived),
+        'registry_uncompressed_bytes_omitted': sum(r['size_bytes'] for r in selected if r['recovery'] == 'registry'),
+    }
+    return inventory
 
 
 def make_inventory(containers, volume_names):
@@ -179,7 +268,41 @@ def capture(backup, docker):
     containers = json.loads(checked_output(docker + ['inspect', *ids])) if ids else []
     names = checked_output(docker + ['volume', 'ls', '-q']).splitlines()
     inventory = make_inventory(containers, names)
+    image_ids = sorted({r['image_id'] for r in inventory['services']})
+    images = json.loads(checked_output(docker + ['image', 'inspect', *image_ids]))
+    # Verify public recovery without borrowing the production Docker login.
+    with tempfile.TemporaryDirectory(prefix='rootedops-registry-check-') as config:
+        def inspect_manifest(reference):
+            try:
+                result = subprocess.run(docker + ['--config', config, 'manifest', 'inspect', reference],
+                                        capture_output=True, text=True, timeout=30, check=True)
+                return json.loads(result.stdout)
+            except (subprocess.SubprocessError, ValueError):
+                raise RuntimeError('Anonymous registry verification failed') from None
+        def resolve_tag(tag):
+            try:
+                result = subprocess.run(docker + ['--config', config, 'manifest', 'inspect', '--verbose', tag],
+                                        capture_output=True, text=True, timeout=30, check=True)
+                records = json.loads(result.stdout)
+            except subprocess.CalledProcessError as error:
+                message = (error.stderr or '').lower()
+                if any(text in message for text in ('no such manifest', 'manifest unknown', 'name unknown',
+                                                     'pull access denied', 'unauthorized', 'denied:')):
+                    return []  # No public image exists under this local tag.
+                raise RuntimeError('Registry tag verification unavailable; refusing automatic image-archive fallback') from None
+            except (subprocess.SubprocessError, ValueError):
+                raise RuntimeError('Registry tag verification unavailable; refusing automatic image-archive fallback') from None
+            records = records if isinstance(records, list) else [records]
+            repository = tag.rsplit(':', 1)[0] if ':' in tag.rsplit('/', 1)[-1] else tag
+            return [repository + '@' + digest for record in records
+                    if HEX_ID.fullmatch(digest := record.get('Descriptor', {}).get('digest', record.get('Digest', '')))]
+        select_images(inventory, images, inspect_manifest, resolve_tag)
     private_json(backup / MANIFEST, inventory)
+    print('Image selection: ' + json.dumps(inventory['image_summary'], sort_keys=True))
+    for image in inventory['images']:
+        print(image['recovery'].upper() + ' ' + ','.join(image['services']) + ' ' +
+              str(image['size_bytes']) + ' bytes: ' + image.get('reference', image['reason']) +
+              ' tags=' + ','.join(image['source_tags']))
     return inventory
 
 
@@ -192,7 +315,7 @@ def verify_sources(backup, docker, allow_stopped=False):
         for inventory in (current, original):
             for record in inventory['services']:
                 record.pop('running', None)
-    if current != original:
+    if any(current[key] != original[key] for key in ('groups', 'services', 'volumes', 'binds')):
         raise ValueError('Source containers, images, mounts or installation changed during backup; refusing mixed snapshot')
 
 
@@ -201,7 +324,7 @@ def validate_bundle(backup):
     if not path.is_file():
         raise ValueError('Full recovery requires a fresh format-2 nightly backup with runtime images and service inventory')
     manifest = json.loads(path.read_text())
-    if manifest.get('format_version') != 2 or manifest.get('image_archive') != IMAGE_ARCHIVE:
+    if manifest.get('format_version') != 2 or manifest.get('image_archive') not in (None, IMAGE_ARCHIVE):
         raise ValueError('Unsupported recovery bundle format')
     expected_groups = set(GROUPS)
     if set(manifest['groups']) != expected_groups or any(
@@ -216,14 +339,33 @@ def validate_bundle(backup):
         raise ValueError('Incomplete/duplicate service inventory')
     if any(not HEX_ID.fullmatch(r['image_id']) for r in manifest['services']):
         raise ValueError('Invalid source image identity')
+    images = manifest.get('images', [])
+    expected_ids = {r['image_id'] for r in manifest['services']}
+    if {r['image_id'] for r in images} != expected_ids or len(images) != len(expected_ids):
+        raise ValueError('Incomplete/duplicate image recovery inventory')
+    archived = [r for r in images if r.get('recovery') == 'archive']
+    for image in images:
+        if not re.fullmatch(r'[a-z0-9]+/[a-z0-9_]+(?:/[a-z0-9_]+)?', image.get('platform', '')):
+            raise ValueError('Invalid image platform')
+        if image.get('recovery') == 'registry':
+            if not REGISTRY_REF.fullmatch(image.get('reference', '')):
+                raise ValueError('Recovery requires immutable registry digests, never floating tags')
+        elif image.get('recovery') != 'archive':
+            raise ValueError('Invalid image recovery mode')
+    if manifest['image_archive'] != (IMAGE_ARCHIVE if archived else None):
+        raise ValueError('Image archive does not match image selection')
     required = set(manifest['required_payloads'])
     expected_volumes = {('volumes/' + a, p, s) for p, s, _, a in VOLUME_SPECS if (p, s) in expected_services}
     actual_volumes = {(r['archive'], r['project'], r['service']) for r in manifest['volumes']}
     if expected_volumes != actual_volumes or len(actual_volumes) != len(manifest['volumes']):
         raise ValueError('Incomplete/duplicate volume inventory')
-    needed = {a for a, _, _ in expected_volumes} | {'meta/.env', IMAGE_ARCHIVE,
+    needed = {a for a, _, _ in expected_volumes} | {'meta/.env',
               'meta/docker-compose.yml', 'meta/frappe-app-versions.txt', 'db/erpnext-all-databases.sql.gz',
               'db/rootedpsyche-wordpress-all-databases.sql.gz'} | {'db/' + s + '.sql.gz' for s, _ in PG}
+    if archived:
+        needed.add(IMAGE_ARCHIVE)
+    elif (backup / IMAGE_ARCHIVE).exists() or IMAGE_ARCHIVE in required:
+        raise ValueError('Unnecessary image archive for registry-only recovery')
     if manifest['groups']['dank'] == 'installed':
         needed.add('db/dank-wordpress-all-databases.sql.gz')
     if manifest['groups']['scheduling'] == 'installed':
@@ -268,16 +410,17 @@ def validate_bundle(backup):
             raise ValueError('Missing or unsafe recovery payload: ' + name)
         if p.stat().st_size == 0:
             raise ValueError('Empty recovery payload: ' + name)
-    # Scan to gzip EOF, including CRC, without expanding image layers on disk.
-    with gzip.open(backup / IMAGE_ARCHIVE, 'rb') as stream:
-        while stream.read(1024 * 1024):
-            pass
-    with tarfile.open(backup / IMAGE_ARCHIVE, 'r:gz') as archive:
-        entries = [m for m in archive if m.name == 'manifest.json' and m.isfile()]
-        if len(entries) != 1 or entries[0].size > 10 * 1024 * 1024:
-            raise ValueError('Invalid docker image archive manifest')
-        if not json.load(archive.extractfile(entries[0])):
-            raise ValueError('Empty docker image archive')
+    if archived:
+        # Scan to gzip EOF, including CRC, without expanding layers on disk.
+        with gzip.open(backup / IMAGE_ARCHIVE, 'rb') as stream:
+            while stream.read(1024 * 1024):
+                pass
+        with tarfile.open(backup / IMAGE_ARCHIVE, 'r:gz') as archive:
+            entries = [m for m in archive if m.name == 'manifest.json' and m.isfile()]
+            if len(entries) != 1 or entries[0].size > 10 * 1024 * 1024:
+                raise ValueError('Invalid docker image archive manifest')
+            if not json.load(archive.extractfile(entries[0])):
+                raise ValueError('Empty docker image archive')
     return manifest
 
 
@@ -305,13 +448,18 @@ def prepare_images(output, backup):
         if config.get('networks', {}).get('default', {}).get('internal') is not True:
             raise ValueError('Outbound isolation required before image preparation')
         configs[project] = (path, config)
-    subprocess.run(['docker', 'image', 'load', '--input', str(backup / IMAGE_ARCHIVE)], check=True)
+    if manifest['image_archive']:
+        subprocess.run(['docker', 'image', 'load', '--input', str(backup / IMAGE_ARCHIVE)], check=True)
     ids = sorted({r['image_id'] for r in manifest['services']})
-    for image in ids:
-        actual = checked_output(['docker', 'image', 'inspect', '--format', '{{.Id}}', image]).strip()
-        if actual != image:
-            raise ValueError('Loaded image does not match backup identity')
-        subprocess.run(['docker', 'image', 'tag', image, image_tag(image)], check=True)
+    for image in manifest['images']:
+        source = image['image_id']
+        if image['recovery'] == 'registry':
+            source = image['reference']
+            subprocess.run(['docker', 'image', 'pull', '--platform', image['platform'], source], check=True)
+        actual = checked_output(['docker', 'image', 'inspect', '--format', '{{.Id}}', source]).strip()
+        if actual != image['image_id']:
+            raise ValueError('Recovered image does not match backup identity')
+        subprocess.run(['docker', 'image', 'tag', source, image_tag(image['image_id'])], check=True)
     sources = {(r['project'], r['service']): r['image_id'] for r in manifest['services']}
     # Initializers share the actual ERP backend image; never rebuild floating refs.
     for service in ('erpnext-apps-init', 'erpnext-configurator', 'erpnext-bootstrap'):
@@ -341,7 +489,7 @@ def prepare_images(output, backup):
     receipt = {'backup_inventory_sha256': hashlib.sha256((backup / MANIFEST).read_bytes()).hexdigest(),
                'images': ids, 'config_sha256': config_hashes(output), 'apps_started': False}
     private_json(output / 'backup-image-receipt.json', receipt)
-    print('Exact backup images loaded and isolated Compose pinned; no containers started.')
+    print('Registry images pulled and custom images loaded; exact identities verified and isolated Compose pinned. No containers started.')
 
 
 def verify_images(output, backup):
@@ -360,7 +508,7 @@ def verify_images(output, backup):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('action', choices=('capture', 'records', 'validate', 'verify-sources'))
+    parser.add_argument('action', choices=('capture', 'records', 'validate', 'verify-sources', 'finalize-images'))
     parser.add_argument('backup', type=Path)
     parser.add_argument('--docker-command', default='sudo docker')
     parser.add_argument('--kind', choices=('images', 'volumes', 'binds', 'cold', 'dank', 'rootedpsyche', 'groups'))
@@ -373,10 +521,17 @@ def main():
     elif args.action == 'validate':
         validate_bundle(args.backup)
         print('Complete nightly recovery inventory and image archive validated.')
+    elif args.action == 'finalize-images':
+        inventory = json.loads((args.backup / MANIFEST).read_text())
+        inventory['image_summary']['stored_archive_bytes'] = (args.backup / IMAGE_ARCHIVE).stat().st_size if inventory['image_archive'] else 0
+        private_json(args.backup / MANIFEST, inventory)
+        print('Final image storage report: ' + json.dumps(inventory['image_summary'], sort_keys=True))
     else:
         m = json.loads((args.backup / MANIFEST).read_text())
         if args.kind == 'images':
-            print('\n'.join(sorted({r['image_id'] for r in m['services']})))
+            for record in m['images']:
+                if record['recovery'] == 'archive':
+                    print(record['image_id'])
         elif args.kind == 'volumes':
             for r in m['volumes']:
                 print(r['volume'] + '\t' + Path(r['archive']).name)

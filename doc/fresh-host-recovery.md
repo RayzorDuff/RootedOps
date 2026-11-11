@@ -74,14 +74,17 @@ material, Rallly storage keys and Tymeslot data encryption key must survive.
 A full recovery now requires a **format-2 nightly snapshot** produced by the
 repaired `backup/backup-stack.sh`. Its checksummed `meta/recovery-bundle.json`
 identifies installed groups, every required payload, actual mounts and immutable
-runtime image IDs. `images/runtime-images.tar.gz` contains the exact deployed
-images, including custom ERPNext and Documenso builds. No separate manual image
+runtime image IDs, platforms and recovery methods. Published images use verified
+immutable registry digests; their bytes are omitted. The optional
+`images/runtime-images.tar.gz` contains only required local/custom images with
+no verified published source, such as locally built ERPNext/Documenso. No separate manual image
 export, floating-tag rebuild or `IMAGE_COMPATIBILITY_REVIEWED` marker substitutes
 for this bundle. Older snapshots remain available for explicitly scoped subset
 recovery; they cannot prove complete full-stack acceptance.
 
 Review the inventory and `meta/frappe-app-versions.txt`, then load and verify the
-saved images and pin the **generated isolated** Compose files. This step starts
+public digests and necessary custom images and pin the **generated isolated**
+Compose files. This step starts
 no containers and preserves their internal networks, loopback ports and generated
 test credentials. The source ERP backend image also supplies the initializer and
 bootstrap services. Source groups explicitly recorded as not installed remain
@@ -94,8 +97,9 @@ sudo python3 scripts/full_restore.py "$PWD/.test-deployment" "$HOME/restore-inpu
 sudo python3 scripts/full_restore.py "$PWD/.test-deployment" "$HOME/restore-input" --source-site erp.danks.store
 ```
 
-Image preparation verifies the snapshot checksums and completeness, loads saved
-image bytes, checks exact local IDs, removes floating builds from restored runtime
+Image preparation verifies snapshot checksums/completeness, pulls pinned public
+images, loads only the archived custom bytes, checks exact local IDs and removes
+floating builds from restored runtime
 services and sets `pull_policy: never`. Its private receipt binds source inventory
 to the generated Compose files. Restore refuses missing service payloads even when
 a hand-edited SHA256SUMS would otherwise pass. Source bind mounts (including Board
@@ -105,7 +109,7 @@ Documenso signing certificate/passphrase stay archived and the generated TEST-on
 certificate/passphrase remain active in the test configuration.
 
 See [nightly-recovery-bundle.md](nightly-recovery-bundle.md) for the producer-side
-repair, maintenance pause, larger image-inclusive snapshots and operator rerun.
+repair, maintenance pause, image selection/size report and operator rerun.
 
 Replace `--source-site` with the actual site directory in `erpnext_sites.tgz`.
 Restoration requires a fresh project, checksum verification, safe/nonempty archive
