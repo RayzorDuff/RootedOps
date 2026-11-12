@@ -450,6 +450,8 @@ services:
   erpnext-apps-init:
     <<: *erpnext_image
     container_name: erpnext-apps-init
+    # A fresh named volume at /out-apps starts root-owned. cp -a preserves app ownership.
+    user: "0:0"
     entrypoint:
       - bash
       - -lc
