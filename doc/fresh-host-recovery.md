@@ -15,7 +15,9 @@ sudo bash linode_bootstrap.sh
 sudo python3 scripts/host_recovery.py validate "$PWD/.test-deployment"
 ```
 
-Bootstrap prompts for a hostname suffix before installing packages. Accept the default prompt for `-test`, or answer `n` to enter `-test2` for a second rehearsal or leave the next prompt blank for an **empty suffix** (unsuffixed hostnames). Unsuffixed names do not disable test isolation, and this procedure is **not** a production deployment procedure. The chosen suffix is saved in the private deployment receipt and used for generated service URLs, live DNS validation, NGINX vhosts and TLS certificates. Create matching Cloudflare records before the DNS/publish phase.\n\nBootstrap installs Docker/Compose, NGINX/Certbot, rclone, OpenSSL and Python/YAML.
+Bootstrap prompts for a hostname suffix before installing packages. Accept the default prompt for `-test`, or answer `n` to enter `-test2` for a second rehearsal or leave the next prompt blank for an **empty suffix** (unsuffixed hostnames). Unsuffixed names do not disable test isolation, and this procedure is **not** a production deployment procedure. The chosen suffix is saved in the private deployment receipt and used for generated service URLs, live DNS validation, NGINX vhosts and TLS certificates. Create matching Cloudflare records before the DNS/publish phase.
+
+Bootstrap installs Docker/Compose, NGINX/Certbot, rclone, OpenSSL and Python/YAML.
 It generates `.test-deployment/.env` and a root `.env` symlink, with private
 permissions and distinct local secrets. Existing runtime `.env` or deployment
 directories cause refusal; credentials are never replaced. The caller regains
@@ -50,6 +52,32 @@ containers/volumes. Generated `receipt.json`, `README.txt` and
 operator checks. After restart/reboot, rerun `status` and compare the inventory.
 A successful CLI exit is not application acceptance: verify authenticated setup,
 HTTP responses, database contents and reboot behavior for every service.
+
+### Private first-run access
+
+On the deployment host, use the generated Compose project to locate the
+Appsmith container's address on its internal network. Some Docker installs
+do not activate the host-side port mapping for an internal network, even if
+Compose lists it in the configuration.
+
+```bash
+deployment="$PWD/.test-deployment"
+core=(sudo docker compose --env-file "$deployment/.env" -f "$deployment/core.yml")
+appsmith_container=$("${core[@]}" ps -q appsmith)
+sudo docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' "$appsmith_container"
+```
+
+From your workstation, forward a local-only port to the returned container
+address using the Linode as the SSH endpoint.
+
+```bash
+ssh -N -L 127.0.0.1:18080:APPSMITH_CONTAINER_IP:80 SSH_USER@TEST_LINODE_IP
+```
+
+Open `http://127.0.0.1:18080` to claim the Appsmith account. For n8n or NocoDB,
+look up the corresponding service address and use container port `5678` or
+`8080`. Repeat the lookup after recreating a container. Confirm the
+intended upstream responds before running public HTTPS acceptance.
 
 ## Full backup restore acceptance B
 
