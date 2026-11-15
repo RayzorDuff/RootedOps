@@ -1,8 +1,6 @@
-# Opt-in extension for Rooted Psyche Board meeting files.
-# Use alongside docker/docker-compose.wordpress.yml only after creating the
-# host folder and reviewing the board-library plugin deployment.
+# Compatibility-only overlay for historical Board Portal deployment commands.
+# Board file mounts are now defined in docker-compose.wordpress.yml, so
+# running with either one or both files preserves the same mounts.
+# Do not add duplicate volume destinations here.
 services:
-  rootedpsyche-wordpress:
-    volumes:
-      - ${ROOTEDPSYCHE_BOARD_MEETINGS_HOST_PATH:?Set ROOTEDPSYCHE_BOARD_MEETINGS_HOST_PATH in .env}:/srv/rootedpsyche-board-meetings:ro
-      - ${ROOTEDPSYCHE_BOARD_SUPPLEMENTS_HOST_PATH:?Set ROOTEDPSYCHE_BOARD_SUPPLEMENTS_HOST_PATH in .env}:/srv/rootedpsyche-board-supplements:ro
+  rootedpsyche-wordpress: {}
