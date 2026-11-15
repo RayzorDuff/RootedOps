@@ -51,9 +51,15 @@ bash "$RELEASE/deploy.sh" promote
 
 **Security acceptance required before running promote:** First verify Members content permissions settings, direct access denial by anonymous/subscriber and revoked director, and no REST/search/cache exposure. The Members plugin restricts *content*, not necessarily page titles, metadata or media; therefore never publish sensitive attachments through the Media Library.
 
+## Persistent Board mounts and recovery
+
+The default Rooted Psyche WordPress Compose service now always includes `/srv/rootedpsyche-board-meetings` and `/srv/rootedpsyche-board-supplements` as read-only mounts. On the Linode, confirm the Google Drive mount is healthy before starting/recreating WordPress, then use `sudo docker compose --env-file ./.env -f docker/docker-compose.wordpress.yml config --quiet` and `sudo docker compose --env-file ./.env -f docker/docker-compose.wordpress.yml up -d --no-deps rootedpsyche-wordpress`. An existing `.env` with the two correct paths needs no changes. Do not overwrite the private `.env` from `.env.example`.
+
+The WordPress **Working Documents** shortcode reads `BookWorksSupplements/RootedPsycheBoard/working-documents.json`, which is **not automatically replaced by publishing Board Readiness**. When the BookWorks chapter 11 Google Docs register changes, regenerate the JSON from merged `main` on the Mac using `shared/scripts/export_board_working_documents.py`, verify its document count/links, then copy the new file to Google Drive with an explicit backup of the existing manifest. The rclone mount must be healthy and WordPress must be able to read the manifest afterward.
+
 ## Deploy plugin upgrade
 
-Use existing `ROOTEDPSYCHE_BOARD_SUPPLEMENTS_HOST_PATH` and **both existing Compose files**; this feature adds no new mount.
+Use existing `ROOTEDPSYCHE_BOARD_MEETINGS_HOST_PATH` and `ROOTEDPSYCHE_BOARD_SUPPLEMENTS_HOST_PATH` from the private `.env`. As of the permanent-mount fix, **both read-only binds live in `docker/docker-compose.wordpress.yml`**; the old `docker-compose.rootedpsyche-board.yml` remains a harmless compatibility overlay. Use the primary WordPress Compose file for future recreations. Never run with `--remove-orphans`.
 
 After PR review/merge:
 ```bash
