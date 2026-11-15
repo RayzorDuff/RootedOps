@@ -19,7 +19,7 @@ A last-synchronized hash per profile section detects conflicting changes. If ERP
 
 ## Isolated activation
 
-1. Verify the matched `erp-test2.danks.store` and `shop-test2.danks.store` pair (or both `test` hosts) and a mail sink. Use fictitious addresses. Deploy the ERP app and run `bench --site erp-test2.danks.store migrate` in that bench. Drain pre-upgrade order deliveries before enabling the registered-order requirement. Restart the staging inbox process with this branch's code.
+1. Verify the matched `erp-test2.danks.store` and `shop-test2.danks.store` pair (or both `test` hosts) and a mail sink. Use fictitious addresses. Confirm ERPNext can render an Address using its standard country or default Address Template. Deploy the ERP app and run `bench --site erp-test2.danks.store migrate` in that bench. Drain pre-upgrade order deliveries before enabling the registered-order requirement. Restart the staging inbox process with this branch's code.
 2. Set `commerce_customer_sync` in the **staging** ERP site's private config. Use a Woo REST read/write credential for the matching shop and a role-authorized ERP API credential for the inbox worker. Set `project_enabled` to false at first.
 
    ```json

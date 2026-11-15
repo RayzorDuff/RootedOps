@@ -10,6 +10,9 @@ from rootedops_commerce import customer_sync as sync
 
 class TestCustomerSync(IntegrationTestCase):
     def test_registration_address_edit_and_erp_projection(self):
+        if not frappe.db.exists('Address Template', {'country': 'United States'}):
+            frappe.get_doc(dict(doctype='Address Template', country='United States',
+                                template='{{ address_line1 }}\n{{ city }}, {{ state }} {{ pincode }}')).insert()
         site = 'shop-test2.danks.store'
         customer_id = 912345
         config = {'customer_group': frappe.db.get_value('Customer Group', {'is_group': 0}),
