@@ -39,6 +39,20 @@ class NativeInboxTests(unittest.TestCase):
         signature=base64.b64encode(hmac.digest(secret.encode(),raw,'sha256')).decode()
         return self.inbox.receive(raw,signature,secrets=[secret],site='synthetic',
             mappings={'1':{'sku':'SYN-1','ecommerce_id':self.ecommerce,'erp_item_code':'ERP-SYN-1'}},gateways={'clover_test':'clover'})
+    def test_customer_receipt_is_durable_and_excluded_from_order_claims(self):
+        from customer_signals import ACTION, PROVIDER
+        raw = json.dumps(dict(action=ACTION, arg=dict(id=12, scope='account',
+                        event='a23c14be-23ad-4b5a-97c2-fdf7944ed25b', digest='a'*64))).encode()
+        secret = 'synthetic-native-customer-webhook-secret'
+        signature = base64.b64encode(hmac.digest(secret.encode(), raw, 'sha256')).decode()
+        kwargs = dict(secrets=[secret], site='shop-test2.danks.store')
+        self.assertFalse(self.inbox.receive_customer(raw, signature, **kwargs)['duplicate'])
+        self.assertTrue(self.inbox.receive_customer(raw, signature, **kwargs)['duplicate'])
+        self.assertIsNone(self.inbox.claim())
+        self.assertIsNone(self.inbox.claim(provider=PROVIDER, site='another-store'))
+        claim = self.inbox.claim(provider=PROVIDER, site=kwargs['site'])
+        self.assertEqual(claim['payload']['id'], 12)
+
     def test_concurrent_receipt_and_lost_erp_response(self):
         with ThreadPoolExecutor(2) as pool:results=list(pool.map(lambda _:self.receive(),range(2)))
         self.assertEqual(sorted(r['duplicate'] for r in results),[False,True]);calls=[]
