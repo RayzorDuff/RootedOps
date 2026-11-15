@@ -50,7 +50,8 @@ def woo_profile(doc, scope):
 
 
 def woo_request(site, customer_id, conf, body=None):
-    path = f'https://{site}/wp-json/wc/v3/customers/{customer_id}?context=edit'
+    path = f'https://{site}/wp-json/wc/v3/customers/{customer_id}'
+    path += '?context=edit' if body is None else '/rootedops-projection'
     req = Request(path, data=None if body is None else json.dumps(body).encode(),
                   method='GET' if body is None else 'PUT',
                   headers={'Authorization': conf['woo_authorization'], 'Content-Type': 'application/json'})
@@ -58,6 +59,8 @@ def woo_request(site, customer_id, conf, body=None):
         with build_opener(NoRedirect).open(req, timeout=12) as response:
             account = json.load(response)
     except HTTPError as error:
+        if body is not None and error.code == 412:
+            raise Review('both_changed') from None
         if error.code in (400, 404, 409):
             raise Review('woo_identity_or_profile') from None
         raise RuntimeError('Woo customer endpoint unavailable') from None
@@ -317,7 +320,7 @@ def project_profile(site, customer_id, scope):
             return status(link, scope, 'review_both_changed')
         if scope == 'account' and (not values['email'] or matching_contacts(values['email']) - {link.contact}):
             return status(link, scope, 'review_erp_email_match')
-        body = values if scope == 'account' else {scope: values}
+        body = {'scope': scope, 'expected_digest': remote_digest, 'values': values}
         if woo_profile(woo_request(site, str(customer_id), conf, body), scope) != values:
             raise ValueError('Woo did not retain the projected profile')
         return status(link, scope, 'synced', digest)

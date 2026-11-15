@@ -21,7 +21,11 @@ class TestCustomerSync(IntegrationTestCase):
                   'last_name': 'Customer', 'billing': {}, 'shipping': {}}
         def request(site, customer_id, conf, body=None):
             if body:
-                remote.update(body)
+                scope = body['scope']
+                current_digest = sync.profile_digest(sync.woo_profile(remote, scope))
+                if current_digest != body['expected_digest']:
+                    raise sync.Review('both_changed')
+                remote.update(body['values'] if scope == 'account' else {scope: body['values']})
             return remote
         def consume(scope, saved=None):
             values = sync.woo_profile(remote, 'account' if scope == 'registered' else scope)
@@ -52,3 +56,26 @@ class TestCustomerSync(IntegrationTestCase):
             self.assertEqual(remote['first_name'], 'Changed')
             self.assertEqual(consume('account', saved=dict(email=remote['email'], first_name='Synthetic',
                              last_name='Customer'))['status'], 'stale')
+
+
+            # Interleave a My Account change after the ERP read but before the
+            # guarded write. Both edits survive and the baseline is unchanged.
+            link.reload()
+            baseline = link.account_digest
+            contact.reload()
+            contact.first_name = 'Second ERP edit'
+            contact.save()
+
+            def race(site, customer_id, conf, body=None):
+                if body:
+                    remote['first_name'] = 'Concurrent Woo edit'
+                return request(site, customer_id, conf, body)
+
+            woo.side_effect = race
+            self.assertEqual(sync.project_profile(site, customer_id, 'account')['status'],
+                             'review_both_changed')
+            self.assertEqual(remote['first_name'], 'Concurrent Woo edit')
+            self.assertEqual(frappe.db.get_value('Contact', contact.name, 'first_name'),
+                             'Second ERP edit')
+            link.reload()
+            self.assertEqual(link.account_digest, baseline)

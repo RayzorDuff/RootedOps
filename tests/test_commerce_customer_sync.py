@@ -10,6 +10,7 @@ import tempfile
 from types import SimpleNamespace
 import unittest
 from unittest.mock import Mock, patch
+from urllib.error import HTTPError
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / 'integrations/commerce'))
@@ -142,7 +143,35 @@ class ProfileSync(unittest.TestCase):
             self.assertEqual(self.sync.project_profile(SITE, 12, 'account')['status'], 'synced')
             self.assertEqual(self.sync.project_profile(SITE, 12, 'account')['status'], 'unchanged')
             self.assertEqual(woo.call_count, 3)
-            self.assertEqual(woo.call_args.args[-1], self.new)
+            self.assertEqual(woo.call_args.args[-1], {
+                'scope': 'account', 'expected_digest': self.sync.profile_digest(self.base),
+                'values': self.new,
+            })
+
+    def test_projection_http_precondition_failure_keeps_baseline(self):
+        self.link.contact = 'CONTACT-TEST'
+        remote = dict(self.base, id=12, role='customer')
+        initial_digest = self.link.account_digest
+        response = io.BytesIO(json.dumps(remote).encode())
+        guarded_route = f'https://{SITE}/wp-json/wc/v3/customers/12/rootedops-projection'
+        conflict = HTTPError(guarded_route, 412, 'Precondition Failed', None, None)
+        with (patch.object(self.sync, 'settings', return_value={'woo_authorization': 'synthetic'}),
+              patch.object(self.sync, 'lock_link', return_value=self.link),
+              patch.object(self.sync, 'erp_profile', return_value=self.new),
+              patch.object(self.sync, 'matching_contacts', return_value=set()),
+              patch.object(self.sync, 'build_opener') as opener):
+            opener.return_value.open.side_effect = [response, conflict]
+            self.assertEqual(self.sync.project_profile(SITE, 12, 'account')['status'],
+                             'review_both_changed')
+            self.assertEqual(self.link.account_digest, initial_digest)
+            calls = opener.return_value.open.call_args_list
+            self.assertEqual(len(calls), 2)
+            guarded_request = calls[-1].args[0]
+            self.assertEqual(guarded_request.full_url, guarded_route)
+            self.assertEqual(guarded_request.get_method(), 'PUT')
+            self.assertEqual(json.loads(guarded_request.data), {
+                'scope': 'account', 'expected_digest': initial_digest, 'values': self.new,
+            })
 
 
 class CustomerReview(unittest.TestCase):
