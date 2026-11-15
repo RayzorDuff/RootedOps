@@ -15,7 +15,7 @@ import tempfile
 from pathlib import Path
 
 SOURCE = "rooted-psyche-corporate-record-book/chapters/11-board-editable-document-register.md"
-URL = re.compile(r"https://docs\\.google\\.com/(?:document|spreadsheets)/d/[A-Za-z0-9_-]+(?:/edit)?(?:\\?[^#]*)?\\Z")
+URL = re.compile(r"https://docs\.google\.com/(?:document|spreadsheets)/d/[A-Za-z0-9_-]+(?:/edit)?(?:\?[^#]*)?\Z")
 
 
 def sha(path: Path) -> str:
