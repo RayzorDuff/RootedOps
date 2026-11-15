@@ -1,4 +1,6 @@
-# Opt-in WordPress migration stack. Run alongside the existing Grav site until cutover.
+# Rooted Psyche production WordPress stack, including protected Board file mounts.
+# The Board bind mounts are part of this primary Compose file so a normal
+# WordPress recreate cannot silently remove the Board Portal document access.
 # docker compose --env-file .env -f docker/docker-compose.wordpress.yml up -d
 services:
   rootedpsyche-wordpress-db:
@@ -37,6 +39,10 @@ services:
       - "127.0.0.1:${ROOTEDPSYCHE_WP_TEST_PORT:-8096}:80"
     volumes:
       - rootedpsyche_wordpress_html:/var/www/html
+      # The Board plugin serves only role-gated files from these read-only
+      # rclone-backed directories; never mount them into public web storage.
+      - ${ROOTEDPSYCHE_BOARD_MEETINGS_HOST_PATH:?Set ROOTEDPSYCHE_BOARD_MEETINGS_HOST_PATH in .env}:/srv/rootedpsyche-board-meetings:ro
+      - ${ROOTEDPSYCHE_BOARD_SUPPLEMENTS_HOST_PATH:?Set ROOTEDPSYCHE_BOARD_SUPPLEMENTS_HOST_PATH in .env}:/srv/rootedpsyche-board-supplements:ro
 
 volumes:
   rootedpsyche_wordpress_db:
