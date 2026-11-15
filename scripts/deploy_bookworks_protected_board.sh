@@ -38,8 +38,27 @@ print("Verified protected Board Readiness release:",payload['source_commit'])
 PY
 CONTAINER="${BOOKWORKS_WORDPRESS_CONTAINER:-docker-rootedpsyche-wordpress-1}"
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-REMOTE="/tmp/rootedpsyche-board-release-$$"
+# The host path is resolved from the live read-only Docker bind, avoiding a
+# second, potentially divergent path setting in the deployment environment.
+SUPPLEMENTS="$(sudo docker inspect "$CONTAINER" --format '{{range .Mounts}}{{if eq .Destination "/srv/rootedpsyche-board-supplements"}}{{.Source}}{{end}}{{end}}')"
+[[ -n "$SUPPLEMENTS" && -d "$SUPPLEMENTS" ]] || {
+  echo "Board supplements bind mount is missing from WordPress" >&2; exit 1;
+}
+[[ "$(findmnt -n -T "$SUPPLEMENTS" -o FSTYPE)" == fuse.rclone ]] || {
+  echo "Board supplements path is not on the expected rclone filesystem" >&2; exit 1;
+}
+if [[ "$MODE" != rollback ]]; then
+  python3 "$ROOT/scripts/board_working_documents_publish.py" \
+    --release "$RELEASE" --supplements "$SUPPLEMENTS" --mode "$MODE"
+fi
+REMOTE="/tmp/rootedpsyche-board-release-$"
 trap 'sudo docker exec "$CONTAINER" rm -f "$REMOTE.json" "$REMOTE.php" >/dev/null 2>&1 || true' EXIT
 sudo docker cp "$RELEASE/wordpress.json" "$CONTAINER:$REMOTE.json"
 sudo docker cp "$ROOT/scripts/board_protected_publish.php" "$CONTAINER:$REMOTE.php"
 sudo docker exec "$CONTAINER" php "$REMOTE.php" "$REMOTE.json" "$MODE" "$SHA"
+if [[ "$MODE" == promote ]]; then
+  python3 "$ROOT/scripts/board_working_documents_publish.py" \
+    --release "$RELEASE" --supplements "$SUPPLEMENTS" --mode promote
+elif [[ "$MODE" == rollback ]]; then
+  echo "Note: WordPress rollback does not change the separate Working Documents manifest." >&2
+fi
