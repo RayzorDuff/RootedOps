@@ -321,9 +321,12 @@ services:
       ALLOW_LIST: ${MINECRAFT_BEDWARS_ALLOW_LIST}
       ALLOW_LIST_USERS: ${MINECRAFT_BEDWARS_ALLOW_LIST_USERS}
       TZ: America/Denver
+      TRANSPORT: "nethernet"
+      SERVER_UDP_PORTS: "${MINECRAFT_BEDWARS_PUBLIC_IPV4:-<public_ipv4>}:19140-19147:19140-19147"
     ports:
       # Minecraft Bedrock uses UDP. Keep the container side at 19132.
-      - "${MINECRAFT_BEDWARS_PORT}:19132/udp"
+      - "${MINECRAFT_BEDWARS_PORT}:19132/tcp"
+      - "19140-19147:19140-19147/udp"
     volumes:
       - ../minecraft/bedrock:/data
     restart: unless-stopped
