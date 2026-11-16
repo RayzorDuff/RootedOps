@@ -207,4 +207,50 @@ class TestCatalog(IntegrationTestCase):
                     self.assertEqual(draft_order.customer, expected)
                     self.assertEqual(draft_order.docstatus, 0)
                     self.assertFalse(result['accounting_posted'])
+
+                self._assert_native_capture_recovery(company, event, draft)
         finally:frappe.conf.commerce_order_integration_enabled=old
+
+    def _assert_native_capture_recovery(self, company, event, draft):
+        import hmac
+        from unittest.mock import patch
+
+        from rootedops_commerce.clover_payment import reconcile_capture
+        from rootedops_commerce.external_receipt import canonical
+        from rootedops_commerce.order_service import stage_order
+
+        parent = frappe.db.get_value('Account', {'company': company, 'root_type': 'Asset', 'is_group': 1})
+        account_name = 'Fixture Clover Clearing'
+        clearing = frappe.get_doc(dict(doctype='Account', account_name=account_name, parent_account=parent,
+                                      company=company, account_type='Bank', account_currency='USD')).insert()
+        secret = 'synthetic-capture-proof-fixture-only'
+        with patch.dict(frappe.conf, {'commerce_clover_capture_pilot': dict(enabled=True,
+                evidence_hmac=secret, merchant_id='SYNTHETIC', company=company,
+                clearing_account=clearing.name), 'commerce_mapped_zero_tax_fixture': True}):
+            paid = dict(event, order_intake_mode='reviewed_mapping', payment_processor='clover',
+                        processor_payment_id='fixture-charge-453', external_order_id='453',
+                        external_customer_id=None, status='processing', refunds=[],
+                        commercial=dict(line_totals={'1': '10.00'}, shipping='0', tax='0'))
+            order_id = stage_order({'event': paid, 'reviewed_draft': draft})['sales_order']
+            frappe.get_doc('Sales Order', order_id).submit()
+            evidence = dict(provider='woocommerce', site_key=paid['site_key'], external_order_id='453',
+                            processor='clover', provider_environment='sandbox',
+                            verification='verified_adapter', state='captured', merchant_id='SYNTHETIC',
+                            processor_reference_type='clover_ecommerce_charge',
+                            payment_id='fixture-charge-453', currency='USD', captured_amount='10.00',
+                            refunded_amount='0.00', posting_date=draft['transaction_date'])
+            proof = hmac.digest(secret.encode(), canonical(evidence), 'sha256').hex()
+            count = frappe.db.count('Sales Invoice')
+            frappe.db.savepoint('capture_fixture')
+            path = 'erpnext.accounts.doctype.payment_entry.payment_entry.get_payment_entry'
+            with patch(path, side_effect=RuntimeError('Fixture payment failure')):
+                with self.assertRaisesRegex(RuntimeError, 'Fixture payment failure'):
+                    reconcile_capture(evidence, proof)
+            frappe.db.rollback(save_point='capture_fixture')
+            self.assertEqual(frappe.db.count('Sales Invoice'), count)
+            first = reconcile_capture(evidence, proof)
+            self.assertEqual(first, reconcile_capture(evidence, proof))
+            invoice = frappe.get_doc('Sales Invoice', first['sales_invoice'])
+            payment = frappe.get_doc('Payment Entry', first['payment_entry'])
+            self.assertEqual((invoice.docstatus, invoice.update_stock, payment.docstatus), (1, 0, 1))
+            self.assertEqual(payment.paid_to, clearing.name)

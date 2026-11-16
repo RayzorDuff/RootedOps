@@ -86,10 +86,13 @@ def _pilot_customer(event, values):
     if (event['provider'] != 'woocommerce' or allowed.get(frappe.local.site) != event['site_key']
             or 'external_customer_id' not in event):
         raise ValueError('Unpaid Woo pilot requires the matching staging ERP site and customer identity')
-    if (event['status'] not in ('pending', 'on-hold', 'cancelled')
-            or event.get('payment_processor') != 'manual_unpaid'
-            or event.get('processor_payment_id') or event.get('refunds')):
-        raise ValueError('Only unpaid fixture orders can use the staging pilot')
+    capture_enabled = (frappe.conf.get('commerce_clover_capture_pilot') or {}).get('enabled') is True
+    clover = (event.get('order_intake_mode') == 'reviewed_mapping'
+              and event.get('payment_processor') == 'clover' and capture_enabled)
+    if not clover and (event['status'] not in ('pending', 'on-hold', 'cancelled')
+                       or event.get('payment_processor') != 'manual_unpaid'
+                       or event.get('processor_payment_id') or event.get('refunds')):
+        raise ValueError('Only approved unpaid or Clover sandbox fixture orders can use the staging pilot')
     if event['external_customer_id'] is None and not values.get('customer'):
         raise ValueError('Explicit reviewed guest Customer required')
 
