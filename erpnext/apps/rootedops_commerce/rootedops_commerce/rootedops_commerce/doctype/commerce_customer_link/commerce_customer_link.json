@@ -14,6 +14,7 @@
     "shipping_address",
     "ecwid_identity",
     "woo_signup_provisioned",
+    "woo_review_approved",
     "account_digest",
     "account_status",
     "billing_digest",
@@ -83,6 +84,13 @@
     {
       "fieldname": "woo_signup_provisioned",
       "label": "Provisioned from Woo Signup",
+      "fieldtype": "Check",
+      "default": "0",
+      "read_only": 1
+    },
+    {
+      "fieldname": "woo_review_approved",
+      "label": "Approved from Woo Signup Review",
       "fieldtype": "Check",
       "default": "0",
       "read_only": 1

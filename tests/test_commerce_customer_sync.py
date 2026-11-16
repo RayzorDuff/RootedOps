@@ -147,7 +147,7 @@ class ProfileSync(unittest.TestCase):
     def signal(self, values):
         return json.dumps(dict(site_key=SITE, id=12, scope='account', digest=self.sync.profile_digest(values)))
 
-    def test_production_pilot_requires_exact_pair_and_reviewed_ids(self):
+    def test_production_pilot_requires_exact_pair_and_valid_configured_ids(self):
         conf = {'enabled': True, 'woo_site': 'shop-test.danks.store',
                 'production_erp_pilot': True, 'woo_customer_ids': [12]}
         with patch.multiple(self.sync.frappe, create=True,
@@ -157,12 +157,12 @@ class ProfileSync(unittest.TestCase):
             self.assertIs(self.sync.settings('shop-test.danks.store'), conf)
             with self.assertRaises(ValueError):
                 self.sync.settings('shop-test2.danks.store')
-            with patch.dict(conf, woo_customer_ids=[]), self.assertRaises(ValueError):
+            with patch.dict(conf, woo_customer_ids=["invalid"]), self.assertRaises(ValueError):
                 self.sync.settings('shop-test.danks.store')
             with patch.dict(conf, production_erp_pilot=False), self.assertRaises(ValueError):
                 self.sync.settings('shop-test.danks.store')
 
-    def test_production_pilot_only_locks_approved_ids_without_creating_a_link(self):
+    def test_production_pilot_does_not_create_a_link_for_account_edits(self):
         conf = {'production_erp_pilot': True, 'woo_customer_ids': [13]}
         with (patch.object(self.sync, 'settings', return_value=conf),
               patch.object(self.sync, 'lock_link', return_value=None) as lock,
@@ -170,7 +170,8 @@ class ProfileSync(unittest.TestCase):
             signal = self.signal(self.new)
             self.assertEqual(self.sync.consume_signal(signal)['status'],
                              'ignored_unapproved_customer')
-            lock.assert_not_called()
+            lock.assert_called_once_with(SITE, '12', create=False)
+            lock.reset_mock()
             conf['woo_customer_ids'] = [12]
             self.assertEqual(self.sync.consume_signal(signal)['status'], 'review_link_required')
             lock.assert_called_once_with(SITE, '12', create=False)
@@ -188,8 +189,19 @@ class ProfileSync(unittest.TestCase):
             self.assertIs(self.sync.settings('shop-test.danks.store'), conf)
             with patch.dict(conf, territory=''), self.assertRaisesRegex(ValueError, 'Territory'):
                 self.sync.settings('shop-test.danks.store')
-            with patch.dict(conf, provision_new_woo_customers=False), self.assertRaises(ValueError):
-                self.sync.settings('shop-test.danks.store')
+            with patch.dict(conf, provision_new_woo_customers=False):
+                self.assertIs(self.sync.settings('shop-test.danks.store'), conf)
+
+    def test_ui_approved_link_syncs_without_a_file_allowlist_or_automatic_signup(self):
+        conf = {'production_erp_pilot': True, 'woo_customer_ids': []}
+        self.link.woo_review_approved = 1
+        with (patch.object(self.sync, 'settings', return_value=conf),
+              patch.object(self.sync, 'lock_link', return_value=self.link),
+              patch.object(self.sync, 'woo_request', return_value=self.new),
+              patch.object(self.sync, 'erp_profile', side_effect=[self.base, self.new]),
+              patch.object(self.sync, 'write_erp') as write):
+            self.assertEqual(self.sync.consume_signal(self.signal(self.new))['status'], 'synced')
+            write.assert_called_once_with(self.link, 'account', self.new)
 
     def test_production_signup_creates_once_and_existing_email_goes_to_review(self):
         conf = {'production_erp_pilot': True, 'provision_new_woo_customers': True}

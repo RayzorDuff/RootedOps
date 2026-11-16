@@ -227,6 +227,18 @@ If either an ERP Contact email (including a secondary address) or Customer email
 
 Set `provision_new_woo_customers` to `false` to return to reviewed links only. To continue syncing an already provisioned account in that mode, add its Woo ID to the manual allowlist. The link and ERP records are preserved.
 
+### Approve an existing Customer from ERPNext
+
+As a System Manager, open **Commerce Customer Link** and select the row with
+account status `review_erp_email_match`. Choose **Link to Existing Customer**.
+Confirm the Woo account shown, select the existing ERP Customer and its
+dedicated Contact, and select any corresponding account addresses. If the
+profiles disagree, review the indicated scope before approving. Approval
+updates the existing review record and authorizes that Woo ID directly. The
+site-config allowlist is still available for API-based linking. Approval does
+not change profile fields or create a Customer, and a Customer can only be
+linked to one Woo account per store.
+
 ## Isolated activation
 
 ### Batch 1: Read-only preflight on the shared Linode
