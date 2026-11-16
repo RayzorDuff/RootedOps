@@ -1,0 +1,129 @@
+/*
+Theme Name: Dank Storefront
+Description: The Dank Mushrooms storefront and WooCommerce presentation.
+Version: 0.1.0
+Requires at least: 6.6
+Requires PHP: 8.0
+Text Domain: dank-storefront
+*/
+
+@font-face {
+	font-family: 'DM Sans';
+	src: url('assets/dm-sans.woff2') format('woff2');
+	font-style: normal;
+	font-weight: 400 750;
+	font-display: swap;
+}
+@font-face {
+	font-family: 'Instrument Serif';
+	src: url('assets/instrument-serif.woff2') format('woff2');
+	font-style: normal;
+	font-weight: 400;
+	font-display: swap;
+}
+
+:root {
+	--paper: #f4f1e8;
+	--white: #fffcf5;
+	--ink: #20251e;
+	--muted: #545950;
+	--forest: #1d2820;
+	--line: #d8d5c8;
+	--lime: #e7ff53;
+	--heading: 'Instrument Serif', Georgia, serif;
+}
+*, *::before, *::after { box-sizing: border-box; }
+body { margin: 0; background: var(--paper); color: var(--ink); font: 1rem/1.6 'DM Sans', system-ui, sans-serif; }
+img { max-width: 100%; height: auto; }
+a { color: inherit; text-underline-offset: .22em; }
+a:hover { text-decoration-thickness: .13em; }
+:focus-visible { outline: 2px solid currentColor; outline-offset: 4px; }
+h1, h2 { margin: 0; font-family: var(--heading); font-weight: 400; line-height: 1.04; letter-spacing: -.024em; }
+h2 { font-size: clamp(2.25rem, 5vw, 4.3rem); }
+p { margin: 0 0 1em; }
+figure { margin: 0; }
+[id] { scroll-margin-top: 1.6rem; }
+.dank-shell { width: min(calc(100% - 5rem), 77rem); margin-inline: auto; }
+.dank-skip { position: absolute; z-index: 10; left: 1rem; top: 1rem; padding: .6rem 1rem; transform: translateY(-300%); background: var(--white); color: var(--ink); }
+.dank-skip:focus { transform: none; }
+.dank-header, .dank-footer { background: var(--forest); color: var(--white); }
+.dank-header-inner { min-height: 5.5rem; display: grid; grid-template-columns: 1fr auto 1fr; gap: 1.5rem; align-items: center; }
+.dank-brand { display: inline-flex; width: 12rem; max-width: 100%; align-items: center; }
+.dank-brand img { display: block; width: 100%; }
+.dank-nav ul, .dank-footer ul { display: flex; align-items: center; gap: 1.45rem; list-style: none; margin: 0; padding: 0; flex-wrap: wrap; }
+.dank-header a { text-decoration: none; }
+.dank-nav a:hover, .dank-account a:hover { text-decoration: underline; }
+.dank-nav a, .dank-account a, .dank-footer a { font-size: .875rem; font-weight: 600; }
+.dank-account { display: flex; justify-content: flex-end; gap: 1rem; }
+.dank-hero { position: relative; isolation: isolate; min-height: clamp(29rem, 48vw, 41rem); display: grid; align-items: center; overflow: hidden; background: #22281f; color: var(--white); }
+.dank-hero-photo { position: absolute; width: 100%; height: 100%; inset: 0; z-index: -2; object-fit: cover; object-position: center 50%; }
+.dank-hero::after { content: ''; position: absolute; z-index: -1; inset: 0; background: linear-gradient(90deg, rgba(18,23,17,.88) 5%, rgba(18,23,17,.70) 36%, rgba(18,23,17,.18) 76%); }
+.dank-hero-inner { padding-block: 4.5rem; }
+.dank-hero h1 { font-size: clamp(4.1rem, 9vw, 8.5rem); line-height: .89; }
+.dank-hero p { font-size: clamp(1rem, 2vw, 1.25rem); max-width: 25rem; margin: 1.65rem 0 1.8rem; line-height: 1.48; }
+.dank-button { display: inline-block; padding: .84rem 1.6rem; background: var(--lime); color: #1a211b; text-decoration: none; font-weight: 750; }
+.dank-button:hover { background: var(--white); }
+.dank-featured, .dank-delivery { padding-block: clamp(3rem, 7vw, 6rem); }
+.dank-section-heading { display: flex; align-items: end; justify-content: space-between; flex-wrap: wrap; gap: 1rem; }
+.dank-text-link { font-weight: 650; }
+.dank-categories { list-style: none; display: flex; flex-wrap: wrap; gap: .55rem; margin: 1.25rem 0 0; padding: 0; }
+.dank-categories a { display: block; padding: .32rem .8rem; border: 1px solid #a6a599; border-radius: 2rem; text-decoration: none; }
+.dank-categories a:hover { background: var(--white); }
+.dank-empty { margin: 1.45rem 0 0; padding: 1.3rem 0 0; border-top: 1px solid var(--line); color: var(--muted); }
+.dank-preview-note { margin-top: 1rem; color: var(--muted); }
+.dank-product-grid { display: grid; grid-template-columns: repeat(4, minmax(0,1fr)); gap: 1.15rem; padding: 0; margin: 1.5rem 0 0; list-style: none; }
+.dank-product { background: var(--white); border: 1px solid var(--line); min-width: 0; }
+.dank-product-link { display: block; height: 100%; text-decoration: none; }
+.dank-product-link:hover h3 { text-decoration: underline; text-underline-offset: .2em; }
+.dank-product-image { background: #e8e5db; aspect-ratio: 1.18; }
+.dank-product-image img { width: 100%; height: 100%; display: block; object-fit: contain; }
+.dank-product-text { padding: 1rem; }
+.dank-product-text h3 { margin: 0 0 .35rem; line-height: 1.32; font-size: 1rem; }
+.dank-product-text p { font-size: .87rem; line-height: 1.42; color: var(--muted); }
+.dank-product-meta { display: flex; flex-wrap: wrap; gap: .5rem; align-items: center; font-weight: 650; font-size: .9rem; }
+.dank-status { font-size: .75rem; color: var(--muted); }
+.dank-about { background: #e8e7d8; }
+.dank-split { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); align-items: center; gap: clamp(2rem, 7vw, 6rem); padding-block: clamp(3rem, 7vw, 6rem); }
+.dank-split img { width: 100%; height: auto; display: block; aspect-ratio: 1.4; object-fit: cover; }
+.dank-split h2 { margin-bottom: 1.35rem; }
+.dank-split p { max-width: 35rem; }
+.dank-delivery-grid { display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); gap: clamp(1.2rem, 4vw, 3.2rem); margin-top: 1.7rem; }
+.dank-delivery-grid > div { border-top: 1px solid #9d9f91; padding-top: 1rem; }
+.dank-delivery-grid h3 { margin: 0 0 .45rem; font-size: 1.15rem; }
+.dank-delivery-grid p { margin-bottom: 0; }
+.dank-contact { background: var(--forest); color: var(--white); }
+.dank-contact address { font-style: normal; }
+.dank-directions { margin-top: 1.5rem; }
+.dank-footer { border-top: 1px solid #526053; }
+.dank-footer-inner { padding-block: 1.65rem; display: flex; flex-wrap: wrap; align-items: center; gap: 1.4rem; justify-content: space-between; }
+.dank-footer p { margin: 0; font-size: .875rem; }
+.dank-page { padding-block: clamp(2.2rem, 6vw, 5rem); min-height: 56vh; }
+.dank-page h1 { font-size: clamp(2.4rem, 6vw, 5rem); margin-bottom: 1.4rem; }
+.dank-page :where(.woocommerce, .woocommerce-page) img { height: auto; }
+.dank-page :where(input, textarea, select) { font: inherit; max-width: 100%; }
+.dank-page .woocommerce-MyAccount-navigation ul { margin-top: 0; }
+
+@media (max-width: 58rem) {
+	.dank-shell { width: calc(100% - 3rem); }
+	.dank-header-inner { grid-template-columns: 1fr auto; padding-block: .8rem; gap: .8rem; }
+	.dank-nav { grid-row: 2; grid-column: 1 / -1; }
+	.dank-nav ul { gap: 1rem; }
+	.dank-product-grid { grid-template-columns: repeat(3,minmax(0,1fr)); }
+}
+@media (max-width: 39rem) {
+	.dank-shell { width: calc(100% - 2rem); }
+	.dank-brand { width: 9.3rem; }
+	.dank-header-inner { column-gap: .6rem; }
+	.dank-account { gap: .7rem; flex-wrap: wrap; }
+	.dank-account a, .dank-nav a { font-size: .8rem; }
+	.dank-hero { min-height: 29rem; }
+	.dank-hero::after { background: linear-gradient(90deg, rgba(18,23,17,.88), rgba(18,23,17,.46)); }
+	.dank-hero h1 { font-size: clamp(3.35rem, 12.6vw, 4.55rem); }
+	.dank-hero p { max-width: 19rem; }
+	.dank-product-grid { grid-template-columns: repeat(2,minmax(0,1fr)); gap: .6rem; }
+	.dank-product-text { padding: .72rem; }
+	.dank-split, .dank-delivery-grid { grid-template-columns: 1fr; }
+	.dank-footer ul { gap: .8rem; }
+}
+.dank-shop-categories:has(.dank-categories) { margin-bottom: 1.8rem; }
+.dank-social { display: flex; flex-wrap: wrap; gap: .5rem 1rem; list-style: none; margin: 1rem 0 0; padding: 0; }
