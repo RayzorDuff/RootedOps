@@ -15,12 +15,14 @@ The crosswalk is keyed by Woo store and customer ID. It links Customer, Contact 
 
 Woo emits a signed action after registration and explicit account or address saves. It carries a unique receipt ID and a hash of the saved fields. The inbox verifies the raw signature and persists the receipt before acknowledgement. The worker fetches the account by ID. An older action whose fields no longer match Woo returns `stale`. The inbox resumes at the ERP receipt after a retry. ERP customer creation, documents and the crosswalk use one database transaction. Checkout data alone cannot apply a profile edit.
 
-A last-synchronized hash per profile section detects conflicting changes. If ERP and Woo both diverge, review the crosswalk status and align the selected fields on both sides before retrying projection. ERP-to-Woo projection sends the expected hash to the staging MU-plugin's conditional Woo endpoint. It obtains a per-customer MariaDB advisory lock shared with Woo My Account detail and address saves. It checks the current hash under the lock before delegating to Woo's native customer update. A mismatch returns HTTP 412 and ERP keeps the saved baseline with status `review_both_changed`. ERP never falls back to a blind Woo update. A failed or lost response can be retried and acknowledged by reading the projected values. My Account requests that cannot acquire the lock return a retryable 503 before making changes. The REST projection does not fire the outbound Woo form hooks. This lock covers these My Account forms and the projection endpoint. Native checkout, Woo admin or third-party profile writers do not take this lock, so keep periodic projection off pending review of those paths.
+A last-synchronized hash per profile section detects conflicting changes. If ERP and Woo both diverge, review the crosswalk status and align the selected fields on both sides before retrying projection. ERP-to-Woo projection sends the expected hash to the staging MU-plugin's conditional Woo endpoint. It obtains a per-customer MariaDB advisory lock shared with Woo My Account detail and address saves. It checks the current hash under the lock before delegating to Woo's native customer update. A mismatch returns HTTP 412 and ERP keeps the saved baseline with status `review_both_changed`. ERP never falls back to a blind Woo update. A failed or lost response can be retried and acknowledged by reading the projected values. My Account requests that cannot acquire the lock return a retryable 503 before making changes. The REST projection does not emit an account update back to ERP. The lock covers My Account forms, the WordPress Users profile form and the projection endpoint. Native checkout and third-party profile writers do not use this lock.
 
 The ERP account name comes from the linked **Contact**. The ERP Customer
 display name is a separate record. On Woo, edit the account name under
-**My Account → Account details**. A name entered on a Woo address form is
-not an account-name edit. If Woo has no account name, ERP shows a placeholder
+**My Account → Account details** or **WordPress → Users → Edit** on the pilot
+site. In both screens, save the First Name or Last Name to emit an account
+update. The WordPress display name and names entered on Woo address forms
+are outside that mapping. If Woo has no account name, ERP shows a placeholder
 such as `Woo customer #3` on the Contact. This placeholder never syncs to Woo.
 The migration replaces legacy generated hash names on dedicated Contacts
 while preserving their document IDs.
