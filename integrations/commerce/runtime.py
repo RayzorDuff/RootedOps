@@ -46,12 +46,13 @@ def pilot_config(row):
 
 def main():
     p=argparse.ArgumentParser(description=__doc__)
-    p.add_argument('command',choices=['init','serve','work-once','status','replay','reconcile-order','reconcile-capture','work-customers-once','order-status'])
+    p.add_argument('command',choices=['init','serve','work-once','status','replay','reconcile-order','reconcile-capture','reconcile-shipment','work-customers-once','order-status'])
     p.add_argument('--config',type=Path);p.add_argument('--event-key',nargs=3)
     p.add_argument('--order-key',nargs=3)
     p.add_argument('--customer-site')
     p.add_argument('--order-site')
     p.add_argument('--posting-date')
+    p.add_argument('--movement-reference')
     p.add_argument('--port', type=int, default=8100, help='loopback receiver port')
     a=p.parse_args();connect=connect_test(os.environ['COMMERCE_INBOX_DSN']);inbox=Inbox(connect)
     if a.command=='init':
@@ -114,7 +115,7 @@ def main():
         config = json.loads(a.config.read_text())
         base = config.get('erp_base_url', 'https://erp-test.danks.store')
         site = a.order_site
-        if a.command in ('reconcile-order', 'reconcile-capture'):
+        if a.command in ('reconcile-order', 'reconcile-capture', 'reconcile-shipment'):
             if not a.order_key or a.order_key[0] != 'woocommerce':
                 p.error('--order-key woocommerce STAGING_SITE WOO_ORDER_ID required')
             site = a.order_key[1]
@@ -142,6 +143,12 @@ def main():
                 private_key=os.environ['CLOVER_SANDBOX_PRIVATE_KEY'])
             print(json.dumps(reconcile_capture(inbox, mp, erp, clover, tuple(a.order_key),
                   a.posting_date, os.environ['COMMERCE_CAPTURE_EVIDENCE_KEY'])))
+        elif a.command == 'reconcile-shipment':
+            from shipment_reconciliation import reconcile_shipment
+            if not a.movement_reference:
+                p.error('--movement-reference required')
+            print(json.dumps(reconcile_shipment(mp, erp, tuple(a.order_key), a.movement_reference,
+                  os.environ['COMMERCE_SHIPMENT_EVIDENCE_KEY'])))
         else:
             print(json.dumps({'worked': deliver_one(inbox, mp, erp, site=site,
                               tax_policies=tax_policies, pilot_configs=pilot_configs)}))

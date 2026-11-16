@@ -325,4 +325,16 @@ class NativeInboxTests(unittest.TestCase):
             self.assertEqual(db.execute('SELECT count(*) FROM mp_commerce_orders').fetchone()[0],1)
             self.assertEqual(db.execute('SELECT count(*) FROM mp_commerce_erp_links').fetchone()[0],1)
 
+        from shipment_reconciliation import reconcile_shipment
+        from types import SimpleNamespace
+        from unittest.mock import Mock, patch
+        target = SimpleNamespace(base='https://erp-test.danks.store', authorization='fixture', request=Mock())
+        target.request.return_value = {'message': {'status': 'partial'}}
+        with patch('shipment_reconciliation.staging_pair'):
+            self.assertEqual(reconcile_shipment(self.mp, target, ('woocommerce', 'synthetic', '10'),
+                             'fixture-movement', 'fixture-key-' * 3), {'status': 'partial'})
+        packet = json.loads(target.request.call_args.args[-1]['payload'])
+        self.assertEqual(packet['sales_order'], 'SYNTHETIC-SO')
+        self.assertEqual(packet['lines'], [{'line_id': '1', 'item_code': 'ERP-SYN-1', 'quantity': 1}])
+
 if __name__=='__main__':unittest.main()

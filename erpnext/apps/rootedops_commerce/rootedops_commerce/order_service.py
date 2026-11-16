@@ -177,6 +177,12 @@ def stage_order(payload):
         'draft':values, 'tax_quote':event['tax_quote']}
     fingerprint=hashlib.sha256(json.dumps(
         hash_input,sort_keys=True,separators=(',',':')).encode()).hexdigest()
+    fulfillment_map = None
+    if pilot:
+        fulfillment_map = {line['line_id']: {'item_code': line['erp_item_code'],
+                           'quantity': line['quantity']} for line in event['lines']}
+        if len(fulfillment_map) != len(event['lines']):
+            raise ValueError('Duplicate fulfillment line IDs')
     if frappe.db.exists('Commerce Order State',key):
         # Lock state before checking revision and writing ERP status/identities.
         frappe.db.sql('SELECT name FROM `tabCommerce Order State` WHERE name=%s FOR UPDATE',(key,))
@@ -188,6 +194,10 @@ def stage_order(payload):
         order=frappe.get_doc('Sales Order',state.sales_order);order.check_permission('read')
         if order.docstatus==2:raise ValueError('Cancelled ERP order requires explicit reconciliation')
         if Decimal(str(order.grand_total))!=Decimal(event['total']):raise ValueError('ERP order total drift requires review')
+        if fulfillment_map is not None:
+            if state.fulfillment_line_map and json.loads(state.fulfillment_line_map) != fulfillment_map:
+                raise ValueError('Fulfillment line identity drift')
+            state.fulfillment_line_map = json.dumps(fulfillment_map, sort_keys=True)
         state.revision=int(event['revision']);state.status=event['status'];state.save()
     else:
         customer=frappe.get_doc('Customer',values['customer']);customer.check_permission('read')
@@ -202,6 +212,8 @@ def stage_order(payload):
             raise ValueError('Unseen terminal order requires review, not new demand')
         order=frappe.get_doc(dict(values,doctype='Sales Order')).insert()
         if Decimal(str(order.grand_total))!=Decimal(event['total']):raise ValueError('ERP calculated total mismatch')
+        if fulfillment_map is not None:
+            state.fulfillment_line_map = json.dumps(fulfillment_map, sort_keys=True)
         state.sales_order=order.name;state.save()
     return {'status':'staged','source_key':key,'sales_order':state.sales_order,
             'sales_invoice':state.sales_invoice,'payment_entry':state.payment_entry,
