@@ -15,6 +15,7 @@
     "ecwid_identity",
     "woo_signup_provisioned",
     "woo_review_approved",
+    "woo_contact_name_placeholder",
     "account_digest",
     "account_status",
     "billing_digest",
@@ -93,6 +94,14 @@
       "label": "Approved from Woo Signup Review",
       "fieldtype": "Check",
       "default": "0",
+      "read_only": 1
+    },
+    {
+      "fieldname": "woo_contact_name_placeholder",
+      "label": "Woo Contact Name Placeholder",
+      "fieldtype": "Check",
+      "default": "0",
+      "hidden": 1,
       "read_only": 1
     },
     {

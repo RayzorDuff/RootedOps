@@ -52,7 +52,7 @@ class TestCustomerSync(IntegrationTestCase):
             woo.reset_mock()
             self.assertEqual(sync.project_profile(site, customer_id, 'account')['status'], 'synced')
             self.assertEqual(sync.project_profile(site, customer_id, 'account')['status'], 'unchanged')
-            self.assertEqual(woo.call_count, 2)
+            self.assertEqual(woo.call_count, 3)
             self.assertEqual(remote['first_name'], 'Changed')
             self.assertEqual(consume('account', saved=dict(email=remote['email'], first_name='Synthetic',
                              last_name='Customer'))['status'], 'stale')
@@ -94,7 +94,7 @@ class TestCustomerSync(IntegrationTestCase):
                             email_ids=[dict(email_id=duplicate, is_primary=1)])).insert()
 
         def register(customer_id, address):
-            profile = dict(email=address, first_name='Signup', last_name='Example')
+            profile = dict(email=address, first_name='', last_name='')
             signal = dict(site_key=site, id=customer_id, scope='registered',
                           digest=sync.profile_digest(profile))
             with patch.object(sync, 'woo_request', return_value=profile):
@@ -111,6 +111,23 @@ class TestCustomerSync(IntegrationTestCase):
             self.assertTrue(link.woo_signup_provisioned)
             self.assertEqual(frappe.get_doc('Contact', link.contact).email_id, email)
             self.assertEqual(frappe.db.count('Contact Email', {'email_id': email}), 1)
+            original_contact = link.contact
+            self.assertEqual(frappe.db.get_value('Contact', original_contact, 'full_name'),
+                             'Woo customer #912347')
+            self.assertEqual(sync.erp_profile(link, 'account')['first_name'], '')
+
+            from rootedops_commerce.patches.repair_woo_contact_names import execute
+
+            frappe.db.set_value('Contact', original_contact,
+                                {'first_name': link.source_key, 'full_name': link.source_key})
+            frappe.db.set_value(sync.LINK, link.name, 'woo_contact_name_placeholder', 0)
+            execute()
+            execute()
+            link.reload()
+            self.assertEqual(link.contact, original_contact)
+            self.assertEqual(frappe.db.get_value('Contact', original_contact, 'full_name'),
+                             'Woo customer #912347')
+            self.assertEqual(sync.erp_profile(link, 'account')['first_name'], '')
 
     def test_system_manager_can_approve_an_existing_signup_review(self):
         site = 'shop-test.danks.store'

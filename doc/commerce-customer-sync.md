@@ -17,9 +17,22 @@ Woo emits a signed action after registration and explicit account or address sav
 
 A last-synchronized hash per profile section detects conflicting changes. If ERP and Woo both diverge, review the crosswalk status and align the selected fields on both sides before retrying projection. ERP-to-Woo projection sends the expected hash to the staging MU-plugin's conditional Woo endpoint. It obtains a per-customer MariaDB advisory lock shared with Woo My Account detail and address saves. It checks the current hash under the lock before delegating to Woo's native customer update. A mismatch returns HTTP 412 and ERP keeps the saved baseline with status `review_both_changed`. ERP never falls back to a blind Woo update. A failed or lost response can be retried and acknowledged by reading the projected values. My Account requests that cannot acquire the lock return a retryable 503 before making changes. The REST projection does not fire the outbound Woo form hooks. This lock covers these My Account forms and the projection endpoint. Native checkout, Woo admin or third-party profile writers do not take this lock, so keep periodic projection off pending review of those paths.
 
+The ERP account name comes from the linked **Contact**. The ERP Customer
+display name is a separate record. On Woo, edit the account name under
+**My Account → Account details**. A name entered on a Woo address form is
+not an account-name edit. If Woo has no account name, ERP shows a placeholder
+such as `Woo customer #3` on the Contact. This placeholder never syncs to Woo.
+The migration replaces legacy generated hash names on dedicated Contacts
+while preserving their document IDs.
+
+A manual push returns `unchanged` only when ERP and Woo both match the saved
+baseline. `review_woo_changed` means Woo differs while ERP still matches that
+baseline. The push leaves Woo untouched in this case. Review the Woo edit or
+save it through My Account to deliver it to ERP.
+
 ## Shared-Linode customer pilot with production ERP
 
-Use this path when `shop-test.danks.store` and `erp.danks.store` are the available services. Begin with one Woo account you control and its existing ERP Customer and Contact. Review them together before enabling delivery. The pilot requires an allowlist and an explicit link for each account. It runs only the customer worker. The default configuration requires a reviewed link. You can opt into automatic provisioning for new signups below. Scheduled ERP-to-Woo projection remains disabled for this pairing.
+Use this path when `shop-test.danks.store` and `erp.danks.store` are the available services. Begin with one Woo account you control and its existing ERP Customer and Contact. Review them together before enabling delivery. The pilot requires an allowlist and an explicit link for each account. It runs only the customer worker. The default configuration requires a reviewed link. You can opt into automatic provisioning for new signups below. Scheduled ERP-to-Woo projection is opt-in for this pairing.
 
 ### Deploy with delivery disabled
 
@@ -138,7 +151,7 @@ set +a
   --config "$pilot_dir/inbox.json" --customer-site shop-test.danks.store
 ```
 
-Expect `{"worked": true}` and verify the linked ERP Contact has the new name. Use the projection function under Batch 3 with `https://erp.danks.store` and the approved Woo ID. Restore the original name on the ERP Contact, run the projection once, and confirm My Account shows the original name again. Leave scheduled projection off. Run the inbox and worker under a service manager if continuing past the pilot. To pause, disable the Woo webhook and set `commerce_customer_sync.enabled` to `false` in ERP. Clear cache and stop the pilot processes.
+Expect `{"worked": true}` and verify the linked ERP Contact has the new name. Use the projection function under Batch 3 with `https://erp.danks.store` and the approved Woo ID. Restore the original name on the ERP Contact, run the projection once, and confirm My Account shows the original name again. Once the round trip succeeds, enable scheduled projection as described below. Run the inbox and worker under a service manager if continuing past the pilot. To pause, disable the Woo webhook and set `commerce_customer_sync.enabled` to `false` in ERP. Clear cache and stop the pilot processes.
 
 For a persistent shared-Linode installation, run the inbox as a systemd service
 and the customer worker as a systemd timer. Keep the ERP API token in a separate
@@ -197,6 +210,27 @@ Use a single inbox process on port 8100. The HTTPS Nginx route should return the
 inbox's JSON `invalid_webhook` error and HTTP 400 for an unsigned GET. Compare
 the public route against the same path on `http://127.0.0.1:8100` if it returns
 404 before configuring Woo.
+
+### Automatically push ERP profile changes to Woo
+
+After deploying the commerce app, enable projection for the configured
+`erp.danks.store` → `shop-test.danks.store` pairing:
+
+```bash
+bash scripts/commerce-configure-woo-signup.sh --enable-projection
+```
+
+The Frappe scheduler queues linked, eligible profiles every five minutes.
+A job contacts Woo only when the ERP account, billing, or shipping fields have
+changed from the saved baseline. The worker uses the same comparison and
+conditional write as a manual push. If both profiles diverged, the Commerce
+Customer Link reports `review_both_changed`. The Customer display name is
+not one of the synced fields. Edit the linked Contact for name changes.
+
+Check that the site's Frappe scheduler and queue workers are active if an edit
+does not arrive in Woo after one interval. Use the same script with
+`--disable-projection` to stop automatic pushes. The job checks the flag again
+at execution, so pending jobs will skip projection after it is disabled.
 
 ### Automatically provision new Woo signups
 

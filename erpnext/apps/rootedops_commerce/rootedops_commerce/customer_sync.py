@@ -129,6 +129,18 @@ def primary(rows, field, flag):
     return selected[0] if selected else ''
 
 
+def contact_name_placeholder(link):
+    return f'Woo customer #{link.woo_customer_id}'
+
+
+def apply_contact_name(link, contact, values):
+    first_name, last_name = values['first_name'], values['last_name']
+    needs_placeholder = not (first_name or last_name)
+    link.woo_contact_name_placeholder = int(needs_placeholder)
+    contact.first_name = contact_name_placeholder(link) if needs_placeholder else first_name
+    contact.last_name = last_name
+
+
 def erp_profile(link, scope):
     contact = linked_doc(link, 'contact', 'Contact')
     if scope == 'account':
@@ -136,7 +148,8 @@ def erp_profile(link, scope):
             raise Review('missing_erp_contact')
         email = primary(contact.email_ids, 'email_id', 'is_primary')
         first_name = contact.first_name or ''
-        if first_name == link.source_key:
+        if first_name == link.source_key or (
+                link.get('woo_contact_name_placeholder') and first_name == contact_name_placeholder(link)):
             first_name = ''
         return woo_profile(dict(email=email, first_name=first_name, last_name=contact.last_name), scope)
     address = linked_doc(link, scope + '_address', 'Address')
@@ -195,8 +208,7 @@ def write_erp(link, scope, values):
     country = validate_inbound(link, scope, values)
     contact = linked_doc(link, 'contact', 'Contact')
     if scope == 'account':
-        contact.first_name = values['first_name'] or link.source_key
-        contact.last_name = values['last_name']
+        apply_contact_name(link, contact, values)
         set_primary(contact, 'email_ids', 'email_id', 'is_primary', values['email'])
         contact.save()
         return
@@ -232,10 +244,11 @@ def create_customer(link, profile, conf):
     name = ' '.join(profile[key] for key in ('first_name', 'last_name') if profile[key]) or profile['email']
     customer = frappe.get_doc(dict(doctype='Customer', customer_name=name, customer_type='Individual',
                                   customer_group=conf['customer_group'], territory=conf['territory'])).insert()
-    contact = frappe.get_doc(dict(doctype='Contact', first_name=profile['first_name'] or link.source_key,
-                                  last_name=profile['last_name'],
+    contact = frappe.get_doc(dict(doctype='Contact',
                                   email_ids=[dict(email_id=profile['email'], is_primary=1)],
-                                  links=[dict(link_doctype='Customer', link_name=customer.name)])).insert()
+                                  links=[dict(link_doctype='Customer', link_name=customer.name)]))
+    apply_contact_name(link, contact, profile)
+    contact.insert()
     link.customer, link.contact = customer.name, contact.name
     link.save()
 
@@ -384,16 +397,29 @@ def registered_customer(site, customer_id):
     return link.customer
 
 
+def projection_allowed(conf, link, customer_id):
+    return (pilot_customer_allowed(conf, customer_id)
+            or bool(link and (link.get('woo_review_approved')
+                             or (signup_provisioning(conf) and link.woo_signup_provisioned))))
+
+
 @frappe.whitelist(methods=['POST'])
 def project_profile(site, customer_id, scope):
+    return project_scope(site, customer_id, scope)
+
+
+def project_changed_profile(site, customer_id, scope):
+    return project_scope(site, customer_id, scope, automatic=True)
+
+
+def project_scope(site, customer_id, scope, automatic=False):
     conf = settings(site)
+    if automatic and not conf.get('project_enabled'):
+        return {'status': 'disabled'}
     if scope not in SCOPES:
         raise ValueError('Unknown profile scope')
-    approved = pilot_customer_allowed(conf, customer_id)
-    provision = signup_provisioning(conf)
     link = lock_link(site, customer_id)
-    if not approved and not (link and (
-            link.get('woo_review_approved') or (provision and link.woo_signup_provisioned))):
+    if not projection_allowed(conf, link, customer_id):
         return {'status': 'ignored_unapproved_customer'}
     if not link or not link.customer:
         return {'status': 'unlinked'}
@@ -401,12 +427,15 @@ def project_profile(site, customer_id, scope):
         values = erp_profile(link, scope)
         digest = profile_digest(values)
         baseline = link.get(scope + '_digest')
-        if digest == baseline:
+        if automatic and digest == baseline:
             return {'status': 'unchanged'}
         remote = woo_profile(woo_request(site, str(customer_id), conf), scope)
         remote_digest = profile_digest(remote)
         if digest == remote_digest:
-            return status(link, scope, 'synced', digest)
+            status(link, scope, 'synced', digest)
+            return {'status': 'unchanged' if digest == baseline else 'synced'}
+        if digest == baseline:
+            return status(link, scope, 'review_woo_changed')
         if remote_digest != baseline:
             return status(link, scope, 'review_both_changed')
         if scope == 'account' and (not values['email'] or matching_contacts(values['email']) - {link.contact}):
@@ -421,14 +450,15 @@ def project_profile(site, customer_id, scope):
 
 def queue_projections():
     conf = frappe.conf.get('commerce_customer_sync') or {}
-    if (not conf.get('enabled') or not conf.get('project_enabled')
-            or conf.get('production_erp_pilot') is True):
+    if not conf.get('enabled') or not conf.get('project_enabled'):
         return
     site = conf.get('woo_site')
-    settings(site)
+    conf = settings(site)
     links = frappe.get_all(LINK, filters={'site_key': site, 'customer': ['is', 'set']},
-                           fields=['name', 'woo_customer_id'])
+                           fields=['name', 'woo_customer_id', 'woo_review_approved', 'woo_signup_provisioned'])
     for link in links:
+        if not projection_allowed(conf, link, link.woo_customer_id):
+            continue
         for scope in SCOPES:
-            frappe.enqueue(project_profile, site=site, customer_id=link.woo_customer_id, scope=scope,
+            frappe.enqueue(project_changed_profile, site=site, customer_id=link.woo_customer_id, scope=scope,
                            job_id=f'commerce-customer-{link.name}-{scope}', deduplicate=True, timeout=90)
