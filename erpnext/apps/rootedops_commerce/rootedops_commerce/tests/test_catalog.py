@@ -184,4 +184,27 @@ class TestCatalog(IntegrationTestCase):
             self.assertEqual(frappe.db.get_value('Sales Order',order.name,'docstatus'),1)
             self.assertEqual(frappe.db.count('Sales Invoice'),before_invoice)
             self.assertEqual(frappe.db.count('Payment Entry'),before_payment)
+            if frappe.local.site == 'erp-test.danks.store':
+                from rootedops_commerce.customer_sync import link_key
+                shop = 'shop-test.danks.store'
+                registered = frappe.get_doc(dict(doctype='Customer',
+                    customer_name='Synthetic linked Woo buyer', customer_type='Individual')).insert()
+                frappe.get_doc(dict(doctype='Commerce Customer Link', source_key=link_key(shop, '123'),
+                                    site_key=shop, woo_customer_id='123', customer=registered.name)).insert()
+                event.update(site_key=shop, revision=10, status='pending',
+                             order_intake_mode='unpaid_pilot', payment_processor='manual_unpaid',
+                             lines=[{'line_id': '1', 'erp_item_code': item.name, 'quantity': 1}],
+                             line_amounts={'1': '10.00'})
+                for woo_customer_id, order_id, expected in (
+                    (None, '451', customer.name), ('123', '452', registered.name),
+                ):
+                    reviewed = dict(draft)
+                    if woo_customer_id is not None:
+                        del reviewed['customer']
+                    event.update(external_customer_id=woo_customer_id, external_order_id=order_id)
+                    result = stage_order({'event': event, 'reviewed_draft': reviewed})
+                    draft_order = frappe.get_doc('Sales Order', result['sales_order'])
+                    self.assertEqual(draft_order.customer, expected)
+                    self.assertEqual(draft_order.docstatus, 0)
+                    self.assertFalse(result['accounting_posted'])
         finally:frappe.conf.commerce_order_integration_enabled=old
