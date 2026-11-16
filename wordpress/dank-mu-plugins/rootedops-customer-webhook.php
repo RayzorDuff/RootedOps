@@ -87,6 +87,36 @@ function rootedops_customer_projection_enabled() {
 	);
 }
 
+// Core fires these admin form hooks after the nonce and capability checks,
+// but before it saves the profile. Observe profile_update only for this save.
+function rootedops_prepare_admin_customer_profile_save( $id ) {
+	if ( ! rootedops_customer_projection_enabled() || ! current_user_can( 'edit_user', $id ) ) {
+		return;
+	}
+	$user = get_userdata( $id );
+	if ( ! $user || ! in_array( 'customer', $user->roles, true ) ) {
+		return;
+	}
+
+	$id  = (int) $id;
+	$key = rootedops_customer_profile_lock( $id );
+	if ( null === $key ) {
+		wp_die( 'This customer account is being updated. Please try saving again.', '', array( 'response' => 503 ) );
+	}
+	add_action( 'shutdown', static function () use ( $key ) {
+		rootedops_customer_profile_unlock( $key );
+	}, PHP_INT_MAX );
+
+	$before = rootedops_customer_profile_digest( $id, 'account' );
+	add_action( 'profile_update', static function ( $updated_id ) use ( $id, $before ) {
+		if ( $id === (int) $updated_id && $before !== rootedops_customer_profile_digest( $id, 'account' ) ) {
+			rootedops_customer_profile_signal( $id, 'account' );
+		}
+	} );
+}
+add_action( 'edit_user_profile_update', 'rootedops_prepare_admin_customer_profile_save', 1 );
+add_action( 'personal_options_update', 'rootedops_prepare_admin_customer_profile_save', 1 );
+
 // Woo handles both forms on template_redirect at priority 10.
 add_action( 'template_redirect', function () {
 	if ( ! rootedops_customer_projection_enabled() ) {
