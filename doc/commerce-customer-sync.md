@@ -126,7 +126,7 @@ set +a
   "$pilot_dir/venv/bin/python" integrations/commerce/runtime.py serve --config "$pilot_dir/inbox.json"
 ```
 
-Add an active WooCommerce webhook of topic **Action**, event `rootedops_customer_profile_saved`, using the `WOO_CUSTOMER_WEBHOOK_SECRET` from the private file and the HTTPS URL of the exact location above. See the Woo setup note in isolated Batch 2 if its setup ping is refused. From My Account on `shop-test`, make one account name edit on the linked user. When Woo has dispatched its webhook, run the worker from a second shell.
+Add an active WooCommerce webhook of topic **Action**, event `woocommerce_rootedops_customer_profile_saved`, using the `WOO_CUSTOMER_WEBHOOK_SECRET` from the private file and the HTTPS URL of the exact location above. See the Woo setup note in isolated Batch 2 if its setup ping is refused. From My Account on `shop-test`, make one account name edit on the linked user. When Woo has dispatched its webhook, run the worker from a second shell.
 
 ```bash
 cd ~/RootedOps
@@ -271,7 +271,7 @@ Proceed after reviewing the preflight and coordinating any changes or restarts. 
    ```
 
    Run that worker regularly while testing. It shares the durable inbox tables and claims customer deliveries only. `status` shows redacted counts. To retry a dead letter, use `replay --event-key woocommerce-customer shop-test.danks.store RECEIPT_HASH` after fixing the cause.
-4. Set `DANK_WP_CUSTOMER_WEBHOOK_ENABLED=1` in the private staging WordPress Compose env and recreate the staging Web service. For a different test deployment layout, mount only `wordpress/dank-mu-plugins/rootedops-customer-webhook.php` in the staging web root's `wp-content/mu-plugins` and set the same `ROOTEDOPS_CUSTOMER_WEBHOOK_ENABLED` constant privately. Add an active WooCommerce webhook with topic **Action**, event `rootedops_customer_profile_saved`, the staging HTTPS ingress URL and the same secret. If the Woo UI sends an unsigned setup ping, the inbox refuses it. Create the webhook directly with a staging WP-CLI `WC_Webhook` save if needed and use a signed account save as the connectivity check.
+4. Set `DANK_WP_CUSTOMER_WEBHOOK_ENABLED=1` in the private staging WordPress Compose env and recreate the staging Web service. For a different test deployment layout, mount only `wordpress/dank-mu-plugins/rootedops-customer-webhook.php` in the staging web root's `wp-content/mu-plugins` and set the same `ROOTEDOPS_CUSTOMER_WEBHOOK_ENABLED` constant privately. Add an active WooCommerce webhook with topic **Action**, event `woocommerce_rootedops_customer_profile_saved`, the staging HTTPS ingress URL and the same secret. If the Woo UI sends an unsigned setup ping, the inbox refuses it. Create the webhook directly with a staging WP-CLI `WC_Webhook` save if needed and use a signed account save as the connectivity check.
 ### Batch 3: Run live acceptance
 
 Use a new fixture email under `example.invalid`. Confirm that WordPress and ERP email are captured or suppressed by staging sinks. Use a different fictitious name or address value for each change and wait for its receipt before moving to the next check, except when deliberately testing stale delivery or a conflict.

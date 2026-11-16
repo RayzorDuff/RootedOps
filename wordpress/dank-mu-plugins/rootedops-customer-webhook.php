@@ -38,7 +38,7 @@ function rootedops_customer_profile_signal( $id, $scope ) {
 	if ( ! $user || ! in_array( 'customer', $user->roles, true ) ) {
 		return;
 	}
-	do_action( 'rootedops_customer_profile_saved', array(
+	do_action( 'woocommerce_rootedops_customer_profile_saved', array(
 		'id'     => (int) $id,
 		'scope'  => $scope,
 		'event'  => wp_generate_uuid4(),
