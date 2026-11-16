@@ -17,6 +17,19 @@ Woo emits a signed action after registration and explicit account or address sav
 
 A last-synchronized hash per profile section detects conflicting changes. If ERP and Woo both diverge, review the crosswalk status and align the selected fields on both sides before retrying projection. ERP-to-Woo projection sends the expected hash to the staging MU-plugin's conditional Woo endpoint. It obtains a per-customer MariaDB advisory lock shared with Woo My Account detail and address saves. It checks the current hash under the lock before delegating to Woo's native customer update. A mismatch returns HTTP 412 and ERP keeps the saved baseline with status `review_both_changed`. ERP never falls back to a blind Woo update. A failed or lost response can be retried and acknowledged by reading the projected values. My Account requests that cannot acquire the lock return a retryable 503 before making changes. The REST projection does not fire the outbound Woo form hooks. This lock covers these My Account forms and the projection endpoint. Native checkout, Woo admin or third-party profile writers do not take this lock, so keep periodic projection off pending review of those paths.
 
+The ERP account name comes from the linked **Contact**. The ERP Customer
+display name is a separate record. On Woo, edit the account name under
+**My Account → Account details**. A name entered on a Woo address form is
+not an account-name edit. If Woo has no account name, ERP shows a placeholder
+such as `Woo customer #3` on the Contact. This placeholder never syncs to Woo.
+The migration replaces legacy generated hash names on dedicated Contacts
+while preserving their document IDs.
+
+A manual push returns `unchanged` only when ERP and Woo both match the saved
+baseline. `review_woo_changed` means Woo differs while ERP still matches that
+baseline. The push leaves Woo untouched in this case. Review the Woo edit or
+save it through My Account to deliver it to ERP.
+
 ## Shared-Linode customer pilot with production ERP
 
 Use this path when `shop-test.danks.store` and `erp.danks.store` are the available services. Begin with one Woo account you control and its existing ERP Customer and Contact. Review them together before enabling delivery. The pilot requires an allowlist and an explicit link for each account. It runs only the customer worker. The default configuration requires a reviewed link. You can opt into automatic provisioning for new signups below. Scheduled ERP-to-Woo projection remains disabled for this pairing.

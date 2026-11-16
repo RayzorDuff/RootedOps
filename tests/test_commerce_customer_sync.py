@@ -255,15 +255,24 @@ class ProfileSync(unittest.TestCase):
               patch.object(self.sync, 'erp_profile', return_value=self.new),
               patch.object(self.sync, 'matching_contacts', return_value=set()),
               patch.object(self.sync, 'woo_request', side_effect=[
-                  dict(self.base, first_name='Other'), self.base, self.new]) as woo):
+                  dict(self.base, first_name='Other'), self.base, self.new, self.new]) as woo):
             self.assertEqual(self.sync.project_profile(SITE, 12, 'account')['status'], 'review_both_changed')
             self.assertEqual(self.sync.project_profile(SITE, 12, 'account')['status'], 'synced')
             self.assertEqual(self.sync.project_profile(SITE, 12, 'account')['status'], 'unchanged')
-            self.assertEqual(woo.call_count, 3)
-            self.assertEqual(woo.call_args.args[-1], {
+            self.assertEqual(woo.call_count, 4)
+            self.assertEqual(woo.call_args_list[-2].args[-1], {
                 'scope': 'account', 'expected_digest': self.sync.profile_digest(self.base),
                 'values': self.new,
             })
+
+    def test_projection_detects_woo_drift_when_erp_matches_baseline(self):
+        with (patch.object(self.sync, 'settings', return_value={}),
+              patch.object(self.sync, 'lock_link', return_value=self.link),
+              patch.object(self.sync, 'erp_profile', return_value=self.base),
+              patch.object(self.sync, 'woo_request', return_value=self.new) as woo):
+            self.assertEqual(self.sync.project_profile(SITE, 12, 'account')['status'], 'review_woo_changed')
+            woo.assert_called_once_with(SITE, '12', {})
+            self.assertEqual(self.link.account_digest, self.sync.profile_digest(self.base))
 
     def test_projection_http_precondition_failure_keeps_baseline(self):
         self.link.contact = 'CONTACT-TEST'

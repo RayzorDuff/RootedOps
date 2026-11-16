@@ -129,6 +129,18 @@ def primary(rows, field, flag):
     return selected[0] if selected else ''
 
 
+def contact_name_placeholder(link):
+    return f'Woo customer #{link.woo_customer_id}'
+
+
+def apply_contact_name(link, contact, values):
+    first_name, last_name = values['first_name'], values['last_name']
+    needs_placeholder = not (first_name or last_name)
+    link.woo_contact_name_placeholder = int(needs_placeholder)
+    contact.first_name = contact_name_placeholder(link) if needs_placeholder else first_name
+    contact.last_name = last_name
+
+
 def erp_profile(link, scope):
     contact = linked_doc(link, 'contact', 'Contact')
     if scope == 'account':
@@ -136,7 +148,8 @@ def erp_profile(link, scope):
             raise Review('missing_erp_contact')
         email = primary(contact.email_ids, 'email_id', 'is_primary')
         first_name = contact.first_name or ''
-        if first_name == link.source_key:
+        if first_name == link.source_key or (
+                link.get('woo_contact_name_placeholder') and first_name == contact_name_placeholder(link)):
             first_name = ''
         return woo_profile(dict(email=email, first_name=first_name, last_name=contact.last_name), scope)
     address = linked_doc(link, scope + '_address', 'Address')
@@ -195,8 +208,7 @@ def write_erp(link, scope, values):
     country = validate_inbound(link, scope, values)
     contact = linked_doc(link, 'contact', 'Contact')
     if scope == 'account':
-        contact.first_name = values['first_name'] or link.source_key
-        contact.last_name = values['last_name']
+        apply_contact_name(link, contact, values)
         set_primary(contact, 'email_ids', 'email_id', 'is_primary', values['email'])
         contact.save()
         return
@@ -232,10 +244,11 @@ def create_customer(link, profile, conf):
     name = ' '.join(profile[key] for key in ('first_name', 'last_name') if profile[key]) or profile['email']
     customer = frappe.get_doc(dict(doctype='Customer', customer_name=name, customer_type='Individual',
                                   customer_group=conf['customer_group'], territory=conf['territory'])).insert()
-    contact = frappe.get_doc(dict(doctype='Contact', first_name=profile['first_name'] or link.source_key,
-                                  last_name=profile['last_name'],
+    contact = frappe.get_doc(dict(doctype='Contact',
                                   email_ids=[dict(email_id=profile['email'], is_primary=1)],
-                                  links=[dict(link_doctype='Customer', link_name=customer.name)])).insert()
+                                  links=[dict(link_doctype='Customer', link_name=customer.name)]))
+    apply_contact_name(link, contact, profile)
+    contact.insert()
     link.customer, link.contact = customer.name, contact.name
     link.save()
 
@@ -401,12 +414,13 @@ def project_profile(site, customer_id, scope):
         values = erp_profile(link, scope)
         digest = profile_digest(values)
         baseline = link.get(scope + '_digest')
-        if digest == baseline:
-            return {'status': 'unchanged'}
         remote = woo_profile(woo_request(site, str(customer_id), conf), scope)
         remote_digest = profile_digest(remote)
         if digest == remote_digest:
-            return status(link, scope, 'synced', digest)
+            status(link, scope, 'synced', digest)
+            return {'status': 'unchanged' if digest == baseline else 'synced'}
+        if digest == baseline:
+            return status(link, scope, 'review_woo_changed')
         if remote_digest != baseline:
             return status(link, scope, 'review_both_changed')
         if scope == 'account' and (not values['email'] or matching_contacts(values['email']) - {link.contact}):
