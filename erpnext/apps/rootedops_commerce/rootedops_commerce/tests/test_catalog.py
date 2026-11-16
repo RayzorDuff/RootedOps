@@ -231,7 +231,9 @@ class TestCatalog(IntegrationTestCase):
                         processor_payment_id='fixture-charge-453', external_order_id='453',
                         external_customer_id=None, status='processing', refunds=[],
                         commercial=dict(line_totals={'1': '10.00'}, shipping='0', tax='0'))
-            order_id = stage_order({'event': paid, 'reviewed_draft': draft})['sales_order']
+            paid['lines'] = [dict(paid['lines'][0], quantity=2)]
+            reviewed = dict(draft, items=[dict(draft['items'][0], qty=2, rate='5.00')])
+            order_id = stage_order({'event': paid, 'reviewed_draft': reviewed})['sales_order']
             frappe.get_doc('Sales Order', order_id).submit()
             evidence = dict(provider='woocommerce', site_key=paid['site_key'], external_order_id='453',
                             processor='clover', provider_environment='sandbox',
@@ -254,3 +256,21 @@ class TestCatalog(IntegrationTestCase):
             payment = frappe.get_doc('Payment Entry', first['payment_entry'])
             self.assertEqual((invoice.docstatus, invoice.update_stock, payment.docstatus), (1, 0, 1))
             self.assertEqual(payment.paid_to, clearing.name)
+
+            from rootedops_commerce.fulfillment import acknowledge_shipment
+            shipment_key = 'synthetic-shipment-proof-fixture-only'
+            with patch.dict(frappe.conf, {'commerce_mp_fulfillment_pilot':
+                                         dict(enabled=True, movement_hmac=shipment_key)}):
+                shipment = dict(provider='woocommerce', site_key=paid['site_key'],
+                                external_order_id='453', reference='fixture-movement',
+                                sales_order=order_id,
+                                lines=[dict(line_id='1', item_code=reviewed['items'][0]['item_code'],
+                                            quantity=1)])
+                proof = hmac.digest(shipment_key.encode(), canonical(shipment), 'sha256').hex()
+                deliveries = frappe.db.count('Delivery Note')
+                projected = acknowledge_shipment(shipment, proof)
+                self.assertEqual(projected['status'], 'partial')
+                cancelled = dict(paid, revision=paid['revision'] + 1, status='cancelled')
+                stage_order({'event': cancelled, 'reviewed_draft': reviewed})
+                self.assertEqual(projected, acknowledge_shipment(shipment, proof))
+                self.assertEqual(frappe.db.count('Delivery Note'), deliveries)
