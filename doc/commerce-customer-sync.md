@@ -200,7 +200,7 @@ the public route against the same path on `http://127.0.0.1:8100` if it returns
 
 ### Automatically provision new Woo signups
 
-Deploy the commerce app and run its schema migration on `erp.danks.store` before enabling this option. Confirm the RootedOps must-use plugin is enabled on `shop-test.danks.store`, the Woo Action webhook is active, and the customer inbox and worker are running. The worker's ERP API user needs Customer, Contact, and Commerce Customer Link create and write access.
+Deploy the commerce app and run its schema migration on `erp.danks.store` before enabling this option. Confirm the RootedOps must-use plugin is enabled on `shop-test.danks.store`, the Woo Action webhook is active, and the customer inbox and worker are running. The worker host needs `curl`. The worker's ERP API user needs Customer, Contact, and Commerce Customer Link create and write access.
 
 On a clean Linode, after deploying and migrating the commerce app, provision the
 integration settings from the RootedOps checkout:

@@ -65,7 +65,7 @@ def main():
         # No public bind switch. Use only an independently reviewed test proxy.
         with make_server('127.0.0.1',8100,application(inbox,sites,customer_sites)) as server:server.serve_forever()
     elif a.command=='work-customers-once':
-        from customer_signals import deliver_customer
+        from customer_signals import deliver_customer, request_erp_customer
         from staging_origin import customer_pair
         if not a.config or not a.customer_site:
             p.error('--config and --customer-site required')
@@ -74,7 +74,7 @@ def main():
         erp, shop = customer_pair(row['erp_base_url'], 'https://' + a.customer_site,
                                   production_erp_pilot=row.get('production_erp_pilot', False))
         print(json.dumps({'worked': deliver_customer(
-            inbox, erp, os.environ['ERP_AUTHORIZATION'], api, site=urlsplit(shop).hostname)}))
+            inbox, erp, os.environ['ERP_AUTHORIZATION'], request_erp_customer, site=urlsplit(shop).hostname)}))
     else:
         if not a.config:p.error('--config required')
         config=json.loads(a.config.read_text());approved=config['approved_erp_drafts']

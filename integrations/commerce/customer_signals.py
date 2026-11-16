@@ -1,6 +1,8 @@
 """The signed Woo action carries a scoped digest and stable ID, without profile data."""
 import json
 import re
+import subprocess
+import sys
 
 from orders import authenticate
 
@@ -25,6 +27,32 @@ def normalize_signal(raw, signature, secrets, site):
         raise ValueError('Invalid customer signal')
     return dict(event, site_key=site, event_id=receipt, provider=PROVIDER,
                 external_order_id=str(event['id']), revision=0)
+
+
+def request_erp_customer(url, authorization, method, payload):
+    """Use the curl transport accepted by the ERP ingress for customer POSTs."""
+    if not url.startswith('https://') or method != 'POST':
+        raise ValueError('Customer delivery requires an HTTPS POST')
+    if any(ord(char) < 32 for char in authorization):
+        raise ValueError('Invalid ERP authorization header')
+
+    # Read the credential from stdin so it never appears in argv or the journal.
+    header = 'header = ' + json.dumps('Authorization: ' + authorization) + '\n'
+    result = subprocess.run(
+        ['curl', '--disable', '--config', '-', '--silent', '--max-time', '60',
+         '--proto', '=https', '--header', 'Content-Type: application/json',
+         '--data-binary', json.dumps(payload), '--write-out', '\n%{http_code}', url],
+        input=header, text=True, capture_output=True, check=False,
+    )
+    if result.returncode:
+        print(f'ERP customer request: curl exit {result.returncode}', file=sys.stderr)
+        raise RuntimeError('ERP customer request failed')
+    body, _, code = result.stdout.rpartition('\n')
+    if code != '200':
+        status = code if re.fullmatch(r'[0-9]{3}', code) else 'unknown'
+        print(f'ERP customer request: HTTP {status}', file=sys.stderr)
+        raise RuntimeError('ERP customer request rejected')
+    return json.loads(body)
 
 
 def deliver_customer(inbox, erp_base, authorization, request, *, site):

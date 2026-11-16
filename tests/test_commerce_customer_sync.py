@@ -17,7 +17,7 @@ sys.path.insert(0, str(ROOT / 'integrations/commerce'))
 sys.path.insert(0, str(ROOT / 'erpnext/apps/rootedops_commerce'))
 
 from customer_review import compile_new_customers, review, write_csv, ADDRESS_FIELDS
-from customer_signals import ACTION, deliver_customer, normalize_signal, PROVIDER
+from customer_signals import ACTION, deliver_customer, normalize_signal, PROVIDER, request_erp_customer
 from inbox import application, same_receipt
 from orders import normalize_woo
 
@@ -61,6 +61,23 @@ class CustomerSignals(unittest.TestCase):
         self.assertEqual(replies, ['202 Accepted'])
         inbox.receive_customer.assert_called_once_with(raw, signature, site=SITE, secrets=[SECRET])
         inbox.receive.assert_not_called()
+
+    @patch('customer_signals.subprocess.run')
+    def test_customer_curl_keeps_credentials_in_stdin_and_rejects_http_errors(self, run):
+        token = 'token synthetic-key:synthetic-secret'
+        url = 'https://erp.danks.store/api/method/rootedops_commerce.customer_sync.consume_signal'
+        run.return_value = SimpleNamespace(returncode=0, stdout='{"message":{"status":"synced"}}\n200')
+        result = request_erp_customer(url, token, 'POST', {'payload': '{}'})
+        self.assertEqual(result['message']['status'], 'synced')
+        args, options = run.call_args
+        self.assertNotIn(token, ' '.join(args[0]))
+        self.assertIn(token, options['input'])
+        self.assertNotIn('--location', args[0])
+
+        run.return_value.stdout = 'private response body\n403'
+        with patch('sys.stderr', new_callable=io.StringIO) as stderr, self.assertRaises(RuntimeError):
+            request_erp_customer(url, token, 'POST', {'payload': '{}'})
+        self.assertEqual(stderr.getvalue(), 'ERP customer request: HTTP 403\n')
 
     def test_customer_worker_does_not_apply_inventory_and_resumes_erp_receipt(self):
         raw, signature = signed()
