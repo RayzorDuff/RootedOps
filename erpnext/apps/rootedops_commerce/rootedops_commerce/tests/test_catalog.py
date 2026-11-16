@@ -259,3 +259,30 @@ class TestCatalog(IntegrationTestCase):
             payment = frappe.get_doc('Payment Entry', first['payment_entry'])
             self.assertEqual((invoice.docstatus, invoice.update_stock, payment.docstatus), (1, 0, 1))
             self.assertEqual(payment.paid_to, clearing.name)
+
+            from rootedops_commerce.clover_settlement import draft_settlement
+            bank = frappe.get_doc(dict(doctype='Account', account_name='Funding Fixture Bank',
+                parent_account=parent, company=company, account_type='Bank', account_currency='USD')).insert()
+            expense_parent = frappe.db.get_value('Account', {'company': company, 'root_type': 'Expense',
+                                                             'is_group': 1})
+            fees = frappe.get_doc(dict(doctype='Account', account_name='Funding Fixture Fees',
+                parent_account=expense_parent, company=company, account_currency='USD')).insert()
+            cfg = dict(enabled=True, merchant='SYNTHETIC', environment='sandbox', currency='USD',
+                       company=company, bank=bank.name, fees=fees.name,
+                       clearing_by_channel={'woo': clearing.name})
+            funding = dict(merchant='SYNTHETIC', environment='sandbox', reference='FUND-NATIVE',
+                           currency='USD', source='funding_report', source_sha256='1' * 64,
+                           bank=dict(reference='BANK-NATIVE', date=draft['transaction_date'],
+                                     amount='9.50', kind='deposit'),
+                           gross='10.00', net='9.50', kind='deposit',
+                           records=[dict(kind='capture', reference='CHARGE-NATIVE', channel='woo',
+                                         amount='10.00', erp_reference='Payment Entry:' + payment.name),
+                                    dict(kind='processing_fee', reference='FEE-NATIVE', amount='0.50')])
+            with patch.dict(frappe.conf, {'commerce_clover_settlement_pilot': cfg}):
+                settled = draft_settlement(funding)
+                self.assertEqual(settled, draft_settlement(funding))
+                journal = frappe.get_doc('Journal Entry', settled['journal_entry'])
+                self.assertEqual(journal.docstatus, 0)
+                self.assertEqual(len(journal.accounts), 3)
+                with self.assertRaisesRegex(ValueError, 'requires reconciliation'):
+                    draft_settlement(dict(funding, reference='DIFFERENT-FUNDING'))
