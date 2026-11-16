@@ -46,7 +46,7 @@ def cents(value):
 class CloverSandboxEvidence:
     def __init__(self, *, site_key, merchant_id, private_key, enabled=False, transport=get_charge):
         if enabled is not True:raise ValueError('Explicit sandbox evidence opt-in required')
-        if site_key not in ('shop-test','synthetic'):raise ValueError('Dedicated sandbox site required')
+        if site_key not in ('shop-test', 'shop-test.danks.store', 'shop-test2.danks.store', 'synthetic'):raise ValueError('Dedicated sandbox site required')
         if not site_key or not re.fullmatch(r'[A-Za-z0-9_-]{5,64}',merchant_id):raise ValueError('Reviewed site/merchant binding required')
         if not isinstance(private_key,str) or len(private_key)<32 or any(c in private_key for c in '\r\n'):
             raise ValueError('Private sandbox key required')
@@ -68,6 +68,9 @@ class CloverSandboxEvidence:
             raise RuntimeError('Sandbox charge lookup failed; reconciliation remains unverified') from None
         if not isinstance(charge,dict) or charge.get('object')!='charge' or charge.get('id')!=charge_id:
             raise ValueError('Exact single charge response required')
+        reported_merchant = charge.get('merchant_id')
+        if reported_merchant is not None and reported_merchant != self.merchant:
+            raise ValueError('Clover charge merchant mismatch')
         if charge.get('livemode') is not False:raise ValueError('Explicit sandbox response required')
         if charge.get('external_reference_id')!=reviewed_order_number:raise ValueError('Charge/order reference mismatch')
         if charge.get('status')!='succeeded' or charge.get('paid') is not True or charge.get('captured') is not True:

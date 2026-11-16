@@ -152,6 +152,17 @@ class Inbox:
         fields = ('event_id', 'revision', 'state', 'last_error', 'mushroomprocess', 'erp')
         return [dict(zip(fields, row)) for row in rows]
 
+    def completed_woo_payment_source(self, key):
+        with self.connect() as db:
+            row = db.execute("""SELECT i.payload,d.state,i.raw_body FROM commerce_inbox i
+                JOIN commerce_delivery d USING(provider,site_key,event_id)
+                WHERE i.provider=%s AND i.site_key=%s AND i.external_order_id=%s
+                ORDER BY i.revision DESC,i.received_at DESC,i.event_id DESC LIMIT 1""", key).fetchone()
+        if not row or row[1] != 'done':
+            raise ValueError('Latest Woo snapshot must finish order delivery')
+        source, _ = woo_source(bytes(row[2]), key[1], row[0]['event_id'])
+        return row[0], source['number']
+
     def completed_order(self, key):
         with self.connect() as db:
             row=db.execute('''SELECT i.payload,d.state FROM commerce_inbox i

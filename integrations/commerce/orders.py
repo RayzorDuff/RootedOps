@@ -62,7 +62,7 @@ def normalize_woo(raw, signature, secrets, site, mappings, gateways, tax_policy=
     return normalize_order(order, identity, mappings, gateways, tax_policy=tax_policy)
 
 
-def normalize_order(order, identity, mappings, gateways, *, tax_policy=None, pilot_items=None, reviewed_mapping=False):
+def normalize_order(order, identity, mappings, gateways, *, tax_policy=None, pilot_items=None, reviewed_mapping=False, clover_capture_pilot=False):
     statuses = {'pending', 'on-hold', 'processing', 'completed', 'cancelled', 'failed', 'refunded'}
     if order['status'] not in statuses:
         raise OrderReview('order_status_review')
@@ -72,6 +72,9 @@ def normalize_order(order, identity, mappings, gateways, *, tax_policy=None, pil
     processor = gateways.get(order['payment_method'])
     if pilot_items is None:
         if processor != 'clover':
+            raise OrderReview('gateway_review')
+    elif processor == 'clover':
+        if not reviewed_mapping or not clover_capture_pilot:
             raise OrderReview('gateway_review')
     elif (processor != 'manual_unpaid' or order['status'] not in ('pending', 'on-hold', 'cancelled')
           or order.get('transaction_id') or order.get('date_paid_gmt') or order.get('refunds')):

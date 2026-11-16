@@ -79,7 +79,7 @@ class UnpaidOrderPilot(unittest.TestCase):
                 self.normalize(dict(fixture(), **changes))
 
     def test_erp_rejects_wrong_site_guest_without_review_and_rate_swaps(self):
-        fake = SimpleNamespace(whitelist=lambda **_: lambda f: f,
+        fake = SimpleNamespace(conf={}, whitelist=lambda **_: lambda f: f,
                                local=SimpleNamespace(site='erp.danks.store'))
         path = ROOT / 'erpnext/apps/rootedops_commerce/rootedops_commerce/order_service.py'
         spec = importlib.util.spec_from_file_location('order_service_fixture', path)
