@@ -48,7 +48,7 @@ If any target is missing, use the disposable native fixture instead of activatin
 the live pilot. [Customer staging inventory](commerce-customer-sync.md#batch-1-read-only-preflight-on-the-shared-linode)
 
 On the **dedicated staging bench** with this branch deployed, enable the ERP order
-service with `bench --site erp-test.danks.store set-config --parse commerce_order_integration_enabled true`.
+service with `bench --site erp-test.danks.store set-config --parse commerce_order_integration_enabled True`.
 Use a staging System Manager or Sales Manager API credential. Stage a dedicated
 synthetic Item, an explicit guest Customer, and a synthetic sellable unit with
 an enabled MushroomProcess ecommerce row. Its provider, site, external SKU,
@@ -270,7 +270,7 @@ If an event already reached a target, reconcile the target before changing any
 identity or financial data. Pause both pilot Woo webhooks, stop the dedicated
 listener and worker, and remove the exact NGINX location with a validated reload
 to disable the route. Set the dedicated staging ERP flag back to false via
-`bench --site erp-test.danks.store set-config --parse commerce_order_integration_enabled false`.
+`bench --site erp-test.danks.store set-config --parse commerce_order_integration_enabled False`.
 Reconcile or cancel any remaining synthetic reservations before cleanup.
 
 ## Evidence boundary
@@ -296,3 +296,45 @@ Reconcile or cancel any remaining synthetic reservations before cleanup.
 - Deterministic ERP draft mapping, native destination tax, verified Clover capture
   and ERP invoice/receipt reconciliation, and MP-to-ERP shipment acknowledgement
   are later milestones.
+
+## Reviewed mapping follow-up
+
+Specify `sites["shop-test.danks.store"].draft_policy` in the private order
+config instead of scheduling an order-specific approval. It takes
+`company`, `currency`, `selling_price_list`, `guest_customer`, an optional
+`shipping_item` for the reviewed nonstock ERP shipping line, and `tax_quotes`.
+Registered customers resolve by the existing Woo customer link in staging
+ERPNext. Keep the original exact Woo/MP item mapping and synthetic allowlist.
+Add the same shipping Item in ERP site config as `commerce_order_shipping_item`.
+Leave `allow_zero_tax_fixture` and the ERP setting
+`commerce_mapped_zero_tax_fixture` false except for disposable zero-tax fixtures.
+
+The compiler uses Woo line totals after allocated discounts, adds the separate
+shipping Item and verifies the gross sum. If the exact line amount cannot be
+represented as a cent-denominated unit rate, it goes to commercial review.
+Tax requires a reviewed quote keyed by order ID, with the current order's
+destination fingerprint in `location_ref` and exact tax amount. The fingerprint
+is the SHA-256 of the JSON array of trimmed, uppercase shipping
+`country,state,postcode,city` (billing is used when shipping country is absent).
+ERP validates the existing jurisdiction, tax class and liability-account
+contract and independently checks its calculated total. The implementation does
+not infer tax from checkout or turn on production posting.
+
+Hosted preflight for the active Linode:
+
+```bash
+curl -fsS --max-time 10 https://erp-test.danks.store/api/method/ping
+sudo docker ps --filter label=com.docker.compose.service=erpnext-backend \
+  --format '{{.Names}} {{.Ports}}'
+sudo ss -ltnp 'sport = :8101'
+```
+
+Observed from this work session: Woo My Account returned 200 and the ERP route
+returned 503 with an upstream connection failure. A dedicated ERP bench must
+answer the site ping with `{"message":"pong"}` from the worker location.
+Image/web server reachability requires host diagnostics; an ERP role credential
+cannot resolve a disconnected upstream. Compare the staging NGINX
+`proxy_pass` target with the listening staging service, verify
+`bench --site erp-test.danks.store list-apps` inside that dedicated backend,
+then complete the database and mail-sink checks above. Do not point the order
+worker at the production ERP site used by the customer pilot.
