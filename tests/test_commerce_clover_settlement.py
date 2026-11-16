@@ -12,7 +12,7 @@ class CloverSettlement(unittest.TestCase):
         self.batch = dict(merchant='MID', environment='live', reference='FUND-1', currency='USD',
                           source='merchant_statement', source_sha256='c' * 64,
                           bank={'reference': 'ACH-1', 'date': '2026-11-16', 'amount': '95', 'kind': 'deposit'},
-                          net='95', kind='deposit', records=[
+                          net='95', gross='100', kind='deposit', records=[
                               dict(kind='capture', reference='WOO-1', amount='60', channel='woo', erp_reference='Payment Entry:WO-1'),
                               dict(kind='capture', reference='POS-1', amount='40', channel='pos', erp_reference='Journal Entry:POS-1'),
                               dict(kind='processing_fee', reference='FEE-1', amount='3'),
@@ -29,7 +29,7 @@ class CloverSettlement(unittest.TestCase):
                          'Woo Clearing': ('0', '60')})
 
     def test_separately_billed_fees(self):
-        self.batch.update(kind='separate_fee_debit', net='3', records=[self.batch['records'][2]])
+        self.batch.update(kind='separate_fee_debit', net='3', gross='0', records=[self.batch['records'][2]])
         self.batch['bank'].update(kind='separate_fee_debit', amount='3')
         self.assertEqual(self.rows(), {'Bank': ('0', '3'), 'Fees': ('3', '0')})
 

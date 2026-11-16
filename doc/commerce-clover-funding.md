@@ -43,7 +43,7 @@ The manual normalization path does not infer fees from gross less net.
 Use a private JSON manifest with keys `merchant`, `environment` (`sandbox` or
 `live` as source classification), `reference`, `currency`, `source`
 (`funding_report`, `merchant_statement` or `verified_funding_api`),
-`source_sha256`, `kind` (`deposit` or `separate_fee_debit`), `net`, and
+`source_sha256`, `kind` (`deposit` or `separate_fee_debit`), `gross`, `net`, and
 `bank` containing `reference`, `date`, `amount` and matching `kind`.
 Normalize the private detail to the following columns. When channel clearing
 was already posted, give a `DocType:ID` voucher reference.

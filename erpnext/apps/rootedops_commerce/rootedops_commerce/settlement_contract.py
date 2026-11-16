@@ -34,7 +34,7 @@ def settlement_plan(batch, policy):
     balances = defaultdict(lambda: 0)
     balances[policy['bank']] = amount if settlement_kind == 'deposit' else -amount
     seen = set()
-    capture = False
+    captured = 0
     clearing_vouchers = defaultdict(lambda: 0)
     for row in batch['records']:
         kind = row['kind']
@@ -55,7 +55,7 @@ def settlement_plan(batch, policy):
                 raise ValueError('Funding channel or adjustment needs clearing review')
             voucher = field(row.get('erp_reference'))
             if kind == 'capture':
-                capture = True
+                captured += value
                 balances[account] -= value
                 clearing_vouchers[(account, voucher)] += value
             else:
@@ -65,10 +65,13 @@ def settlement_plan(batch, policy):
             balances[policy['fees']] += value
         else:
             rule = policy.get('adjustments', {}).get(kind)
-            if not rule or rule['side'] not in ('debit', 'credit'):
+            protected = {policy['bank'], policy['fees'], *policy['clearing_by_channel'].values()}
+            if (not rule or rule['side'] not in ('debit', 'credit')
+                    or rule['account'] in protected):
                 raise ValueError('Funding adjustment needs approved classification')
             balances[rule['account']] += value if rule['side'] == 'debit' else -value
-    if not seen or (settlement_kind == 'deposit' and not capture) or sum(balances.values()):
+    if (not seen or captured != _money(batch['gross'])
+            or (settlement_kind == 'deposit' and not captured) or sum(balances.values())):
         raise ValueError('Out-of-balance funding batch requires review')
     return dict(merchant=merchant, environment=environment, reference=reference, bank_reference=bank_reference,
                 posting_date=posting_date, currency=batch['currency'], company=policy['company'],
