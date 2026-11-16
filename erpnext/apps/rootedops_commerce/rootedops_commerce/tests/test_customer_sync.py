@@ -111,3 +111,37 @@ class TestCustomerSync(IntegrationTestCase):
             self.assertTrue(link.woo_signup_provisioned)
             self.assertEqual(frappe.get_doc('Contact', link.contact).email_id, email)
             self.assertEqual(frappe.db.count('Contact Email', {'email_id': email}), 1)
+
+    def test_system_manager_can_approve_an_existing_signup_review(self):
+        site = 'shop-test.danks.store'
+        customer_id = 912348
+        config = {'production_erp_pilot': True, 'provision_new_woo_customers': True}
+        account = dict(email='approval-example@example.invalid', first_name='Reviewed',
+                       last_name='Shopper', billing={}, shipping={})
+        customer = frappe.get_doc(dict(doctype='Customer', customer_type='Individual',
+                                      customer_name='Reviewed Woo Shopper',
+                                      customer_group=frappe.db.get_value('Customer Group', {'is_group': 0}),
+                                      territory=frappe.db.get_value('Territory', {'is_group': 0}))).insert()
+        contact = frappe.get_doc(dict(
+            doctype='Contact', first_name=account['first_name'], last_name=account['last_name'],
+            email_ids=[dict(email_id=account['email'], is_primary=1)],
+            links=[dict(link_doctype='Customer', link_name=customer.name)],
+        )).insert()
+        key = sync.link_key(site, customer_id)
+        with (patch.object(sync, 'settings', return_value=config),
+              patch.object(sync, 'woo_request', return_value=account)):
+            signal = dict(site_key=site, id=customer_id, scope='registered',
+                          digest=sync.profile_digest(sync.woo_profile(account, 'account')))
+            self.assertEqual(sync.consume_signal(json.dumps(signal))['status'], 'review_erp_email_match')
+            with patch.object(frappe, 'get_roles', return_value=['Sales Manager']):
+                with self.assertRaises(frappe.PermissionError):
+                    sync.approve_signup_review(key, customer.name, contact.name)
+
+            self.assertEqual(sync.get_signup_review(key), sync.woo_profile(account, 'account'))
+            self.assertEqual(sync.approve_signup_review(key, customer.name, contact.name)['status'], 'linked')
+            link = frappe.get_doc(sync.LINK, key)
+            self.assertEqual(link.customer, customer.name)
+            self.assertEqual(link.contact, contact.name)
+            self.assertTrue(link.woo_review_approved)
+            self.assertFalse(link.woo_signup_provisioned)
+            self.assertEqual(link.account_status, 'synced')

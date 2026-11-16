@@ -36,7 +36,7 @@ def settings(site):
     if pilot:
         paired = frappe.local.site == 'erp.danks.store' and site == 'shop-test.danks.store'
         ids = conf.get('woo_customer_ids', [])
-        if (not isinstance(ids, list) or (not ids and not signup_provisioning(conf))
+        if (not isinstance(ids, list)
                 or any(not re.fullmatch(r'[1-9][0-9]{0,18}', str(value)) for value in ids)):
             raise ValueError('Configure reviewed Woo customer IDs for the production ERP pilot')
     else:
@@ -251,13 +251,14 @@ def consume_signal(payload):
         raise ValueError('Unknown profile scope')
     approved = pilot_customer_allowed(conf, customer_id)
     provision = signup_provisioning(conf)
-    if not approved and not provision:
-        return {'status': 'ignored_unapproved_customer'}
     pilot = conf.get('production_erp_pilot') is True
     signup = provision and registered
     link = lock_link(site, customer_id, create=signup or (not pilot and scope == 'account'))
     new_signup = signup and not link.customer
-    managed = provision and link and link.woo_signup_provisioned
+    reviewed = link and link.get('woo_review_approved')
+    if not approved and not provision and not reviewed:
+        return {'status': 'ignored_unapproved_customer'}
+    managed = reviewed or (provision and link and link.woo_signup_provisioned)
     if pilot and not new_signup and (not (approved or managed) or not link or not link.customer):
         return {'status': 'review_link_required'}
     if signup and link.customer:
@@ -302,6 +303,38 @@ def link_existing(payload):
     if not pilot_customer_allowed(conf, customer_id):
         raise ValueError('Woo customer has not been approved for the production ERP pilot')
     link = lock_link(site, customer_id, create=True)
+    return bind_existing(link, data, conf)
+
+
+def signup_review(name, for_update=False):
+    if 'System Manager' not in frappe.get_roles():
+        frappe.throw('System Manager role required to approve a Woo signup', frappe.PermissionError)
+    link = frappe.get_doc(LINK, name, for_update=for_update)
+    link.check_permission('write')
+    conf = settings(link.site_key)
+    if link.name != link_key(link.site_key, link.woo_customer_id):
+        frappe.throw('Invalid Woo customer review identity')
+    if link.customer or link.account_status != 'review_erp_email_match':
+        frappe.throw('This Woo signup is no longer waiting for email-match review')
+    return link, conf
+
+
+@frappe.whitelist(methods=['GET'])
+def get_signup_review(name):
+    link, conf = signup_review(name)
+    return woo_profile(woo_request(link.site_key, str(link.woo_customer_id), conf), 'account')
+
+
+@frappe.whitelist(methods=['POST'])
+def approve_signup_review(name, customer, contact, billing_address=None, shipping_address=None):
+    link, conf = signup_review(name, for_update=True)
+    data = dict(customer=customer, contact=contact, billing_address=billing_address,
+                shipping_address=shipping_address, ecwid_identity=link.ecwid_identity)
+    return bind_existing(link, data, conf, reviewed=True)
+
+
+def bind_existing(link, data, conf, reviewed=False):
+    site, customer_id = link.site_key, str(link.woo_customer_id)
     fields = ('customer', 'contact', 'billing_address', 'shipping_address', 'ecwid_identity')
     if link.customer:
         if any((link.get(field) or '') != (data.get(field) or '') for field in fields):
@@ -323,12 +356,22 @@ def link_existing(payload):
         raise ValueError('Use distinct account address records for billing and shipping')
     woo = woo_request(site, customer_id, conf)
     for scope in SCOPES:
-        erp = erp_profile(link, scope)
+        try:
+            erp = erp_profile(link, scope)
+        except Review as error:
+            if reviewed:
+                frappe.throw(f'Cannot link {scope}: {str(error).replace("_", " ")}')
+            raise
         remote = woo_profile(woo, scope)
         if erp != remote:
+            if reviewed:
+                frappe.throw(f'The Woo and ERP {scope} fields must agree before linking')
             raise ValueError('Reconcile the reviewed ERP and Woo profiles before linking')
         link.set(scope + '_digest', profile_digest(erp))
         link.set(scope + '_status', 'synced')
+    if reviewed:
+        link.flags.approving_signup_review = True
+        link.woo_review_approved = 1
     link.save()
     return {'status': 'linked'}
 
@@ -348,10 +391,9 @@ def project_profile(site, customer_id, scope):
         raise ValueError('Unknown profile scope')
     approved = pilot_customer_allowed(conf, customer_id)
     provision = signup_provisioning(conf)
-    if not approved and not provision:
-        return {'status': 'ignored_unapproved_customer'}
     link = lock_link(site, customer_id)
-    if not approved and not (link and link.woo_signup_provisioned):
+    if not approved and not (link and (
+            link.get('woo_review_approved') or (provision and link.woo_signup_provisioned))):
         return {'status': 'ignored_unapproved_customer'}
     if not link or not link.customer:
         return {'status': 'unlinked'}
