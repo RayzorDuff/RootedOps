@@ -397,16 +397,29 @@ def registered_customer(site, customer_id):
     return link.customer
 
 
+def projection_allowed(conf, link, customer_id):
+    return (pilot_customer_allowed(conf, customer_id)
+            or bool(link and (link.get('woo_review_approved')
+                             or (signup_provisioning(conf) and link.woo_signup_provisioned))))
+
+
 @frappe.whitelist(methods=['POST'])
 def project_profile(site, customer_id, scope):
+    return project_scope(site, customer_id, scope)
+
+
+def project_changed_profile(site, customer_id, scope):
+    return project_scope(site, customer_id, scope, automatic=True)
+
+
+def project_scope(site, customer_id, scope, automatic=False):
     conf = settings(site)
+    if automatic and not conf.get('project_enabled'):
+        return {'status': 'disabled'}
     if scope not in SCOPES:
         raise ValueError('Unknown profile scope')
-    approved = pilot_customer_allowed(conf, customer_id)
-    provision = signup_provisioning(conf)
     link = lock_link(site, customer_id)
-    if not approved and not (link and (
-            link.get('woo_review_approved') or (provision and link.woo_signup_provisioned))):
+    if not projection_allowed(conf, link, customer_id):
         return {'status': 'ignored_unapproved_customer'}
     if not link or not link.customer:
         return {'status': 'unlinked'}
@@ -414,6 +427,8 @@ def project_profile(site, customer_id, scope):
         values = erp_profile(link, scope)
         digest = profile_digest(values)
         baseline = link.get(scope + '_digest')
+        if automatic and digest == baseline:
+            return {'status': 'unchanged'}
         remote = woo_profile(woo_request(site, str(customer_id), conf), scope)
         remote_digest = profile_digest(remote)
         if digest == remote_digest:
@@ -435,14 +450,15 @@ def project_profile(site, customer_id, scope):
 
 def queue_projections():
     conf = frappe.conf.get('commerce_customer_sync') or {}
-    if (not conf.get('enabled') or not conf.get('project_enabled')
-            or conf.get('production_erp_pilot') is True):
+    if not conf.get('enabled') or not conf.get('project_enabled'):
         return
     site = conf.get('woo_site')
-    settings(site)
+    conf = settings(site)
     links = frappe.get_all(LINK, filters={'site_key': site, 'customer': ['is', 'set']},
-                           fields=['name', 'woo_customer_id'])
+                           fields=['name', 'woo_customer_id', 'woo_review_approved', 'woo_signup_provisioned'])
     for link in links:
+        if not projection_allowed(conf, link, link.woo_customer_id):
+            continue
         for scope in SCOPES:
-            frappe.enqueue(project_profile, site=site, customer_id=link.woo_customer_id, scope=scope,
+            frappe.enqueue(project_changed_profile, site=site, customer_id=link.woo_customer_id, scope=scope,
                            job_id=f'commerce-customer-{link.name}-{scope}', deduplicate=True, timeout=90)

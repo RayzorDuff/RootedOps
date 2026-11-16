@@ -274,6 +274,45 @@ class ProfileSync(unittest.TestCase):
             woo.assert_called_once_with(SITE, '12', {})
             self.assertEqual(self.link.account_digest, self.sync.profile_digest(self.base))
 
+    def test_production_scheduler_queues_only_approved_linked_accounts(self):
+        conf = {'enabled': True, 'project_enabled': True, 'production_erp_pilot': True,
+                'provision_new_woo_customers': True, 'woo_customer_ids': [12], 'woo_site': SITE}
+        links = [
+            Link(), Link(), Link(), Link(),
+        ]
+        for i, link in enumerate(links, start=12):
+            link.name = f'link-{i}'
+            link.woo_customer_id = str(i)
+            link.woo_review_approved = i == 13
+            link.woo_signup_provisioned = i == 14
+        enqueue = Mock()
+        get_all = Mock(return_value=links)
+        with (patch.multiple(self.sync.frappe, create=True,
+                             conf={'commerce_customer_sync': conf}, get_all=get_all, enqueue=enqueue),
+              patch.object(self.sync, 'settings', return_value=conf)):
+            self.sync.queue_projections()
+            self.assertEqual(enqueue.call_count, 9)
+            self.assertEqual({c.kwargs['customer_id'] for c in enqueue.call_args_list}, {'12', '13', '14'})
+            self.assertTrue(all(c.args[0] == self.sync.project_changed_profile for c in enqueue.call_args_list))
+            self.assertEqual(get_all.call_args.kwargs['filters']['customer'], ['is', 'set'])
+            enqueue.reset_mock()
+            conf['project_enabled'] = False
+            self.sync.queue_projections()
+            enqueue.assert_not_called()
+
+    def test_scheduled_projection_checks_opt_in_and_skips_unchanged_erp_profiles(self):
+        config = {'project_enabled': True}
+        with (patch.object(self.sync, 'settings', return_value=config),
+              patch.object(self.sync, 'lock_link', return_value=self.link) as lock,
+              patch.object(self.sync, 'erp_profile', return_value=self.base),
+              patch.object(self.sync, 'woo_request') as woo):
+            self.assertEqual(self.sync.project_changed_profile(SITE, 12, 'account')['status'], 'unchanged')
+            woo.assert_not_called()
+            lock.reset_mock()
+            config['project_enabled'] = False
+            self.assertEqual(self.sync.project_changed_profile(SITE, 12, 'account')['status'], 'disabled')
+            lock.assert_not_called()
+
     def test_projection_http_precondition_failure_keeps_baseline(self):
         self.link.contact = 'CONTACT-TEST'
         remote = dict(self.base, id=12, role='customer')

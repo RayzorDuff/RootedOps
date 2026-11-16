@@ -1,2 +1,4 @@
+[pre_model_sync]
+
 [post_model_sync]
 rootedops_commerce.patches.repair_woo_contact_names
