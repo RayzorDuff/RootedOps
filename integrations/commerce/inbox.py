@@ -12,7 +12,7 @@ from orders import OrderReview, authenticate, normalize_order, normalize_woo, wo
 ORDER_REVIEW_CODES = {
     'order_status_review', 'order_payload_review', 'gateway_review', 'item_unmapped',
     'item_disabled', 'item_mapping_review', 'customer_mapping_review', 'commercial_review',
-    'draft_review', 'revision_conflict', 'inventory_review',
+    'draft_review', 'revision_conflict', 'inventory_review', 'tax_review',
 }
 
 
@@ -178,12 +178,10 @@ def deliver_one(inbox, mp_target, erp_target, *, max_attempts=5, retry_seconds=3
     event = claim['payload']
     try:
         mode = event.get('order_intake_mode')
-        if mode in ('unpaid_pilot_pending', 'unpaid_pilot'):
+        if mode in ('unpaid_pilot_pending', 'unpaid_pilot', 'reviewed_mapping'):
             config = (pilot_configs or {}).get(event['site_key'])
             if config is None:
                 raise OrderReview('draft_review')
-            # Require explicit admission before sending any demand to MP.
-            erp_target.draft_for(event)
             if mode == 'unpaid_pilot_pending':
                 order, identity = woo_source(bytes(claim['raw_pending']), event['site_key'], event['event_id'])
                 try:
@@ -192,6 +190,11 @@ def deliver_one(inbox, mp_target, erp_target, *, max_attempts=5, retry_seconds=3
                     raise
                 except (ValueError, TypeError, KeyError, ArithmeticError) as exc:
                     raise OrderReview('order_payload_review') from exc
+                if event.get('order_intake_mode') == 'reviewed_mapping':
+                    draft, quote = erp_target.mapped_draft(event)
+                    event['compiled_draft'] = {'draft': draft, 'quote': quote}
+                else:
+                    erp_target.draft_for(event)
                 inbox.materialize_order(claim, event)
         elif tax_policies is not None:
             from tax_policy import require_approved_item
@@ -202,7 +205,8 @@ def deliver_one(inbox, mp_target, erp_target, *, max_attempts=5, retry_seconds=3
                 require_approved_item(line['erp_item_code'], policy)
         mp = claim['mp_receipt']
         if mp is None:
-            mp = mp_target(event)
+            operational = {key: value for key, value in event.items() if key != 'compiled_draft'}
+            mp = mp_target(operational)
             inbox.record(claim, 'mp', mp)
         if (mp.get('status') == 'stale' or
                 claim['mp_receipt'] is not None and claim['erp_receipt'] is None
@@ -232,7 +236,7 @@ class PostgresInventory:
     def __call__(self,event):
         try:
             with self.connect() as db:
-                if event.get('order_intake_mode') == 'unpaid_pilot' and event['status'] != 'cancelled':
+                if event.get('order_intake_mode') in ('unpaid_pilot', 'reviewed_mapping') and event['status'] != 'cancelled':
                     self.verify_pilot_mappings(db, event)
                 status=db.execute('SELECT public.mp_commerce_ingest(%s::jsonb)',(json.dumps(event),)).fetchone()[0]
         except Exception as exc:
@@ -279,9 +283,10 @@ class PostgresInventory:
 
 class ReviewedERP:
     """Transport adapter: order-specific commercial draft must be reviewed first."""
-    def __init__(self,base,authorization,approved,request):
+    def __init__(self,base,authorization,approved,request, *, mapping_policy=None):
         from staging_origin import staging_origin
         self.base=staging_origin(base,'erp');self.authorization=authorization;self.approved=approved;self.request=request
+        self.mapping_policy = mapping_policy
     def draft_for(self, event):
         key = '|'.join(event[field] for field in ('provider', 'site_key', 'external_order_id'))
         draft = self.approved.get(key)
@@ -289,8 +294,23 @@ class ReviewedERP:
             raise OrderReview('draft_review')
         return draft
 
+    def mapped_draft(self, event):
+        from draft_mapping import compile_draft
+        if not self.mapping_policy:
+            raise OrderReview('draft_review')
+        try:
+            return compile_draft(event, self.mapping_policy)
+        except (KeyError, TypeError) as exc:
+            raise OrderReview('draft_review') from exc
+
     def __call__(self,event,mp_receipt):
-        draft = self.draft_for(event)
+        if event.get('order_intake_mode') == 'reviewed_mapping':
+            compiled = event['compiled_draft']
+            draft = compiled['draft']
+            event = {key: value for key, value in event.items() if key != 'compiled_draft'}
+            event['tax_quote'] = compiled['quote']
+        else:
+            draft = self.draft_for(event)
         payload={'event':event,'reviewed_draft':draft}
         return self.request(self.base+'/api/method/rootedops_commerce.order_service.stage_order',
                             self.authorization,'POST',{'payload':json.dumps(payload)})['message']

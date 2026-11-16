@@ -15,4 +15,10 @@ bench --site erp-test.danks.store install-app erpnext
 bench --site erp-test.danks.store install-app rootedops_commerce
 bench --site erp-test.danks.store set-config allow_tests true
 bench version
+if [[ "${COMMERCE_HTTP_FIXTURE:-}" == 1 ]]; then
+  bench --site erp-test.danks.store set-config --parse commerce_order_integration_enabled True
+  bench --site erp-test.danks.store set-config --parse commerce_mapped_zero_tax_fixture True
+  bench --site erp-test.danks.store execute rootedops_commerce.tests.order_http_fixture.setup
+  exec bench serve --port 8099 --noreload
+fi
 bench --site erp-test.danks.store run-tests --app rootedops_commerce

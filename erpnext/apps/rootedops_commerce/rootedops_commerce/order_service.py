@@ -109,11 +109,47 @@ def _validate_pilot_commercial(values, event):
         raise ValueError('Reviewed ERP Item amounts differ from the unpaid Woo fixture')
 
 
+def _validate_mapped_commercial(values, event):
+    from rootedops_commerce.tax_contract import _money
+    commercial = event['commercial']
+    shipping = _money(commercial['shipping'])
+    expected = {}
+    for line in event['lines']:
+        item = line['erp_item_code']
+        expected[item] = expected.get(item, 0) + _money(commercial['line_totals'][line['line_id']])
+    lines = list(event['lines'])
+    if shipping:
+        item = frappe.conf.get('commerce_order_shipping_item')
+        if not item or item in expected:
+            raise ValueError('Separate reviewed nonstock shipping Item required')
+        shipping_item = frappe.get_doc('Item', item)
+        shipping_item.check_permission('read')
+        if shipping_item.is_stock_item or shipping_item.disabled or shipping_item.has_variants:
+            raise ValueError('Enabled nonstock shipping Item required')
+        expected[item] = shipping
+        lines.append({'erp_item_code': item, 'quantity': 1})
+    actual = {}
+    for row in values['items']:
+        item = row['item_code']
+        actual[item] = actual.get(item, 0) + _money(row['rate']) * Decimal(str(row['qty']))
+    if actual != expected:
+        raise ValueError('Mapped draft Item amounts differ from signed order')
+    if sum(_money(row['tax_amount']) for row in values.get('taxes', [])) != _money(commercial['tax']):
+        raise ValueError('Mapped tax differs from signed total')
+    quote = event.get('tax_quote')
+    if quote is None and (not frappe.conf.get('commerce_mapped_zero_tax_fixture') or _money(commercial['tax'])):
+        raise ValueError('Destination tax quote required')
+    if quote is not None and quote.get('location_ref') != commercial['destination']:
+        raise ValueError('Tax quote destination mismatch')
+    return dict(event, lines=lines)
+
+
 @frappe.whitelist(methods=['POST'])
 def stage_order(payload):
     _authorized();data=frappe.parse_json(payload);event=data['event'];values=deepcopy(data['reviewed_draft'])
     customer_sync = frappe.conf.get('commerce_customer_sync') or {}
-    pilot = event.get('order_intake_mode') == 'unpaid_pilot'
+    mode = event.get('order_intake_mode')
+    pilot = mode in ('unpaid_pilot', 'reviewed_mapping')
     if pilot:
         _pilot_customer(event, values)
     if pilot or (customer_sync.get('enabled') and customer_sync.get('production_erp_pilot') is not True
@@ -127,8 +163,9 @@ def stage_order(payload):
             if values.get('customer') and values['customer'] != customer:
                 raise ValueError('Reviewed order customer differs from registered Woo link')
             values['customer'] = customer
-    validate_draft(values,event)
-    if pilot:
+    validation_event = _validate_mapped_commercial(values, event) if mode == 'reviewed_mapping' else event
+    validate_draft(values, validation_event)
+    if mode == 'unpaid_pilot':
         _validate_pilot_commercial(values, event)
     key=mapping_key(event['provider'],event['site_key'],event['external_order_id'])
     # Preserve pre-existing order fingerprints when no tax quote was supplied.
