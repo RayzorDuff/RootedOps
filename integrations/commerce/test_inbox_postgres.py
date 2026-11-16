@@ -180,18 +180,43 @@ class NativeInboxTests(unittest.TestCase):
                     self.assertTrue(all(entry['status'] == 202 for entry in created), created)
                     order_id = str(fixture_order['id'])
                     key = ('woocommerce', site, order_id)
-                    erp_calls = []
+                    erp_calls, references = [], []
+                    native = os.environ.get('COMMERCE_NATIVE_ERP_HTTP') == '1'
                     def request(url, auth, method, body):
                         erp_calls.append(json.loads(body['payload']))
-                        return {'message': {'sales_order': 'SYNTHETIC-WOO-SO'}}
+                        if not native:
+                            return {'message': {'sales_order': 'SYNTHETIC-WOO-SO'}}
+                        from urllib.request import Request, urlopen
+                        endpoint = url.replace('https://erp-test.danks.store', 'http://127.0.0.1:8099')
+                        req = Request(endpoint, data=json.dumps(body).encode(), method=method,
+                                      headers={'Host': 'erp-test.danks.store', 'Content-Type': 'application/json',
+                                               'Authorization': 'token synthetic-native-woo-key:synthetic-native-woo-secret'})
+                        with urlopen(req, timeout=30) as response:
+                            result = json.load(response)
+                        references.append(result['message']['sales_order'])
+                        if len(erp_calls) == 1:
+                            raise TimeoutError('Synthetic lost response after ERP commit')
+                        return result
+                    policy = dict(company='Native Woo Fixture', currency='USD', selling_price_list='Native Woo USD',
+                                  guest_customer='Native Woo Guest', allow_zero_tax_fixture=True) if native else None
                     target = ReviewedERP('https://erp-test.danks.store', '', {
-                        '|'.join(key): {'customer': 'SYN-GUEST'}}, request)
-                    config = {site: self.pilot_config(fixture_order['product'])}
+                        '|'.join(key): {'customer': 'SYN-GUEST'}}, request, mapping_policy=policy)
+                    config = {site: dict(self.pilot_config(fixture_order['product']), reviewed_mapping=native)}
                     with self.connect() as db:
                         db.execute("UPDATE ecommerce SET external_sku='NATIVE-WOO-SYN', external_product_id=%s WHERE nocopk=%s",
                                    (str(fixture_order['product']), self.ecommerce))
                     while deliver_one(self.inbox, self.mp, target, site=site, pilot_configs=config):
                         pass
+                    if native:
+                        pending, = self.inbox.order_status(key)
+                        self.assertEqual((pending['state'], pending['mushroomprocess']['status']),
+                                         ('pending', 'applied'), pending)
+                        self.assertIsNone(pending['erp'])
+                        self.assertEqual(len(references), 1, erp_calls)
+                        with self.connect() as db:
+                            db.execute("UPDATE commerce_delivery SET next_attempt_at=now()")
+                        self.assertTrue(deliver_one(self.inbox, self.mp, target, site=site, pilot_configs=config))
+                        self.assertEqual(len(set(references)), 1)
                     accepted = self.inbox.order_status(key)
                     self.assertEqual(len(accepted), 1, accepted)
                     self.assertTrue(all(receipt['state'] == 'done' for receipt in accepted), accepted)
@@ -230,8 +255,10 @@ class NativeInboxTests(unittest.TestCase):
                         self.assertEqual(db.execute('SELECT count(*) FROM mp_commerce_reservations').fetchone()[0], 0)
                         self.assertEqual(db.execute('SELECT count(*) FROM mp_commerce_orders').fetchone()[0], 1)
                         self.assertEqual(db.execute('SELECT sales_order FROM mp_commerce_erp_links').fetchone()[0],
-                                         'SYNTHETIC-WOO-SO')
-                    print('Native Woo fixture:', order_id, 'receipts:', [row['event_id'] for row in receipts])
+                                         references[0] if native else 'SYNTHETIC-WOO-SO')
+                        self.assertEqual(db.execute('SELECT count(*) FROM mp_commerce_events').fetchone()[0], 2)
+                    print('Native Woo fixture:', order_id, 'receipts:', [row['event_id'] for row in receipts],
+                          'ERP:', receipts[-1]['erp']['sales_order'])
                 finally:
                     server.shutdown()
                     worker.join()

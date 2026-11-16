@@ -20,11 +20,15 @@ jobs:
         image: mariadb:11.4
         env:
           MARIADB_ROOT_PASSWORD: synthetic-ci-only
+          MARIADB_ROOT_HOST: "%"
           MARIADB_DATABASE: woo_fixture
           MARIADB_USER: woo_fixture
           MARIADB_PASSWORD: synthetic-ci-only
         ports: ['3306:3306']
         options: --health-cmd="healthcheck.sh --connect --innodb_initialized" --health-interval=5s --health-retries=20
+      redis:
+        image: redis:7.2-alpine
+        ports: ['6379:6379']
     env:
       PGHOST: localhost
       PGUSER: commerce_test
@@ -46,7 +50,28 @@ jobs:
       - run: |
           set -euo pipefail
           for file in .ci/mushroomprocess/schema/pgsql/0*.sql; do psql -v ON_ERROR_STOP=1 -f "$file"; done
-      - run: bash scripts/commerce_woo_webhook_ci.sh
+      - name: Start native staging ERP for the Woo webhook test
+        run: |
+          set -euo pipefail
+          docker run -d --network host --name commerce-erp-http --entrypoint bash \
+            -e COMMERCE_NATIVE_CI=1 -e COMMERCE_HTTP_FIXTURE=1 \
+            -v "$PWD/erpnext/apps/rootedops_commerce:/opt/rootedops_commerce:ro" \
+            -v "$PWD/scripts/commerce_frappe_ci.sh:/opt/commerce_frappe_ci.sh:ro" \
+            frappe/erpnext:v16.13.0 /opt/commerce_frappe_ci.sh
+          for attempt in {1..150}; do
+            if curl -fsS -H 'Host: erp-test.danks.store' http://127.0.0.1:8099/api/method/ping >/dev/null; then
+              exit 0
+            fi
+            if [[ "$(docker inspect -f '{{.State.Running}}' commerce-erp-http)" != true ]]; then
+              break
+            fi
+            sleep 2
+          done
+          docker logs commerce-erp-http
+          exit 1
+      - run: COMMERCE_NATIVE_ERP_HTTP=1 bash scripts/commerce_woo_webhook_ci.sh
+      - if: failure()
+        run: docker logs commerce-erp-http
   frappe:
     runs-on: ubuntu-latest
     timeout-minutes: 25

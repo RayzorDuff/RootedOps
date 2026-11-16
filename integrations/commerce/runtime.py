@@ -39,7 +39,8 @@ def pilot_config(row):
     if not isinstance(items, list) or not items or any(
             not isinstance(item, str) or not item.strip() for item in items):
         raise ValueError('Explicit synthetic pilot Item codes required')
-    return {'mappings': row['mappings'], 'gateways': row['gateways'], 'pilot_items': frozenset(items)}
+    return {'mappings': row['mappings'], 'gateways': row['gateways'], 'pilot_items': frozenset(items),
+            'reviewed_mapping': row.get('draft_policy') is not None}
 
 
 def main():
@@ -105,18 +106,34 @@ def main():
             inbox, erp, os.environ['ERP_AUTHORIZATION'], request_erp_customer, site=urlsplit(shop).hostname)}))
     else:
         if not a.config:p.error('--config required')
-        config=json.loads(a.config.read_text());approved=config['approved_erp_drafts']
+        from staging_origin import staging_pair
         from tax_policy import load_policy
-        tax_policies={}
-        for site,row in config['sites'].items():
-            if not row.get('tax_classification_file'):
-                raise ValueError('Approved tax classification file required for order delivery')
-            tax_policies[site]=load_policy(row['tax_classification_file'])
-        erp=ReviewedERP(config.get('erp_base_url','https://erp-test.danks.store'),os.environ['ERP_AUTHORIZATION'],approved,api)
-        mp=PostgresInventory(connect_test(os.environ['MP_TEST_DSN']),erp_site=urlsplit(erp.base).hostname)
-        if a.command=='reconcile-order':
-            if not a.order_key:p.error('reconcile-order requires --order-key PROVIDER SITE ORDER_ID')
-            print(json.dumps(reconcile_order(inbox,mp,erp,tuple(a.order_key))))
-        else:print(json.dumps({'worked':deliver_one(inbox,mp,erp,tax_policies=tax_policies)}))
 
-if __name__=='__main__':main()
+        config = json.loads(a.config.read_text())
+        base = config.get('erp_base_url', 'https://erp-test.danks.store')
+        site = a.order_site
+        if a.command == 'reconcile-order':
+            if not a.order_key or a.order_key[0] != 'woocommerce':
+                p.error('--order-key woocommerce STAGING_SITE WOO_ORDER_ID required')
+            site = a.order_key[1]
+        if site is None:
+            site = urlsplit(base).hostname.replace('erp-', 'shop-', 1)
+        staging_pair(base, 'https://' + order_site(site))
+        row = config['sites'][site]
+        tax_policies, pilot_configs = {}, {}
+        if row.get('unpaid_pilot') is True:
+            pilot_configs[site] = pilot_config(row)
+        else:
+            tax_policies[site] = load_policy(row['tax_classification_file'])
+        erp = ReviewedERP(base, os.environ['ERP_AUTHORIZATION'], config.get('approved_erp_drafts', {}),
+                          api, mapping_policy=row.get('draft_policy'))
+        mp = PostgresInventory(connect_test(os.environ['MP_TEST_DSN']), erp_site=urlsplit(erp.base).hostname)
+        if a.command == 'reconcile-order':
+            print(json.dumps(reconcile_order(inbox, mp, erp, tuple(a.order_key))))
+        else:
+            print(json.dumps({'worked': deliver_one(inbox, mp, erp, site=site,
+                              tax_policies=tax_policies, pilot_configs=pilot_configs)}))
+
+
+if __name__ == '__main__':
+    main()

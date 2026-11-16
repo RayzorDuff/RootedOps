@@ -62,7 +62,7 @@ def normalize_woo(raw, signature, secrets, site, mappings, gateways, tax_policy=
     return normalize_order(order, identity, mappings, gateways, tax_policy=tax_policy)
 
 
-def normalize_order(order, identity, mappings, gateways, *, tax_policy=None, pilot_items=None):
+def normalize_order(order, identity, mappings, gateways, *, tax_policy=None, pilot_items=None, reviewed_mapping=False):
     statuses = {'pending', 'on-hold', 'processing', 'completed', 'cancelled', 'failed', 'refunded'}
     if order['status'] not in statuses:
         raise OrderReview('order_status_review')
@@ -105,7 +105,8 @@ def normalize_order(order, identity, mappings, gateways, *, tax_policy=None, pil
         if pilot_items is not None:
             if mapping['erp_item_code'] not in pilot_items:
                 raise OrderReview('item_mapping_review')
-            amounts[line_id] = pilot_amount(line, ('subtotal_tax', 'total_tax'), subtotal=True)
+            amounts[line_id] = (money(line['total']) if reviewed_mapping else
+                                pilot_amount(line, ('subtotal_tax', 'total_tax'), subtotal=True))
             sources[line_id] = {'product_id': str(product_id),
                                 'variation_id': str(variation_id) if variation_id else None,
                                 'sku': line['sku']}
@@ -149,6 +150,10 @@ def normalize_order(order, identity, mappings, gateways, *, tax_policy=None, pil
     if pilot_items is not None:
         if 'external_customer_id' not in result:
             raise OrderReview('customer_mapping_review')
+        if reviewed_mapping:
+            result.update(order_intake_mode='reviewed_mapping', line_sources=sources,
+                          commercial=woo_commercial(order, amounts))
+            return result
         for key in ('shipping_lines', 'fee_lines', 'coupon_lines', 'tax_lines'):
             if order[key]:
                 raise OrderReview('commercial_review')
@@ -158,6 +163,31 @@ def normalize_order(order, identity, mappings, gateways, *, tax_policy=None, pil
             raise OrderReview('commercial_review')
         result.update(order_intake_mode='unpaid_pilot', line_amounts=amounts, line_sources=sources)
     return result
+
+
+def woo_commercial(order, amounts):
+    from draft_mapping import cents
+    if order['fee_lines'] or order.get('prices_include_tax') is not False:
+        raise OrderReview('commercial_review')
+    subtotal = sum(cents(line['subtotal']) for line in order['line_items'])
+    net = sum(cents(value) for value in amounts.values())
+    if (any(cents(line['subtotal']) < cents(line['total']) for line in order['line_items'])
+            or subtotal - net != cents(order['discount_total'])):
+        raise OrderReview('commercial_review')
+    shipping, tax = cents(order['shipping_total']), cents(order['total_tax'])
+    if (shipping != sum(cents(row['total']) for row in order['shipping_lines'])
+            or cents(order['shipping_tax']) != sum(cents(row['total_tax']) for row in order['shipping_lines'])
+            or cents(order['cart_tax']) != sum(cents(row['total_tax']) for row in order['line_items'])
+            or tax != cents(order['cart_tax']) + cents(order['shipping_tax'])
+            or cents(order['total']) != net + shipping + tax):
+        raise OrderReview('commercial_review')
+    address = order.get('shipping') or {}
+    if not address.get('country'):
+        address = order.get('billing') or {}
+    location = [str(address.get(key) or '').strip().upper() for key in ('country', 'state', 'postcode', 'city')]
+    return {'line_totals': amounts, 'shipping': str(shipping), 'tax': str(tax),
+            'order_date': datetime.strptime(order['date_created_gmt'], '%Y-%m-%dT%H:%M:%S').date().isoformat(),
+            'destination': hashlib.sha256(json.dumps(location).encode()).hexdigest()}
 
 
 def pilot_amount(values, zero_fields, *, subtotal=False):
