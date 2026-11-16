@@ -4,7 +4,6 @@ import argparse
 import json
 import os
 from pathlib import Path
-import sys
 from urllib.parse import urlsplit
 from wsgiref.simple_server import make_server
 from inbox import Inbox, PostgresInventory, ReviewedERP, application, deliver_one, reconcile_order
@@ -28,16 +27,38 @@ def connect_test(dsn):
     return connect
 
 
+def order_site(site):
+    from staging_origin import staging_origin
+    if staging_origin('https://' + site, 'shop') != 'https://' + site:
+        raise ValueError('Use the exact staging host as order site key')
+    return site
+
+
+def pilot_config(row):
+    items = row['synthetic_item_codes']
+    if not isinstance(items, list) or not items or any(
+            not isinstance(item, str) or not item.strip() for item in items):
+        raise ValueError('Explicit synthetic pilot Item codes required')
+    return {'mappings': row['mappings'], 'gateways': row['gateways'], 'pilot_items': frozenset(items)}
+
+
 def main():
     p=argparse.ArgumentParser(description=__doc__)
-    p.add_argument('command',choices=['init','serve','work-once','status','replay','reconcile-order','work-customers-once'])
+    p.add_argument('command',choices=['init','serve','work-once','status','replay','reconcile-order','work-customers-once','order-status'])
     p.add_argument('--config',type=Path);p.add_argument('--event-key',nargs=3)
     p.add_argument('--order-key',nargs=3)
     p.add_argument('--customer-site')
+    p.add_argument('--order-site')
+    p.add_argument('--port', type=int, default=8100, help='loopback receiver port')
     a=p.parse_args();connect=connect_test(os.environ['COMMERCE_INBOX_DSN']);inbox=Inbox(connect)
     if a.command=='init':
         with connect() as db:db.execute(Path(__file__).with_name('inbox.sql').read_text())
     elif a.command=='status':print(json.dumps(inbox.status()))
+    elif a.command == 'order-status':
+        if not a.order_key or a.order_key[0] != 'woocommerce':
+            p.error('--order-key woocommerce STAGING_SITE WOO_ORDER_ID required')
+        order_site(a.order_key[1])
+        print(json.dumps(inbox.order_status(tuple(a.order_key)), default=str))
     elif a.command=='replay':
         if not a.event_key:p.error('replay requires --event-key PROVIDER SITE EVENT_ID')
         inbox.replay(tuple(a.event_key))
@@ -47,7 +68,13 @@ def main():
         sites={}
         from tax_policy import load_policy
         for site,row in config.get('sites', {}).items():
-            # Every enabled staging site must point to an approved, private,
+            order_site(site)
+            if row.get('unpaid_pilot') is True:
+                pilot_config(row)
+                sites[site] = {'secrets': [os.environ[name] for name in row['secret_envs']],
+                               'unpaid_pilot': True}
+                continue
+            # Every other staging site must point to an approved, private,
             # read-only classification file. Missing policy fails closed at
             # server startup, before any webhook can be acknowledged.
             if not row.get('tax_classification_file'):
@@ -63,7 +90,8 @@ def main():
                 raise ValueError('Use exact staging host as customer site key')
             customer_sites[site] = {'secrets': [os.environ[name] for name in row['secret_envs']]}
         # No public bind switch. Use only an independently reviewed test proxy.
-        with make_server('127.0.0.1',8100,application(inbox,sites,customer_sites)) as server:server.serve_forever()
+        with make_server('127.0.0.1', a.port, application(inbox, sites, customer_sites)) as server:
+            server.serve_forever()
     elif a.command=='work-customers-once':
         from customer_signals import deliver_customer, request_erp_customer
         from staging_origin import customer_pair

@@ -16,6 +16,15 @@ jobs:
           POSTGRES_PASSWORD: synthetic-only
         ports: ['5432:5432']
         options: --health-cmd="pg_isready -U commerce_test" --health-interval=5s --health-retries=12
+      wordpress-db:
+        image: mariadb:11.4
+        env:
+          MARIADB_ROOT_PASSWORD: synthetic-ci-only
+          MARIADB_DATABASE: woo_fixture
+          MARIADB_USER: woo_fixture
+          MARIADB_PASSWORD: synthetic-ci-only
+        ports: ['3306:3306']
+        options: --health-cmd="healthcheck.sh --connect --innodb_initialized" --health-interval=5s --health-retries=20
     env:
       PGHOST: localhost
       PGUSER: commerce_test
@@ -28,7 +37,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: RayzorDuff/MushroomProcess
-          ref: 451393c621b64c5bd4ca7d03b1525c6253f641ae
+          ref: 1205f94a6c873e923413fdeb3ef3299e4c2bc21c
           path: .ci/mushroomprocess
       - uses: actions/setup-python@v5
         with:
@@ -37,7 +46,7 @@ jobs:
       - run: |
           set -euo pipefail
           for file in .ci/mushroomprocess/schema/pgsql/0*.sql; do psql -v ON_ERROR_STOP=1 -f "$file"; done
-          python integrations/commerce/test_inbox_postgres.py -v
+      - run: bash scripts/commerce_woo_webhook_ci.sh
   frappe:
     runs-on: ubuntu-latest
     timeout-minutes: 25

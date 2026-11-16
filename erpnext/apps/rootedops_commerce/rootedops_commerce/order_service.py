@@ -80,13 +80,45 @@ def validate_draft(values,event):
     if not net.is_finite() or net!=Decimal(event['total']):raise ValueError('Reviewed order total mismatch')
 
 
+def _pilot_customer(event, values):
+    allowed = {'erp-test.danks.store': 'shop-test.danks.store',
+               'erp-test2.danks.store': 'shop-test2.danks.store'}
+    if (event['provider'] != 'woocommerce' or allowed.get(frappe.local.site) != event['site_key']
+            or 'external_customer_id' not in event):
+        raise ValueError('Unpaid Woo pilot requires the matching staging ERP site and customer identity')
+    if (event['status'] not in ('pending', 'on-hold', 'cancelled')
+            or event.get('payment_processor') != 'manual_unpaid'
+            or event.get('processor_payment_id') or event.get('refunds')):
+        raise ValueError('Only unpaid fixture orders can use the staging pilot')
+    if event['external_customer_id'] is None and not values.get('customer'):
+        raise ValueError('Explicit reviewed guest Customer required')
+
+
+def _validate_pilot_commercial(values, event):
+    if values.get('taxes') or event.get('tax_quote') is not None:
+        raise ValueError('Unpaid fixture requires zero tax, fees, shipping and discounts')
+    expected = {}
+    for line in event['lines']:
+        item = line['erp_item_code']
+        expected[item] = expected.get(item, 0) + Decimal(event['line_amounts'][line['line_id']])
+    actual = {}
+    for row in values['items']:
+        item = row['item_code']
+        actual[item] = actual.get(item, 0) + Decimal(str(row['qty'])) * Decimal(str(row['rate']))
+    if actual != expected:
+        raise ValueError('Reviewed ERP Item amounts differ from the unpaid Woo fixture')
+
+
 @frappe.whitelist(methods=['POST'])
 def stage_order(payload):
     _authorized();data=frappe.parse_json(payload);event=data['event'];values=deepcopy(data['reviewed_draft'])
     customer_sync = frappe.conf.get('commerce_customer_sync') or {}
-    if (customer_sync.get('enabled') and customer_sync.get('production_erp_pilot') is not True
-            and event['provider'] == 'woocommerce'
-            and event['site_key'] == customer_sync.get('woo_site')):
+    pilot = event.get('order_intake_mode') == 'unpaid_pilot'
+    if pilot:
+        _pilot_customer(event, values)
+    if pilot or (customer_sync.get('enabled') and customer_sync.get('production_erp_pilot') is not True
+                 and event['provider'] == 'woocommerce'
+                 and event['site_key'] == customer_sync.get('woo_site')):
         if 'external_customer_id' not in event:
             raise ValueError('Woo order must declare registered or guest checkout')
         if event['external_customer_id'] is not None:
@@ -96,6 +128,8 @@ def stage_order(payload):
                 raise ValueError('Reviewed order customer differs from registered Woo link')
             values['customer'] = customer
     validate_draft(values,event)
+    if pilot:
+        _validate_pilot_commercial(values, event)
     key=mapping_key(event['provider'],event['site_key'],event['external_order_id'])
     # Preserve pre-existing order fingerprints when no tax quote was supplied.
     # Once a quote is supplied, its immutable identity binds every replay.
