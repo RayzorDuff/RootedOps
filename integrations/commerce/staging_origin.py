@@ -18,3 +18,12 @@ def staging_pair(erp, shop):
     if erp.removeprefix('https://erp-') != shop.removeprefix('https://shop-'):
         raise ValueError('Mixed staging environments refused')
     return erp, shop
+
+
+def customer_pair(erp, shop, production_erp_pilot=False):
+    if production_erp_pilot is True:
+        if (erp != 'https://erp.danks.store'
+                or staging_origin(shop, 'shop') != 'https://shop-test.danks.store'):
+            raise ValueError('Production ERP customer pilot requires the exact shared-Linode pair')
+        return erp, 'https://shop-test.danks.store'
+    return staging_pair(erp, shop)

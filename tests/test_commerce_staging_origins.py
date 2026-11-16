@@ -7,7 +7,7 @@ import tempfile
 import unittest
 ROOT=Path(__file__).resolve().parents[1]
 sys.path[:0]=[str(ROOT/'scripts'),str(ROOT/'integrations/commerce')]
-from staging_origin import staging_origin,staging_pair
+from staging_origin import customer_pair, staging_origin, staging_pair
 from commerce_staging_targets import targets
 from inbox import ReviewedERP,PostgresInventory
 from channel import upsert_draft
@@ -24,6 +24,16 @@ class StagingOriginTests(unittest.TestCase):
                       'https://user:secret@shop-test2.danks.store','https://shop-test2.danks.store:444',
                       'https://shop-test2.danks.store/path','https://shop-test2.danks.store?x=y','https://shop-test2.danks.store#fragment'):
             with self.subTest(value=value),self.assertRaises(ValueError):staging_origin(value,'shop')
+
+    def test_production_erp_pair_is_opt_in_and_customer_only(self):
+        erp, shop = 'https://erp.danks.store', 'https://shop-test.danks.store'
+        self.assertEqual(customer_pair(erp, shop, production_erp_pilot=True), (erp, shop))
+        with self.assertRaises(ValueError):
+            customer_pair(erp, shop)
+        with self.assertRaises(ValueError):
+            staging_pair(erp, shop)
+        with self.assertRaises(ValueError):
+            customer_pair(erp, 'https://shop-test2.danks.store', production_erp_pilot=True)
 
     def test_receipt_and_environment_must_match(self):
         with tempfile.TemporaryDirectory() as directory:

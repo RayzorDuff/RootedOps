@@ -120,6 +120,35 @@ class ProfileSync(unittest.TestCase):
     def signal(self, values):
         return json.dumps(dict(site_key=SITE, id=12, scope='account', digest=self.sync.profile_digest(values)))
 
+    def test_production_pilot_requires_exact_pair_and_reviewed_ids(self):
+        conf = {'enabled': True, 'woo_site': 'shop-test.danks.store',
+                'production_erp_pilot': True, 'woo_customer_ids': [12]}
+        with patch.multiple(self.sync.frappe, create=True,
+                            conf={'commerce_customer_sync': conf},
+                            local=SimpleNamespace(site='erp.danks.store'),
+                            get_roles=lambda: ['Sales Manager']):
+            self.assertIs(self.sync.settings('shop-test.danks.store'), conf)
+            with self.assertRaises(ValueError):
+                self.sync.settings('shop-test2.danks.store')
+            with patch.dict(conf, woo_customer_ids=[]), self.assertRaises(ValueError):
+                self.sync.settings('shop-test.danks.store')
+            with patch.dict(conf, production_erp_pilot=False), self.assertRaises(ValueError):
+                self.sync.settings('shop-test.danks.store')
+
+    def test_production_pilot_only_locks_approved_ids_without_creating_a_link(self):
+        conf = {'production_erp_pilot': True, 'woo_customer_ids': [13]}
+        with (patch.object(self.sync, 'settings', return_value=conf),
+              patch.object(self.sync, 'lock_link', return_value=None) as lock,
+              patch.object(self.sync, 'woo_request') as woo):
+            signal = self.signal(self.new)
+            self.assertEqual(self.sync.consume_signal(signal)['status'],
+                             'ignored_unapproved_customer')
+            lock.assert_not_called()
+            conf['woo_customer_ids'] = [12]
+            self.assertEqual(self.sync.consume_signal(signal)['status'], 'review_link_required')
+            lock.assert_called_once_with(SITE, '12', create=False)
+            woo.assert_not_called()
+
     def test_woo_edit_applies_once_and_stale_body_does_not_revert(self):
         with (patch.object(self.sync, 'settings', return_value={}),
               patch.object(self.sync, 'lock_link', return_value=self.link),

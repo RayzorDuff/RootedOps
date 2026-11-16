@@ -66,12 +66,13 @@ def main():
         with make_server('127.0.0.1',8100,application(inbox,sites,customer_sites)) as server:server.serve_forever()
     elif a.command=='work-customers-once':
         from customer_signals import deliver_customer
-        from staging_origin import staging_pair
+        from staging_origin import customer_pair
         if not a.config or not a.customer_site:
             p.error('--config and --customer-site required')
         config = json.loads(a.config.read_text())
         row = config['customer_sites'][a.customer_site]
-        erp, shop = staging_pair(row['erp_base_url'], 'https://' + a.customer_site)
+        erp, shop = customer_pair(row['erp_base_url'], 'https://' + a.customer_site,
+                                  production_erp_pilot=row.get('production_erp_pilot', False))
         print(json.dumps({'worked': deliver_customer(
             inbox, erp, os.environ['ERP_AUTHORIZATION'], api, site=urlsplit(shop).hostname)}))
     else:

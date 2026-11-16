@@ -32,11 +32,25 @@ def settings(site):
     conf = frappe.conf.get('commerce_customer_sync') or {}
     allowed = {'erp-test.danks.store': 'shop-test.danks.store',
                'erp-test2.danks.store': 'shop-test2.danks.store'}
-    if not conf.get('enabled') or allowed.get(frappe.local.site) != site or conf.get('woo_site') != site:
-        raise ValueError('Customer synchronization is disabled for this staging pair')
+    pilot = conf.get('production_erp_pilot') is True
+    if pilot:
+        paired = frappe.local.site == 'erp.danks.store' and site == 'shop-test.danks.store'
+        ids = conf.get('woo_customer_ids')
+        if (not isinstance(ids, list) or not ids
+                or any(not re.fullmatch(r'[1-9][0-9]{0,18}', str(value)) for value in ids)):
+            raise ValueError('Configure reviewed Woo customer IDs for the production ERP pilot')
+    else:
+        paired = allowed.get(frappe.local.site) == site
+    if not conf.get('enabled') or not paired or conf.get('woo_site') != site:
+        raise ValueError('Customer synchronization is disabled for this site pair')
     if not {'System Manager', 'Sales Manager'} & set(frappe.get_roles()):
         frappe.throw('Commerce role required', frappe.PermissionError)
     return conf
+
+
+def pilot_customer_allowed(conf, customer_id):
+    return (conf.get('production_erp_pilot') is not True
+            or str(customer_id) in {str(value) for value in conf['woo_customer_ids']})
 
 
 def profile_digest(profile):
@@ -224,7 +238,12 @@ def consume_signal(payload):
     scope = 'account' if signal['scope'] == 'registered' else signal['scope']
     if scope not in SCOPES:
         raise ValueError('Unknown profile scope')
-    link = lock_link(site, customer_id, create=scope == 'account')
+    if not pilot_customer_allowed(conf, customer_id):
+        return {'status': 'ignored_unapproved_customer'}
+    pilot = conf.get('production_erp_pilot') is True
+    link = lock_link(site, customer_id, create=not pilot and scope == 'account')
+    if pilot and (not link or not link.customer):
+        return {'status': 'review_link_required'}
     if not link or (not link.customer and scope != 'account'):
         return {'status': 'awaiting_registration'}
     try:
@@ -258,6 +277,8 @@ def link_existing(payload):
     data = frappe.parse_json(payload)
     site, customer_id = data['site_key'], str(data['id'])
     conf = settings(site)
+    if not pilot_customer_allowed(conf, customer_id):
+        raise ValueError('Woo customer has not been approved for the production ERP pilot')
     link = lock_link(site, customer_id, create=True)
     fields = ('customer', 'contact', 'billing_address', 'shipping_address', 'ecwid_identity')
     if link.customer:
@@ -303,6 +324,8 @@ def project_profile(site, customer_id, scope):
     conf = settings(site)
     if scope not in SCOPES:
         raise ValueError('Unknown profile scope')
+    if not pilot_customer_allowed(conf, customer_id):
+        return {'status': 'ignored_unapproved_customer'}
     link = lock_link(site, customer_id)
     if not link or not link.customer:
         return {'status': 'unlinked'}
@@ -330,7 +353,8 @@ def project_profile(site, customer_id, scope):
 
 def queue_projections():
     conf = frappe.conf.get('commerce_customer_sync') or {}
-    if not conf.get('enabled') or not conf.get('project_enabled'):
+    if (not conf.get('enabled') or not conf.get('project_enabled')
+            or conf.get('production_erp_pilot') is True):
         return
     site = conf.get('woo_site')
     settings(site)

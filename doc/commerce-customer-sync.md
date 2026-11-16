@@ -17,6 +17,129 @@ Woo emits a signed action after registration and explicit account or address sav
 
 A last-synchronized hash per profile section detects conflicting changes. If ERP and Woo both diverge, review the crosswalk status and align the selected fields on both sides before retrying projection. ERP-to-Woo projection sends the expected hash to the staging MU-plugin's conditional Woo endpoint. It obtains a per-customer MariaDB advisory lock shared with Woo My Account detail and address saves. It checks the current hash under the lock before delegating to Woo's native customer update. A mismatch returns HTTP 412 and ERP keeps the saved baseline with status `review_both_changed`. ERP never falls back to a blind Woo update. A failed or lost response can be retried and acknowledged by reading the projected values. My Account requests that cannot acquire the lock return a retryable 503 before making changes. The REST projection does not fire the outbound Woo form hooks. This lock covers these My Account forms and the projection endpoint. Native checkout, Woo admin or third-party profile writers do not take this lock, so keep periodic projection off pending review of those paths.
 
+## Shared-Linode customer pilot with production ERP
+
+Use this path when `shop-test.danks.store` and `erp.danks.store` are the available services. Begin with one Woo account you control and its existing ERP Customer and Contact. Review them together before enabling delivery. The pilot requires an allowlist and an explicit link for each account. It does not create Customers on registration or queue scheduled ERP-to-Woo projection. It runs only the customer worker.
+
+### Deploy with delivery disabled
+
+The standard ERP deployment pulls `main`, so use the following after the pilot changes land there. Run during a window where ERP can briefly restart. This deploys only the installed commerce app and migrates its schema.
+
+```bash
+cd ~/RootedOps
+sudo docker exec erpnext-backend bench --site erp.danks.store backup &&
+  ./erpnext/deploy.sh erp.danks.store commerce
+```
+
+Use the existing `dank-store-test` Compose service with its existing env file and overrides. Recreate **only** `dank-wordpress` with the repository MU plugin mounted and `DANK_WP_CUSTOMER_WEBHOOK_ENABLED=1`. Keep the Woo webhook inactive while preparing the link and listener. The production ERP site's private `site_config.json` needs this top-level entry. Replace `123` with the selected Woo account ID and use a shop-test Woo REST read/write credential for `woo_authorization`.
+
+```json
+"commerce_customer_sync": {
+  "enabled": true,
+  "production_erp_pilot": true,
+  "woo_site": "shop-test.danks.store",
+  "woo_customer_ids": [123],
+  "project_enabled": false,
+  "woo_authorization": "Basic <base64 of Woo consumer key:consumer secret>"
+}
+```
+
+After saving the config, run `sudo docker exec erpnext-backend bench --site erp.danks.store clear-cache`. Use a dedicated ERP API user with Sales Manager and the required document permissions. Store its `Authorization: token <api_key>:<api_secret>` header in a private curl config as `header = "Authorization: token …"`.
+
+Match the Woo account and any billing/shipping fields to ERP using the shop-test admin. Call the link endpoint with the ERP document IDs, using a private JSON file with this shape. Omit optional addresses when the corresponding profile fields are empty. Billing phone comes from the Contact. A differing profile is rejected before the link is committed.
+
+```json
+{
+  "payload": {
+    "site_key": "shop-test.danks.store",
+    "id": 123,
+    "customer": "<ERP Customer document ID>",
+    "contact": "<ERP Contact document ID>"
+  }
+}
+```
+
+```bash
+curl --silent --show-error --fail-with-body --config "${ERP_CURL_CONFIG:?}" \
+  --header 'Content-Type: application/json' --data-binary "@${PILOT_LINK_JSON:?}" \
+  https://erp.danks.store/api/method/rootedops_commerce.customer_sync.link_existing
+```
+
+Expect `{"message":{"status":"linked"}}`. If the profiles already use addresses, include `billing_address` and/or `shipping_address` in `payload` with the corresponding ERP document IDs.
+
+### Start the inbox and make one round trip
+
+Reuse a dedicated local commerce inbox database if available. On a host with a free loopback port 18101, the following provisions a small, persistent inbox on the same Linode. These are one-time commands.
+
+```bash
+(
+  set -eu
+  umask 077
+  pilot_dir="$HOME/commerce-migration/customer-pilot"
+  mkdir -p "$pilot_dir"
+  chmod 700 "$pilot_dir"
+  test ! -e "$pilot_dir/postgres.env"
+  inbox_password=$(openssl rand -hex 24)
+  printf 'POSTGRES_DB=commerce_test\nPOSTGRES_USER=commerce_inbox\nPOSTGRES_PASSWORD=%s\n' \
+    "$inbox_password" > "$pilot_dir/postgres.env"
+  printf 'COMMERCE_STAGING_ONLY=1\nCOMMERCE_INBOX_DSN=postgresql://commerce_inbox:%s@127.0.0.1:18101/commerce_test\nWOO_CUSTOMER_WEBHOOK_SECRET=%s\n' \
+    "$inbox_password" "$(openssl rand -hex 32)" > "$pilot_dir/inbox.env"
+  sudo docker run -d --name rootedops-customer-pilot-db --restart unless-stopped \
+    --env-file "$pilot_dir/postgres.env" -p 127.0.0.1:18101:5432 \
+    -v rootedops_customer_pilot_db:/var/lib/postgresql/data postgres:16
+  python3 -m venv "$pilot_dir/venv"
+  "$pilot_dir/venv/bin/pip" install 'psycopg[binary]>=3.2,<4'
+)
+```
+
+Save this as `customer-pilot/inbox.json` beside `inbox.env`. Add `ERP_AUTHORIZATION='token <api_key>:<api_secret>'` to the private `inbox.env` for the worker.
+
+```json
+{
+  "customer_sites": {
+    "shop-test.danks.store": {
+      "erp_base_url": "https://erp.danks.store",
+      "production_erp_pilot": true,
+      "secret_envs": ["WOO_CUSTOMER_WEBHOOK_SECRET"]
+    }
+  }
+}
+```
+
+In the existing HTTPS Nginx vhost for `shop-test.danks.store`, proxy just the signed customer ingress. Test the config with `sudo nginx -t` before reloading it.
+
+```nginx
+location = /webhooks/woocommerce-customer/shop-test.danks.store {
+    proxy_pass http://127.0.0.1:8100;
+}
+```
+
+Run this in a dedicated shell on the Linode. Wait for Postgres to accept connections before initializing it.
+
+```bash
+cd ~/RootedOps
+pilot_dir="$HOME/commerce-migration/customer-pilot"
+set -a
+. "$pilot_dir/inbox.env"
+set +a
+"$pilot_dir/venv/bin/python" integrations/commerce/runtime.py init &&
+  "$pilot_dir/venv/bin/python" integrations/commerce/runtime.py serve --config "$pilot_dir/inbox.json"
+```
+
+Add an active WooCommerce webhook of topic **Action**, event `rootedops_customer_profile_saved`, using the `WOO_CUSTOMER_WEBHOOK_SECRET` from the private file and the HTTPS URL of the exact location above. See the Woo setup note in isolated Batch 2 if its setup ping is refused. From My Account on `shop-test`, make one account name edit on the linked user. When Woo has dispatched its webhook, run the worker from a second shell.
+
+```bash
+cd ~/RootedOps
+pilot_dir="$HOME/commerce-migration/customer-pilot"
+set -a
+. "$pilot_dir/inbox.env"
+set +a
+"$pilot_dir/venv/bin/python" integrations/commerce/runtime.py work-customers-once \
+  --config "$pilot_dir/inbox.json" --customer-site shop-test.danks.store
+```
+
+Expect `{"worked": true}` and verify the linked ERP Contact has the new name. Use the projection function under Batch 3 with `https://erp.danks.store` and the approved Woo ID. Restore the original name on the ERP Contact, run the projection once, and confirm My Account shows the original name again. Leave scheduled projection off. Run the inbox and worker under a service manager if continuing past the pilot. To pause, disable the Woo webhook and set `commerce_customer_sync.enabled` to `false` in ERP. Clear cache and stop the pilot processes.
+
 ## Isolated activation
 
 ### Batch 1: Read-only preflight on the shared Linode
