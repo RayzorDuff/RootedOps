@@ -25,14 +25,24 @@ SITE = 'shop-test2.danks.store'
 SECRET = 'synthetic-customer-webhook-secret-only'
 
 
-def signed():
-    body = {'action': ACTION, 'arg': {'id': 12, 'scope': 'account',
+def signed(action=ACTION):
+    body = {'action': action, 'arg': {'id': 12, 'scope': 'account',
             'event': 'a23c14be-23ad-4b5a-97c2-fdf7944ed25b', 'digest': 'b' * 64}}
     raw = json.dumps(body).encode()
     return raw, base64.b64encode(hmac.digest(SECRET.encode(), raw, 'sha256')).decode()
 
 
 class CustomerSignals(unittest.TestCase):
+    def test_woo_action_topic_and_legacy_deliveries(self):
+        plugin = (ROOT / 'wordpress/dank-mu-plugins/rootedops-customer-webhook.php').read_text()
+        self.assertTrue(ACTION.startswith(('woocommerce_', 'wc_')))
+        self.assertIn(f"do_action( '{ACTION}',", plugin)
+        raw, signature = signed('rootedops_customer_profile_saved')
+        self.assertEqual(normalize_signal(raw, signature, [SECRET], SITE)['id'], 12)
+        raw, signature = signed('woocommerce_unrelated_action')
+        with self.assertRaises(ValueError):
+            normalize_signal(raw, signature, [SECRET], SITE)
+
     def test_raw_signature_and_routing(self):
         raw, signature = signed()
         with self.assertRaises(ValueError):

@@ -5,13 +5,15 @@ import re
 from orders import authenticate
 
 PROVIDER = 'woocommerce-customer'
-ACTION = 'rootedops_customer_profile_saved'
+ACTION = 'woocommerce_rootedops_customer_profile_saved'
+LEGACY_ACTION = 'rootedops_customer_profile_saved'
 
 
 def normalize_signal(raw, signature, secrets, site):
     receipt = authenticate(raw, signature, secrets)
     body = json.loads(raw)
-    if not isinstance(body, dict) or set(body) != {'action', 'arg'} or body['action'] != ACTION:
+    if (not isinstance(body, dict) or set(body) != {'action', 'arg'}
+            or body['action'] not in (ACTION, LEGACY_ACTION)):
         raise ValueError('Unknown customer action')
     event = body['arg']
     if not isinstance(event, dict) or set(event) != {'id', 'scope', 'event', 'digest'}:

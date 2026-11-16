@@ -126,7 +126,7 @@ set +a
   "$pilot_dir/venv/bin/python" integrations/commerce/runtime.py serve --config "$pilot_dir/inbox.json"
 ```
 
-Add an active WooCommerce webhook of topic **Action**, event `rootedops_customer_profile_saved`, using the `WOO_CUSTOMER_WEBHOOK_SECRET` from the private file and the HTTPS URL of the exact location above. See the Woo setup note in isolated Batch 2 if its setup ping is refused. From My Account on `shop-test`, make one account name edit on the linked user. When Woo has dispatched its webhook, run the worker from a second shell.
+Add an active WooCommerce webhook of topic **Action**, event `woocommerce_rootedops_customer_profile_saved`, using the `WOO_CUSTOMER_WEBHOOK_SECRET` from the private file and the HTTPS URL of the exact location above. See the Woo setup note in isolated Batch 2 if its setup ping is refused. From My Account on `shop-test`, make one account name edit on the linked user. When Woo has dispatched its webhook, run the worker from a second shell.
 
 ```bash
 cd ~/RootedOps
@@ -140,19 +140,86 @@ set +a
 
 Expect `{"worked": true}` and verify the linked ERP Contact has the new name. Use the projection function under Batch 3 with `https://erp.danks.store` and the approved Woo ID. Restore the original name on the ERP Contact, run the projection once, and confirm My Account shows the original name again. Leave scheduled projection off. Run the inbox and worker under a service manager if continuing past the pilot. To pause, disable the Woo webhook and set `commerce_customer_sync.enabled` to `false` in ERP. Clear cache and stop the pilot processes.
 
+For a persistent shared-Linode installation, run the inbox as a systemd service
+and the customer worker as a systemd timer. Keep the ERP API token in a separate
+mode-0600 `erp-worker.env` with `ERP_AUTHORIZATION="token key:secret"`. Use a
+regular service user that can read the checkout and the private input files.
+Substitute the absolute paths shown below for your installation.
+
+```ini
+# /etc/systemd/system/dank-customer-inbox.service
+[Unit]
+After=docker.service
+Requires=docker.service
+
+[Service]
+User=dankmushrooms
+EnvironmentFile=/home/dankmushrooms/commerce-migration/customer-pilot/inbox.env
+UnsetEnvironment=ERP_AUTHORIZATION
+ExecStartPre=/home/dankmushrooms/commerce-migration/customer-pilot/venv/bin/python /home/dankmushrooms/RootedOps/integrations/commerce/runtime.py init
+ExecStart=/home/dankmushrooms/commerce-migration/customer-pilot/venv/bin/python /home/dankmushrooms/RootedOps/integrations/commerce/runtime.py serve --config /home/dankmushrooms/commerce-migration/customer-pilot/inbox.json
+Restart=on-failure
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target
+```
+
+```ini
+# /etc/systemd/system/dank-customer-sync.service
+[Unit]
+After=dank-customer-inbox.service
+Requires=dank-customer-inbox.service
+
+[Service]
+Type=oneshot
+User=dankmushrooms
+EnvironmentFile=/home/dankmushrooms/commerce-migration/customer-pilot/inbox.env
+EnvironmentFile=/home/dankmushrooms/commerce-migration/customer-pilot/erp-worker.env
+UnsetEnvironment=WOO_CUSTOMER_WEBHOOK_SECRET
+ExecStart=/home/dankmushrooms/commerce-migration/customer-pilot/venv/bin/python /home/dankmushrooms/RootedOps/integrations/commerce/runtime.py work-customers-once --config /home/dankmushrooms/commerce-migration/customer-pilot/inbox.json --customer-site shop-test.danks.store
+```
+
+```ini
+# /etc/systemd/system/dank-customer-sync.timer
+[Timer]
+OnActiveSec=15s
+OnUnitInactiveSec=15s
+AccuracySec=1s
+
+[Install]
+WantedBy=timers.target
+```
+
+Enable the persistent services with `sudo systemctl daemon-reload` and
+`sudo systemctl enable --now dank-customer-inbox.service dank-customer-sync.timer`.
+Use a single inbox process on port 8100. The HTTPS Nginx route should return the
+inbox's JSON `invalid_webhook` error and HTTP 400 for an unsigned GET. Compare
+the public route against the same path on `http://127.0.0.1:8100` if it returns
+404 before configuring Woo.
+
 ### Automatically provision new Woo signups
 
 Deploy the commerce app and run its schema migration on `erp.danks.store` before enabling this option. Confirm the RootedOps must-use plugin is enabled on `shop-test.danks.store`, the Woo Action webhook is active, and the customer inbox and worker are running. The worker's ERP API user needs Customer, Contact, and Commerce Customer Link create and write access.
 
-In the production site's private `site_config.json`, add these three keys to the existing `commerce_customer_sync` object:
+On a clean Linode, after deploying and migrating the commerce app, provision the
+integration settings from the RootedOps checkout:
 
-```json
-"provision_new_woo_customers": true,
-"customer_group": "Individual",
-"territory": "United States"
+```bash
+bash scripts/commerce-configure-woo-signup.sh
 ```
 
-Use existing leaf records for the group and territory. Keep `enabled` and `production_erp_pilot` set to `true`, `woo_site` set to `shop-test.danks.store`, and `woo_authorization` set to the shop's private Woo REST credential. `woo_customer_ids` may be empty when no accounts are manually linked. Clear the site cache after saving.
+Enter a Woo REST consumer key and secret for `shop-test.danks.store` at the
+hidden prompts. For unattended installs the script accepts the same two values,
+one per line, from private standard input. The script creates the
+`commerce_customer_sync` object in the mounted ERP site configuration, enables
+new-signup provisioning, defaults to the `Individual` customer group and
+`United States` territory, and clears the site cache. It preserves the manual
+allowlist and existing group and territory overrides. Group and territory must
+be existing leaf records. Store credentials outside Git. A database restore
+also needs the matching private site config, including its Frappe encryption
+key. Use the script when setting up a clean site or injecting a replacement Woo
+key.
 
 Register once from Woo My Account using an address you control that is new to both systems. Process the signed webhook with the customer worker and verify one ERP Customer and Contact and one Commerce Customer Link with **Provisioned from Woo Signup** checked. The initial sync uses the current Woo account profile. Replayed registrations reuse the same link, and subsequent My Account edits can sync through it. Verify this with one name edit.
 
@@ -271,7 +338,7 @@ Proceed after reviewing the preflight and coordinating any changes or restarts. 
    ```
 
    Run that worker regularly while testing. It shares the durable inbox tables and claims customer deliveries only. `status` shows redacted counts. To retry a dead letter, use `replay --event-key woocommerce-customer shop-test.danks.store RECEIPT_HASH` after fixing the cause.
-4. Set `DANK_WP_CUSTOMER_WEBHOOK_ENABLED=1` in the private staging WordPress Compose env and recreate the staging Web service. For a different test deployment layout, mount only `wordpress/dank-mu-plugins/rootedops-customer-webhook.php` in the staging web root's `wp-content/mu-plugins` and set the same `ROOTEDOPS_CUSTOMER_WEBHOOK_ENABLED` constant privately. Add an active WooCommerce webhook with topic **Action**, event `rootedops_customer_profile_saved`, the staging HTTPS ingress URL and the same secret. If the Woo UI sends an unsigned setup ping, the inbox refuses it. Create the webhook directly with a staging WP-CLI `WC_Webhook` save if needed and use a signed account save as the connectivity check.
+4. Set `DANK_WP_CUSTOMER_WEBHOOK_ENABLED=1` in the private staging WordPress Compose env and recreate the staging Web service. For a different test deployment layout, mount only `wordpress/dank-mu-plugins/rootedops-customer-webhook.php` in the staging web root's `wp-content/mu-plugins` and set the same `ROOTEDOPS_CUSTOMER_WEBHOOK_ENABLED` constant privately. Add an active WooCommerce webhook with topic **Action**, event `woocommerce_rootedops_customer_profile_saved`, the staging HTTPS ingress URL and the same secret. If the Woo UI sends an unsigned setup ping, the inbox refuses it. Create the webhook directly with a staging WP-CLI `WC_Webhook` save if needed and use a signed account save as the connectivity check.
 ### Batch 3: Run live acceptance
 
 Use a new fixture email under `example.invalid`. Confirm that WordPress and ERP email are captured or suppressed by staging sinks. Use a different fictitious name or address value for each change and wait for its receipt before moving to the next check, except when deliberately testing stale delivery or a conflict.
