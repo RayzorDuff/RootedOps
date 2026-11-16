@@ -30,9 +30,10 @@ def connect_test(dsn):
 
 def main():
     p=argparse.ArgumentParser(description=__doc__)
-    p.add_argument('command',choices=['init','serve','work-once','status','replay','reconcile-order'])
+    p.add_argument('command',choices=['init','serve','work-once','status','replay','reconcile-order','work-customers-once'])
     p.add_argument('--config',type=Path);p.add_argument('--event-key',nargs=3)
     p.add_argument('--order-key',nargs=3)
+    p.add_argument('--customer-site')
     a=p.parse_args();connect=connect_test(os.environ['COMMERCE_INBOX_DSN']);inbox=Inbox(connect)
     if a.command=='init':
         with connect() as db:db.execute(Path(__file__).with_name('inbox.sql').read_text())
@@ -45,7 +46,7 @@ def main():
         config=json.loads(a.config.read_text())
         sites={}
         from tax_policy import load_policy
-        for site,row in config['sites'].items():
+        for site,row in config.get('sites', {}).items():
             # Every enabled staging site must point to an approved, private,
             # read-only classification file. Missing policy fails closed at
             # server startup, before any webhook can be acknowledged.
@@ -55,8 +56,25 @@ def main():
             sites[site]={'secrets':[os.environ[name] for name in row['secret_envs']],
                          'mappings':row['mappings'],'gateways':row['gateways'],
                          'tax_policy':policy}
+        from staging_origin import staging_origin
+        customer_sites = {}
+        for site, row in config.get('customer_sites', {}).items():
+            if staging_origin('https://' + site, 'shop') != 'https://' + site:
+                raise ValueError('Use exact staging host as customer site key')
+            customer_sites[site] = {'secrets': [os.environ[name] for name in row['secret_envs']]}
         # No public bind switch. Use only an independently reviewed test proxy.
-        with make_server('127.0.0.1',8100,application(inbox,sites)) as server:server.serve_forever()
+        with make_server('127.0.0.1',8100,application(inbox,sites,customer_sites)) as server:server.serve_forever()
+    elif a.command=='work-customers-once':
+        from customer_signals import deliver_customer
+        from staging_origin import customer_pair
+        if not a.config or not a.customer_site:
+            p.error('--config and --customer-site required')
+        config = json.loads(a.config.read_text())
+        row = config['customer_sites'][a.customer_site]
+        erp, shop = customer_pair(row['erp_base_url'], 'https://' + a.customer_site,
+                                  production_erp_pilot=row.get('production_erp_pilot', False))
+        print(json.dumps({'worked': deliver_customer(
+            inbox, erp, os.environ['ERP_AUTHORIZATION'], api, site=urlsplit(shop).hostname)}))
     else:
         if not a.config:p.error('--config required')
         config=json.loads(a.config.read_text());approved=config['approved_erp_drafts']

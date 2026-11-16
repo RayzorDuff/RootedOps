@@ -90,12 +90,19 @@ def normalize_woo(raw, signature, secrets, site, mappings, gateways, tax_policy=
         raise ValueError('Refunds exceed order total')
     if order['status'] == 'refunded' and sum(Decimal(r['amount']) for r in refunds) != Decimal(total):
         raise ValueError('Full-refund status requires complete refund snapshot')
-    return {'schema_version': 1, 'provider': 'woocommerce', 'site_key': site,
+    result = {'schema_version': 1, 'provider': 'woocommerce', 'site_key': site,
             'external_order_id': str(order['id']), 'event_id': event_id,
             'revision': int(modified.timestamp()), 'status': order['status'],
             'currency': order['currency'], 'total': total, 'lines': lines, 'refunds': refunds,
             'payment_processor': processor, 'processor_payment_id': order.get('transaction_id') or None,
             'reconciliation_status': 'unverified', 'fulfillment_requested': order['status'] == 'completed'}
+
+    if 'customer_id' in order:
+        customer_id = order['customer_id']
+        if type(customer_id) is not int or not 0 <= customer_id < 2**63:
+            raise ValueError('Invalid Woo order customer ID')
+        result['external_customer_id'] = str(customer_id) if customer_id else None
+    return result
 
 
 def reconcile_clover(order, evidence):

@@ -1,0 +1,136 @@
+{
+  "doctype": "DocType",
+  "name": "Commerce Customer Link",
+  "module": "RootedOps Commerce",
+  "engine": "InnoDB",
+  "autoname": "field:source_key",
+  "field_order": [
+    "source_key",
+    "site_key",
+    "woo_customer_id",
+    "customer",
+    "contact",
+    "billing_address",
+    "shipping_address",
+    "ecwid_identity",
+    "account_digest",
+    "account_status",
+    "billing_digest",
+    "billing_status",
+    "shipping_digest",
+    "shipping_status"
+  ],
+  "fields": [
+    {
+      "fieldname": "source_key",
+      "label": "Source Key",
+      "fieldtype": "Data",
+      "unique": 1,
+      "reqd": 1,
+      "read_only": 1
+    },
+    {
+      "fieldname": "site_key",
+      "label": "Site Key",
+      "fieldtype": "Data",
+      "reqd": 1,
+      "read_only": 1,
+      "search_index": 1
+    },
+    {
+      "fieldname": "woo_customer_id",
+      "label": "Woo Customer Id",
+      "fieldtype": "Data",
+      "reqd": 1,
+      "read_only": 1
+    },
+    {
+      "fieldname": "customer",
+      "label": "Customer",
+      "fieldtype": "Link",
+      "options": "Customer",
+      "read_only": 1
+    },
+    {
+      "fieldname": "contact",
+      "label": "Contact",
+      "fieldtype": "Link",
+      "options": "Contact",
+      "read_only": 1
+    },
+    {
+      "fieldname": "billing_address",
+      "label": "Billing Address",
+      "fieldtype": "Link",
+      "options": "Address",
+      "read_only": 1
+    },
+    {
+      "fieldname": "shipping_address",
+      "label": "Shipping Address",
+      "fieldtype": "Link",
+      "options": "Address",
+      "read_only": 1
+    },
+    {
+      "fieldname": "ecwid_identity",
+      "label": "Ecwid Identity",
+      "fieldtype": "Link",
+      "options": "Commerce Migration Identity",
+      "read_only": 1
+    },
+    {
+      "fieldname": "account_digest",
+      "label": "Account Digest",
+      "fieldtype": "Data",
+      "read_only": 1,
+      "hidden": 1
+    },
+    {
+      "fieldname": "account_status",
+      "label": "Account Status",
+      "fieldtype": "Data",
+      "read_only": 1
+    },
+    {
+      "fieldname": "billing_digest",
+      "label": "Billing Digest",
+      "fieldtype": "Data",
+      "read_only": 1,
+      "hidden": 1
+    },
+    {
+      "fieldname": "billing_status",
+      "label": "Billing Status",
+      "fieldtype": "Data",
+      "read_only": 1
+    },
+    {
+      "fieldname": "shipping_digest",
+      "label": "Shipping Digest",
+      "fieldtype": "Data",
+      "read_only": 1,
+      "hidden": 1
+    },
+    {
+      "fieldname": "shipping_status",
+      "label": "Shipping Status",
+      "fieldtype": "Data",
+      "read_only": 1
+    }
+  ],
+  "permissions": [
+    {
+      "role": "System Manager",
+      "read": 1,
+      "write": 1,
+      "create": 1
+    },
+    {
+      "role": "Sales Manager",
+      "read": 1,
+      "write": 1,
+      "create": 1
+    }
+  ]
+}

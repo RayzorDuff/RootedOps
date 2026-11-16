@@ -9,17 +9,32 @@ import uuid
 from orders import normalize_woo
 
 
+def same_receipt(stored, incoming):
+    # A replay of a pre-upgrade order has the same authenticated raw hash.
+    # Older normalized rows omitted the registered/guest field.
+    if stored.get('provider') == 'woocommerce' and 'external_customer_id' not in stored:
+        incoming = {key: value for key, value in incoming.items() if key != 'external_customer_id'}
+    return stored == incoming
+
+
 class Inbox:
     def __init__(self, connect):
         self.connect = connect
 
     def receive(self, raw, signature, *, secrets, site, mappings, gateways, tax_policy=None):
         event = normalize_woo(raw, signature, secrets, site, mappings, gateways, tax_policy=tax_policy)
-        key = (event['provider'], site, event['event_id'])
+        return self.store(event, raw)
+
+    def receive_customer(self, raw, signature, *, secrets, site):
+        from customer_signals import normalize_signal
+        return self.store(normalize_signal(raw, signature, secrets, site), raw)
+
+    def store(self, event, raw):
+        key = (event['provider'], event['site_key'], event['event_id'])
         with self.connect() as db:
             old = db.execute('SELECT payload FROM commerce_inbox WHERE provider=%s AND site_key=%s AND event_id=%s', key).fetchone()
             if old:
-                if old[0] != event:
+                if not same_receipt(old[0], event):
                     raise ValueError('Event identity/configuration drift')
                 return {'event_id': event['event_id'], 'duplicate': True}
             inserted = db.execute('''INSERT INTO commerce_inbox(provider,site_key,event_id,external_order_id,revision,payload,raw_body)
@@ -27,18 +42,20 @@ class Inbox:
                 (*key,event['external_order_id'],event['revision'],json.dumps(event),raw)).fetchone()
             if not inserted:
                 old = db.execute('SELECT payload FROM commerce_inbox WHERE provider=%s AND site_key=%s AND event_id=%s',key).fetchone()
-                if old[0] != event:raise ValueError('Event identity/configuration drift')
+                if not same_receipt(old[0], event):raise ValueError('Event identity/configuration drift')
             db.execute('INSERT INTO commerce_delivery(provider,site_key,event_id) VALUES(%s,%s,%s) ON CONFLICT DO NOTHING',key)
         return {'event_id': event['event_id'], 'duplicate': not bool(inserted)}
 
-    def claim(self, lease_seconds=60):
+    def claim(self, lease_seconds=60, *, provider="woocommerce", site=None):
         token=uuid.uuid4().hex
         with self.connect() as db:
             row=db.execute('''SELECT d.provider,d.site_key,d.event_id,i.payload,d.mp_receipt,d.erp_receipt
                 FROM commerce_delivery d JOIN commerce_inbox i USING(provider,site_key,event_id)
-                WHERE (d.state='pending' AND d.next_attempt_at<=now())
-                   OR (d.state='leased' AND d.lease_until<now())
-                ORDER BY i.received_at FOR UPDATE OF d SKIP LOCKED LIMIT 1''').fetchone()
+                WHERE d.provider=%s AND (%s::text IS NULL OR d.site_key=%s)
+                  AND ((d.state='pending' AND d.next_attempt_at<=now())
+                    OR (d.state='leased' AND d.lease_until<now()))
+                ORDER BY i.received_at FOR UPDATE OF d SKIP LOCKED LIMIT 1''',
+                (provider,site,site)).fetchone()
             if not row:return None
             db.execute('''UPDATE commerce_delivery SET state='leased',attempts=attempts+1,
                 lease_token=%s,lease_until=now()+(%s * interval '1 second')
@@ -172,7 +189,7 @@ class ReviewedERP:
                             self.authorization,'POST',{'payload':json.dumps(identity)})['message']
 
 
-def application(inbox,sites):
+def application(inbox,sites,customer_sites=None):
     """Loopback WSGI boundary; reverse-proxy deployment remains opt-in."""
     def app(environ,start_response):
         status='202 Accepted';result={}
@@ -181,14 +198,19 @@ def application(inbox,sites):
             if environ.get('wsgi.url_scheme')!='https' and environ.get('SERVER_NAME') not in ('127.0.0.1','localhost'):
                 raise ValueError('transport')
             path=environ.get('PATH_INFO','').split('/')
-            if len(path)!=4 or path[1:3]!=['webhooks','woocommerce']:raise ValueError('route')
-            config=sites[path[3]]
+            if len(path)!=4 or path[1]!='webhooks':raise ValueError('route')
+            if path[2]=='woocommerce':
+                receive, config = inbox.receive, sites[path[3]]
+            elif path[2]=='woocommerce-customer':
+                receive, config = inbox.receive_customer, (customer_sites or {})[path[3]]
+            else:
+                raise ValueError('route')
             size=int(environ.get('CONTENT_LENGTH',''))
             if not 0<size<=2*1024*1024:raise ValueError('size')
             if environ.get('CONTENT_TYPE','').split(';')[0]!='application/json':raise ValueError('content type')
             raw=environ['wsgi.input'].read(size)
             if len(raw)!=size:raise ValueError('truncated')
-            result=inbox.receive(raw,environ.get('HTTP_X_WC_WEBHOOK_SIGNATURE',''),
+            result=receive(raw,environ.get('HTTP_X_WC_WEBHOOK_SIGNATURE',''),
                                  site=path[3],**config)
         except (ValueError,KeyError,TypeError):
             status='400 Bad Request';result={'error':'invalid_webhook'}

@@ -1,0 +1,235 @@
+import base64
+import csv
+from dataclasses import dataclass
+import hmac
+import io
+import json
+from pathlib import Path
+import sys
+import tempfile
+from types import SimpleNamespace
+import unittest
+from unittest.mock import Mock, patch
+from urllib.error import HTTPError
+
+ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT / 'integrations/commerce'))
+sys.path.insert(0, str(ROOT / 'erpnext/apps/rootedops_commerce'))
+
+from customer_review import compile_new_customers, review, write_csv, ADDRESS_FIELDS
+from customer_signals import ACTION, deliver_customer, normalize_signal, PROVIDER
+from inbox import application, same_receipt
+from orders import normalize_woo
+
+SITE = 'shop-test2.danks.store'
+SECRET = 'synthetic-customer-webhook-secret-only'
+
+
+def signed():
+    body = {'action': ACTION, 'arg': {'id': 12, 'scope': 'account',
+            'event': 'a23c14be-23ad-4b5a-97c2-fdf7944ed25b', 'digest': 'b' * 64}}
+    raw = json.dumps(body).encode()
+    return raw, base64.b64encode(hmac.digest(SECRET.encode(), raw, 'sha256')).decode()
+
+
+class CustomerSignals(unittest.TestCase):
+    def test_raw_signature_and_routing(self):
+        raw, signature = signed()
+        with self.assertRaises(ValueError):
+            normalize_signal(raw + b' ', signature, [SECRET], SITE)
+        event = normalize_signal(raw, signature, [SECRET], SITE)
+        self.assertEqual((event['provider'], event['id'], event['scope']), (PROVIDER, 12, 'account'))
+        self.assertEqual(event, normalize_signal(raw, signature, [SECRET], SITE))
+        inbox = Mock()
+        inbox.receive_customer.return_value = {'duplicate': False}
+        app = application(inbox, {}, {SITE: {'secrets': [SECRET]}})
+        replies = []
+        env = dict(REQUEST_METHOD='POST', SERVER_NAME='127.0.0.1', PATH_INFO='/webhooks/' + PROVIDER + '/' + SITE,
+                   CONTENT_LENGTH=str(len(raw)), CONTENT_TYPE='application/json',
+                   HTTP_X_WC_WEBHOOK_SIGNATURE=signature)
+        app(dict(env, **{'wsgi.input': io.BytesIO(raw)}), lambda status, headers: replies.append(status))
+        self.assertEqual(replies, ['202 Accepted'])
+        inbox.receive_customer.assert_called_once_with(raw, signature, site=SITE, secrets=[SECRET])
+        inbox.receive.assert_not_called()
+
+    def test_customer_worker_does_not_apply_inventory_and_resumes_erp_receipt(self):
+        raw, signature = signed()
+        event = normalize_signal(raw, signature, [SECRET], SITE)
+        claim = {'payload': event, 'erp_receipt': {'status': 'synced'}}
+        inbox = Mock()
+        inbox.claim.return_value = claim
+        request = Mock()
+        self.assertTrue(deliver_customer(inbox, 'https://erp-test2.danks.store', 'test', request, site=SITE))
+        inbox.claim.assert_called_once_with(provider=PROVIDER, site=SITE, lease_seconds=300)
+        request.assert_not_called()
+        inbox.record.assert_called_once_with(claim, 'mp', {'status': 'not_applicable'})
+        inbox.finish.assert_called_once_with(claim)
+
+    def test_order_intake_separates_registered_customer_and_guest(self):
+        order = {'id': 11, 'status': 'pending', 'currency': 'USD', 'total': '10.00',
+                 'date_modified_gmt': '2026-11-15T12:00:00', 'payment_method': 'clover',
+                 'line_items': [{'id': 1, 'product_id': 2, 'sku': 'SYNTHETIC', 'quantity': 1}],
+                 'billing': {'address_1': 'Order snapshot'}}
+        def normalized():
+            raw = json.dumps(order).encode()
+            signature = base64.b64encode(hmac.digest(SECRET.encode(), raw, 'sha256')).decode()
+            return normalize_woo(raw, signature, [SECRET], SITE,
+                {'2': {'sku': 'SYNTHETIC', 'erp_item_code': 'SYNTHETIC', 'ecommerce_id': 3}}, {'clover': 'clover'})
+        order['customer_id'] = 12
+        registered = normalized()
+        self.assertEqual(registered['external_customer_id'], '12')
+        self.assertNotIn('billing', registered)
+        legacy = {key: val for key, val in registered.items() if key != 'external_customer_id'}
+        self.assertTrue(same_receipt(legacy, registered))
+        order['customer_id'] = 0
+        self.assertIsNone(normalized()['external_customer_id'])
+        order['customer_id'] = True
+        with self.assertRaises(ValueError):
+            normalized()
+
+
+@dataclass
+class Link:
+    customer: str = 'ERP-TEST'
+    account_digest: str = ''
+    account_status: str = 'synced'
+
+    def get(self, field):
+        return getattr(self, field, None)
+
+    def set(self, field, value):
+        setattr(self, field, value)
+
+    def save(self):
+        pass
+
+
+class ProfileSync(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        fake = SimpleNamespace(whitelist=lambda **kw: lambda f: f, parse_json=json.loads)
+        with patch.dict(sys.modules, {'frappe': fake}):
+            from rootedops_commerce import customer_sync
+        cls.sync = customer_sync
+
+    def setUp(self):
+        self.base = {'first_name': 'Test', 'last_name': 'Profile', 'email': 'test@example.invalid'}
+        self.new = dict(self.base, first_name='Updated')
+        self.link = Link(account_digest=self.sync.profile_digest(self.base))
+
+    def signal(self, values):
+        return json.dumps(dict(site_key=SITE, id=12, scope='account', digest=self.sync.profile_digest(values)))
+
+    def test_production_pilot_requires_exact_pair_and_reviewed_ids(self):
+        conf = {'enabled': True, 'woo_site': 'shop-test.danks.store',
+                'production_erp_pilot': True, 'woo_customer_ids': [12]}
+        with patch.multiple(self.sync.frappe, create=True,
+                            conf={'commerce_customer_sync': conf},
+                            local=SimpleNamespace(site='erp.danks.store'),
+                            get_roles=lambda: ['Sales Manager']):
+            self.assertIs(self.sync.settings('shop-test.danks.store'), conf)
+            with self.assertRaises(ValueError):
+                self.sync.settings('shop-test2.danks.store')
+            with patch.dict(conf, woo_customer_ids=[]), self.assertRaises(ValueError):
+                self.sync.settings('shop-test.danks.store')
+            with patch.dict(conf, production_erp_pilot=False), self.assertRaises(ValueError):
+                self.sync.settings('shop-test.danks.store')
+
+    def test_production_pilot_only_locks_approved_ids_without_creating_a_link(self):
+        conf = {'production_erp_pilot': True, 'woo_customer_ids': [13]}
+        with (patch.object(self.sync, 'settings', return_value=conf),
+              patch.object(self.sync, 'lock_link', return_value=None) as lock,
+              patch.object(self.sync, 'woo_request') as woo):
+            signal = self.signal(self.new)
+            self.assertEqual(self.sync.consume_signal(signal)['status'],
+                             'ignored_unapproved_customer')
+            lock.assert_not_called()
+            conf['woo_customer_ids'] = [12]
+            self.assertEqual(self.sync.consume_signal(signal)['status'], 'review_link_required')
+            lock.assert_called_once_with(SITE, '12', create=False)
+            woo.assert_not_called()
+
+    def test_woo_edit_applies_once_and_stale_body_does_not_revert(self):
+        with (patch.object(self.sync, 'settings', return_value={}),
+              patch.object(self.sync, 'lock_link', return_value=self.link),
+              patch.object(self.sync, 'woo_request', return_value=self.new),
+              patch.object(self.sync, 'erp_profile', side_effect=[self.base, self.new, self.new]),
+              patch.object(self.sync, 'write_erp') as write):
+            self.assertEqual(self.sync.consume_signal(self.signal(self.new))['status'], 'synced')
+            self.assertEqual(self.sync.consume_signal(self.signal(self.new))['status'], 'synced')
+            self.assertEqual(self.sync.consume_signal(self.signal(self.base))['status'], 'stale')
+            write.assert_called_once_with(self.link, 'account', self.new)
+
+    def test_conflicting_and_replayed_projection(self):
+        self.link.contact = 'CONTACT-TEST'
+        with (patch.object(self.sync, 'settings', return_value={}),
+              patch.object(self.sync, 'lock_link', return_value=self.link),
+              patch.object(self.sync, 'erp_profile', return_value=self.new),
+              patch.object(self.sync, 'matching_contacts', return_value=set()),
+              patch.object(self.sync, 'woo_request', side_effect=[
+                  dict(self.base, first_name='Other'), self.base, self.new]) as woo):
+            self.assertEqual(self.sync.project_profile(SITE, 12, 'account')['status'], 'review_both_changed')
+            self.assertEqual(self.sync.project_profile(SITE, 12, 'account')['status'], 'synced')
+            self.assertEqual(self.sync.project_profile(SITE, 12, 'account')['status'], 'unchanged')
+            self.assertEqual(woo.call_count, 3)
+            self.assertEqual(woo.call_args.args[-1], {
+                'scope': 'account', 'expected_digest': self.sync.profile_digest(self.base),
+                'values': self.new,
+            })
+
+    def test_projection_http_precondition_failure_keeps_baseline(self):
+        self.link.contact = 'CONTACT-TEST'
+        remote = dict(self.base, id=12, role='customer')
+        initial_digest = self.link.account_digest
+        response = io.BytesIO(json.dumps(remote).encode())
+        guarded_route = f'https://{SITE}/wp-json/wc/v3/customers/12/rootedops-projection'
+        conflict = HTTPError(guarded_route, 412, 'Precondition Failed', None, None)
+        with (patch.object(self.sync, 'settings', return_value={'woo_authorization': 'synthetic'}),
+              patch.object(self.sync, 'lock_link', return_value=self.link),
+              patch.object(self.sync, 'erp_profile', return_value=self.new),
+              patch.object(self.sync, 'matching_contacts', return_value=set()),
+              patch.object(self.sync, 'build_opener') as opener):
+            opener.return_value.open.side_effect = [response, conflict]
+            self.assertEqual(self.sync.project_profile(SITE, 12, 'account')['status'],
+                             'review_both_changed')
+            self.assertEqual(self.link.account_digest, initial_digest)
+            calls = opener.return_value.open.call_args_list
+            self.assertEqual(len(calls), 2)
+            guarded_request = calls[-1].args[0]
+            self.assertEqual(guarded_request.full_url, guarded_route)
+            self.assertEqual(guarded_request.get_method(), 'PUT')
+            self.assertEqual(json.loads(guarded_request.data), {
+                'scope': 'account', 'expected_digest': initial_digest, 'values': self.new,
+            })
+
+
+class CustomerReview(unittest.TestCase):
+    def test_history_details_require_explicit_approval_and_never_replay_orders(self):
+        with tempfile.TemporaryDirectory() as temp:
+            customer, orders, reviewed = [Path(temp) / (name + '.csv') for name in ('customer','orders','review')]
+            customer.write_text('email;name;registered;accept marketing\nsample@example.invalid;Sample Person;date;false\n')
+            order_fields = ['order_number', 'email', 'timestamp', 'payment_status_code', 'fulfillment_status_code']
+            order_fields.extend(prefix + field for prefix in ('shipto_person_', 'bill_person_') for field in ADDRESS_FIELDS)
+            row = dict(order_number='100', email='sample@example.invalid', timestamp='Nov 15, 2026 01:00 PM',
+                       payment_status_code='PAID', fulfillment_status_code='DELIVERED',
+                       shipto_person_street_1='1 Sample Street', shipto_person_city='Example',
+                       shipto_person_country_code='US', shipto_person_phone='555-0100')
+            with orders.open('w', newline='') as stream:
+                writer = csv.DictWriter(stream, fieldnames=order_fields, delimiter=';')
+                writer.writeheader()
+                writer.writerow(row)
+                writer.writerow(row)
+                writer.writerow(dict(row, order_number='101', email=''))
+            rows, summary = review(customer, orders, store_id='10',
+                                   source_customers=[dict(id=42, email='sample@example.invalid')])
+            self.assertEqual(summary['orders_without_email'], 1)
+            self.assertEqual(summary['shipping_address_candidates'], 1)
+            self.assertEqual(rows[0]['ecwid_id_candidate'], '42')
+            self.assertEqual(rows[0]['ecwid_customer_id'], '')
+            rows[0].update(decision='create_erp', ecwid_customer_id='42', approved_contact_order='100')
+            write_csv(reviewed, rows)
+            plan = compile_new_customers(reviewed, store_id='10', customer_group='Retail', territory='US')
+            self.assertEqual(plan['orders'], [])
+            self.assertFalse(plan['financial_replay'])
+            self.assertEqual(plan['customers'][0]['addresses'][0]['address_type'], 'Shipping')
+            self.assertEqual(plan['customers'][0]['contact']['phone_nos'][0]['phone'], '555-0100')

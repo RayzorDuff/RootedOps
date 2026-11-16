@@ -27,8 +27,10 @@ services:
       WORDPRESS_DB_NAME: dank_wordpress
       WORDPRESS_DB_USER: dank_wordpress
       WORDPRESS_DB_PASSWORD: ${DANK_WP_DB_PASSWORD:?Set DANK_WP_DB_PASSWORD}
+      DANK_WP_CUSTOMER_WEBHOOK_ENABLED: ${DANK_WP_CUSTOMER_WEBHOOK_ENABLED:-0}
       WORDPRESS_CONFIG_EXTRA: |
         define('DISALLOW_FILE_EDIT', true);
+        define('ROOTEDOPS_CUSTOMER_WEBHOOK_ENABLED', getenv('DANK_WP_CUSTOMER_WEBHOOK_ENABLED') === '1');
         if (isset($$_SERVER['HTTP_X_FORWARDED_PROTO']) && $$_SERVER['HTTP_X_FORWARDED_PROTO'] === 'https') {
           $$_SERVER['HTTPS'] = 'on';
         }
@@ -36,6 +38,7 @@ services:
       - '127.0.0.1:${DANK_WP_TEST_PORT:-8097}:80'
     volumes:
       - dank_wordpress_html:/var/www/html
+      - ../wordpress/dank-mu-plugins/rootedops-customer-webhook.php:/var/www/html/wp-content/mu-plugins/rootedops-customer-webhook.php:ro
   dank-wordpress-cli:
     image: wordpress:cli-php8.3
     profiles: [tools]

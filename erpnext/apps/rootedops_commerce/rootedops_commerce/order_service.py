@@ -83,6 +83,18 @@ def validate_draft(values,event):
 @frappe.whitelist(methods=['POST'])
 def stage_order(payload):
     _authorized();data=frappe.parse_json(payload);event=data['event'];values=deepcopy(data['reviewed_draft'])
+    customer_sync = frappe.conf.get('commerce_customer_sync') or {}
+    if (customer_sync.get('enabled') and customer_sync.get('production_erp_pilot') is not True
+            and event['provider'] == 'woocommerce'
+            and event['site_key'] == customer_sync.get('woo_site')):
+        if 'external_customer_id' not in event:
+            raise ValueError('Woo order must declare registered or guest checkout')
+        if event['external_customer_id'] is not None:
+            from rootedops_commerce.customer_sync import registered_customer
+            customer = registered_customer(event['site_key'], event['external_customer_id'])
+            if values.get('customer') and values['customer'] != customer:
+                raise ValueError('Reviewed order customer differs from registered Woo link')
+            values['customer'] = customer
     validate_draft(values,event)
     key=mapping_key(event['provider'],event['site_key'],event['external_order_id'])
     # Preserve pre-existing order fingerprints when no tax quote was supplied.

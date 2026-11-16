@@ -15,3 +15,5 @@ doc_events = {
 # Extend ERPNext's standard Item form without replacing its native controller.
 doctype_js = {"Item": "public/js/item_commerce.js"}
 after_migrate = ["rootedops_commerce.setup.ensure_item_commerce_section"]
+
+scheduler_events = {'cron': {'*/5 * * * *': ['rootedops_commerce.customer_sync.queue_projections']}}

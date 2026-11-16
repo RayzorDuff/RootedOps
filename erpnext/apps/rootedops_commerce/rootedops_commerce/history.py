@@ -41,6 +41,11 @@ def import_history(payload):
         allowed = {'customer_name', 'customer_type', 'customer_group', 'territory'}
         if set(row['customer']) - allowed:
             raise ValueError('Unsupported Customer fields')
+        if plan.get('reject_existing_email') and not frappe.db.exists('Commerce Migration Identity', row['source_key']):
+            emails = [e.get('email_id') for e in (row.get('contact') or {}).get('email_ids', [])]
+            if not emails or any(not e or frappe.db.exists('Contact Email', {'email_id': e})
+                                 or frappe.db.exists('Customer', {'email_id': e}) for e in emails):
+                raise ValueError('Existing ERP customer email or missing email requires review')
         customer=_ensure(row['source_key'],row,'Customer',row['customer'])
         customers[row['source_key']]=customer.name
         links=[{'link_doctype':'Customer','link_name':customer.name}]
