@@ -219,6 +219,11 @@ class TestCatalog(IntegrationTestCase):
         from rootedops_commerce.external_receipt import canonical
         from rootedops_commerce.order_service import stage_order
 
+        year = draft['transaction_date'][:4]
+        if not frappe.db.exists('Fiscal Year', {'year_start_date': year + '-01-01',
+                                               'year_end_date': year + '-12-31'}):
+            frappe.get_doc(dict(doctype='Fiscal Year', year='Commerce ' + year,
+                                year_start_date=year + '-01-01', year_end_date=year + '-12-31')).insert()
         parent = frappe.db.get_value('Account', {'company': company, 'root_type': 'Asset', 'is_group': 1})
         account_name = 'Fixture Clover Clearing'
         clearing = frappe.get_doc(dict(doctype='Account', account_name=account_name, parent_account=parent,
