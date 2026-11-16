@@ -227,6 +227,21 @@ conditional write as a manual push. If both profiles diverged, the Commerce
 Customer Link reports `review_both_changed`. The Customer display name is
 not one of the synced fields. Edit the linked Contact for name changes.
 
+If the scheduler or a worker reports `No module named 'rootedops_commerce'`,
+verify and repair the running ERPNext Python environments:
+
+```bash
+bash scripts/erpnext-repair-commerce-imports.sh
+```
+
+Each Python container has its own virtual environment. The helper registers
+the source already present on the shared apps volume when its import is
+missing and restarts only repaired containers. It does not recreate a
+container or replace the ERP image. A container recreated from an older
+image can lose this registration. Verify a current image candidate with
+`bash scripts/erpnext_image_candidate.sh --build` before planned image rollout
+or disaster recovery. The deploy script checks imports on all Python services.
+
 Check that the site's Frappe scheduler and queue workers are active if an edit
 does not arrive in Woo after one interval. Use the same script with
 `--disable-projection` to stop automatic pushes. The job checks the flag again
