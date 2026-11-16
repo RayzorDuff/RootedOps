@@ -126,6 +126,16 @@ sudo docker inspect "$BACKEND" --format '{{if .State.Running}}running{{else}}not
   grep -qx running ||
   die "$BACKEND is not running."
 
+commerce_selected=false
+for app in "${APPS[@]}"; do
+  if [[ "$app" == rootedops_commerce ]]; then
+    commerce_selected=true
+    log "Verify commerce imports across ERPNext processes"
+    bash scripts/erpnext-repair-commerce-imports.sh --no-restart
+    break
+  fi
+done
+
 log "Check selected installed apps and package availability"
 for APP_NAME in "${APPS[@]}"; do
   APP_SOURCE="$REPO_ROOT/erpnext/apps/$APP_NAME"
@@ -218,6 +228,11 @@ for APP_NAME in "${APPS[@]}"; do
   done < <(git ls-files -z "erpnext/apps/$APP_NAME")
   echo "Runtime $APP_NAME source matches committed files."
 done
+
+if "$commerce_selected"; then
+  log "Verify commerce imports after restart"
+  bash scripts/erpnext-repair-commerce-imports.sh --verify-only
+fi
 
 log "Deployment complete"
 echo "Commit: $LOCAL_HEAD"
