@@ -19,8 +19,14 @@ def setup():
                         currency='USD', selling=1, enabled=1)).insert()
     frappe.get_doc(dict(doctype='Customer', customer_name='Native Woo Guest',
                         customer_type='Individual')).insert()
+    if not frappe.db.exists('Item Group', 'All Item Groups'):
+        frappe.get_doc(dict(doctype='Item Group', item_group_name='All Item Groups', is_group=1)).insert()
+    frappe.get_doc(dict(doctype='Item Group', item_group_name='Native Fixture Items',
+                        parent_item_group='All Item Groups')).insert()
+    if not frappe.db.exists('UOM', 'Nos'):
+        frappe.get_doc(dict(doctype='UOM', uom_name='Nos', must_be_whole_number=1)).insert()
     frappe.get_doc(dict(doctype='Item', item_code='ERP-SYN-1', item_name='Native Woo Item',
-                        item_group='All Item Groups', stock_uom='Nos', is_stock_item=0)).insert()
+                        item_group='Native Fixture Items', stock_uom='Nos', is_stock_item=0)).insert()
     user = frappe.get_doc('User', 'Administrator')
     user.api_key = 'synthetic-native-woo-key'
     user.api_secret = 'synthetic-native-woo-secret'
