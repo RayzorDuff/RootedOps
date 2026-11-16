@@ -79,3 +79,35 @@ class TestCustomerSync(IntegrationTestCase):
                              'Second ERP edit')
             link.reload()
             self.assertEqual(link.account_digest, baseline)
+
+    def test_production_signup_rejects_duplicate_erp_email_and_provisions_new_email(self):
+        site = 'shop-test.danks.store'
+        config = {
+            'production_erp_pilot': True,
+            'provision_new_woo_customers': True,
+            'customer_group': frappe.db.get_value('Customer Group', {'is_group': 0}),
+            'territory': frappe.db.get_value('Territory', {'is_group': 0}),
+        }
+        duplicate = 'existing-signup-contact@example.invalid'
+        email = 'new-production-signup@example.invalid'
+        frappe.get_doc(dict(doctype='Contact', first_name='Existing',
+                            email_ids=[dict(email_id=duplicate, is_primary=1)])).insert()
+
+        def register(customer_id, address):
+            profile = dict(email=address, first_name='Signup', last_name='Example')
+            signal = dict(site_key=site, id=customer_id, scope='registered',
+                          digest=sync.profile_digest(profile))
+            with patch.object(sync, 'woo_request', return_value=profile):
+                return sync.consume_signal(json.dumps(signal))['status']
+
+        with patch.object(sync, 'settings', return_value=config):
+            self.assertEqual(register(912346, duplicate), 'review_erp_email_match')
+            review = frappe.get_doc(sync.LINK, sync.link_key(site, 912346))
+            self.assertFalse(review.customer)
+            self.assertFalse(review.woo_signup_provisioned)
+            self.assertEqual(register(912347, email), 'synced')
+            self.assertEqual(register(912347, email), 'already_linked')
+            link = frappe.get_doc(sync.LINK, sync.link_key(site, 912347))
+            self.assertTrue(link.woo_signup_provisioned)
+            self.assertEqual(frappe.get_doc('Contact', link.contact).email_id, email)
+            self.assertEqual(frappe.db.count('Contact Email', {'email_id': email}), 1)

@@ -35,8 +35,8 @@ def settings(site):
     pilot = conf.get('production_erp_pilot') is True
     if pilot:
         paired = frappe.local.site == 'erp.danks.store' and site == 'shop-test.danks.store'
-        ids = conf.get('woo_customer_ids')
-        if (not isinstance(ids, list) or not ids
+        ids = conf.get('woo_customer_ids', [])
+        if (not isinstance(ids, list) or (not ids and not signup_provisioning(conf))
                 or any(not re.fullmatch(r'[1-9][0-9]{0,18}', str(value)) for value in ids)):
             raise ValueError('Configure reviewed Woo customer IDs for the production ERP pilot')
     else:
@@ -45,12 +45,22 @@ def settings(site):
         raise ValueError('Customer synchronization is disabled for this site pair')
     if not {'System Manager', 'Sales Manager'} & set(frappe.get_roles()):
         frappe.throw('Commerce role required', frappe.PermissionError)
+    if signup_provisioning(conf):
+        for key, doctype in (('customer_group', 'Customer Group'), ('territory', 'Territory')):
+            name = conf.get(key)
+            if not name or frappe.db.get_value(doctype, name, 'is_group') != 0:
+                raise ValueError(f'Select an existing leaf {doctype} for Woo signups')
     return conf
+
+
+def signup_provisioning(conf):
+    return (conf.get('production_erp_pilot') is True
+            and conf.get('provision_new_woo_customers') is True)
 
 
 def pilot_customer_allowed(conf, customer_id):
     return (conf.get('production_erp_pilot') is not True
-            or str(customer_id) in {str(value) for value in conf['woo_customer_ids']})
+            or str(customer_id) in {str(value) for value in conf.get('woo_customer_ids', [])})
 
 
 def profile_digest(profile):
@@ -235,26 +245,38 @@ def consume_signal(payload):
     signal = frappe.parse_json(payload)
     site, customer_id = signal['site_key'], str(signal['id'])
     conf = settings(site)
-    scope = 'account' if signal['scope'] == 'registered' else signal['scope']
+    registered = signal['scope'] == 'registered'
+    scope = 'account' if registered else signal['scope']
     if scope not in SCOPES:
         raise ValueError('Unknown profile scope')
-    if not pilot_customer_allowed(conf, customer_id):
+    approved = pilot_customer_allowed(conf, customer_id)
+    provision = signup_provisioning(conf)
+    if not approved and not provision:
         return {'status': 'ignored_unapproved_customer'}
     pilot = conf.get('production_erp_pilot') is True
-    link = lock_link(site, customer_id, create=not pilot and scope == 'account')
-    if pilot and (not link or not link.customer):
+    signup = provision and registered
+    link = lock_link(site, customer_id, create=signup or (not pilot and scope == 'account'))
+    new_signup = signup and not link.customer
+    managed = provision and link and link.woo_signup_provisioned
+    if pilot and not new_signup and (not (approved or managed) or not link or not link.customer):
         return {'status': 'review_link_required'}
+    if signup and link.customer:
+        return {'status': 'already_linked'}
     if not link or (not link.customer and scope != 'account'):
         return {'status': 'awaiting_registration'}
     try:
         values = woo_profile(woo_request(site, customer_id, conf), scope)
         digest = profile_digest(values)
-        if digest != signal['digest']:
+        # A signup authorizes provisioning this Woo ID. Use its verified current
+        # profile if the account was edited before the worker received the signup.
+        if not new_signup and digest != signal['digest']:
             # The saved fields have changed since the signed account action.
             # Preserve the last actionable status on the crosswalk.
             return {'status': 'stale'}
         if not link.customer:
             create_customer(link, values, conf)
+            if new_signup:
+                link.woo_signup_provisioned = 1
             blank = {key: '' for key in SCOPES['shipping']}
             link.shipping_digest = profile_digest(blank)
             link.billing_digest = profile_digest(dict(blank, phone=''))
@@ -324,9 +346,13 @@ def project_profile(site, customer_id, scope):
     conf = settings(site)
     if scope not in SCOPES:
         raise ValueError('Unknown profile scope')
-    if not pilot_customer_allowed(conf, customer_id):
+    approved = pilot_customer_allowed(conf, customer_id)
+    provision = signup_provisioning(conf)
+    if not approved and not provision:
         return {'status': 'ignored_unapproved_customer'}
     link = lock_link(site, customer_id)
+    if not approved and not (link and link.woo_signup_provisioned):
+        return {'status': 'ignored_unapproved_customer'}
     if not link or not link.customer:
         return {'status': 'unlinked'}
     try:

@@ -19,7 +19,7 @@ A last-synchronized hash per profile section detects conflicting changes. If ERP
 
 ## Shared-Linode customer pilot with production ERP
 
-Use this path when `shop-test.danks.store` and `erp.danks.store` are the available services. Begin with one Woo account you control and its existing ERP Customer and Contact. Review them together before enabling delivery. The pilot requires an allowlist and an explicit link for each account. It does not create Customers on registration or queue scheduled ERP-to-Woo projection. It runs only the customer worker.
+Use this path when `shop-test.danks.store` and `erp.danks.store` are the available services. Begin with one Woo account you control and its existing ERP Customer and Contact. Review them together before enabling delivery. The pilot requires an allowlist and an explicit link for each account. It runs only the customer worker. The default configuration requires a reviewed link. You can opt into automatic provisioning for new signups below. Scheduled ERP-to-Woo projection remains disabled for this pairing.
 
 ### Deploy with delivery disabled
 
@@ -139,6 +139,26 @@ set +a
 ```
 
 Expect `{"worked": true}` and verify the linked ERP Contact has the new name. Use the projection function under Batch 3 with `https://erp.danks.store` and the approved Woo ID. Restore the original name on the ERP Contact, run the projection once, and confirm My Account shows the original name again. Leave scheduled projection off. Run the inbox and worker under a service manager if continuing past the pilot. To pause, disable the Woo webhook and set `commerce_customer_sync.enabled` to `false` in ERP. Clear cache and stop the pilot processes.
+
+### Automatically provision new Woo signups
+
+Deploy the commerce app and run its schema migration on `erp.danks.store` before enabling this option. Confirm the RootedOps must-use plugin is enabled on `shop-test.danks.store`, the Woo Action webhook is active, and the customer inbox and worker are running. The worker's ERP API user needs Customer, Contact, and Commerce Customer Link create and write access.
+
+In the production site's private `site_config.json`, add these three keys to the existing `commerce_customer_sync` object:
+
+```json
+"provision_new_woo_customers": true,
+"customer_group": "Individual",
+"territory": "United States"
+```
+
+Use existing leaf records for the group and territory. Keep `enabled` and `production_erp_pilot` set to `true`, `woo_site` set to `shop-test.danks.store`, and `woo_authorization` set to the shop's private Woo REST credential. `woo_customer_ids` may be empty when no accounts are manually linked. Clear the site cache after saving.
+
+Register once from Woo My Account using an address you control that is new to both systems. Process the signed webhook with the customer worker and verify one ERP Customer and Contact and one Commerce Customer Link with **Provisioned from Woo Signup** checked. The initial sync uses the current Woo account profile. Replayed registrations reuse the same link, and subsequent My Account edits can sync through it. Verify this with one name edit.
+
+If either an ERP Contact email (including a secondary address) or Customer email matches the signup, the link reports `review_erp_email_match`. Review it before approving a manual link. Signup processing creates ERP records only. It does not provision Woo accounts for the imported Ecwid contacts or send them invitations. Woo's own signup email follows the shop's existing settings.
+
+Set `provision_new_woo_customers` to `false` to return to reviewed links only. To continue syncing an already provisioned account in that mode, add its Woo ID to the manual allowlist. The link and ERP records are preserved.
 
 ## Isolated activation
 
