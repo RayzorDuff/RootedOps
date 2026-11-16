@@ -13,6 +13,7 @@
     "billing_address",
     "shipping_address",
     "ecwid_identity",
+    "woo_signup_provisioned",
     "account_digest",
     "account_status",
     "billing_digest",
@@ -77,6 +78,13 @@
       "label": "Ecwid Identity",
       "fieldtype": "Link",
       "options": "Commerce Migration Identity",
+      "read_only": 1
+    },
+    {
+      "fieldname": "woo_signup_provisioned",
+      "label": "Provisioned from Woo Signup",
+      "fieldtype": "Check",
+      "default": "0",
       "read_only": 1
     },
     {

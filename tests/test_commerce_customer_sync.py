@@ -149,6 +149,55 @@ class ProfileSync(unittest.TestCase):
             lock.assert_called_once_with(SITE, '12', create=False)
             woo.assert_not_called()
 
+    def test_production_signup_defaults_are_required_without_an_allowlist(self):
+        conf = {'enabled': True, 'woo_site': 'shop-test.danks.store', 'production_erp_pilot': True,
+                'provision_new_woo_customers': True, 'customer_group': 'Individual',
+                'territory': 'United States'}
+        db = SimpleNamespace(get_value=lambda doctype, name, field: 0 if name else None)
+        with patch.multiple(self.sync.frappe, create=True, db=db,
+                            conf={'commerce_customer_sync': conf},
+                            local=SimpleNamespace(site='erp.danks.store'),
+                            get_roles=lambda: ['Sales Manager']):
+            self.assertIs(self.sync.settings('shop-test.danks.store'), conf)
+            with patch.dict(conf, territory=''), self.assertRaisesRegex(ValueError, 'Territory'):
+                self.sync.settings('shop-test.danks.store')
+            with patch.dict(conf, provision_new_woo_customers=False), self.assertRaises(ValueError):
+                self.sync.settings('shop-test.danks.store')
+
+    def test_production_signup_creates_once_and_existing_email_goes_to_review(self):
+        conf = {'production_erp_pilot': True, 'provision_new_woo_customers': True}
+        self.link.customer = None
+        self.link.woo_signup_provisioned = 0
+        signup = json.loads(self.signal(self.base))
+        signup['scope'] = 'registered'
+
+        def create(link, profile, config):
+            link.customer = 'CUSTOMER-TEST'
+
+        with (patch.object(self.sync, 'settings', return_value=conf),
+              patch.object(self.sync, 'lock_link', return_value=self.link) as lock,
+              patch.object(self.sync, 'woo_request', return_value=self.new) as woo,
+              patch.object(self.sync, 'create_customer', side_effect=create) as provision,
+              patch.object(self.sync, 'erp_profile', return_value=self.new)):
+            self.assertEqual(self.sync.consume_signal(self.signal(self.new))['status'],
+                             'review_link_required')
+            lock.assert_called_once_with(SITE, '12', create=False)
+            woo.assert_not_called()
+            self.assertEqual(self.sync.consume_signal(json.dumps(signup))['status'], 'synced')
+            self.assertEqual(self.link.woo_signup_provisioned, 1)
+            provision.assert_called_once_with(self.link, self.new, conf)
+            self.assertEqual(self.sync.consume_signal(json.dumps(signup))['status'], 'already_linked')
+            self.assertEqual(self.sync.consume_signal(self.signal(self.new))['status'], 'synced')
+            self.assertEqual(provision.call_count, 1)
+
+            self.link.customer = None
+            self.link.woo_signup_provisioned = 0
+            provision.side_effect = self.sync.Review('erp_email_match')
+            self.assertEqual(self.sync.consume_signal(json.dumps(signup))['status'],
+                             'review_erp_email_match')
+            self.assertIsNone(self.link.customer)
+            self.assertEqual(self.link.woo_signup_provisioned, 0)
+
     def test_woo_edit_applies_once_and_stale_body_does_not_revert(self):
         with (patch.object(self.sync, 'settings', return_value={}),
               patch.object(self.sync, 'lock_link', return_value=self.link),
