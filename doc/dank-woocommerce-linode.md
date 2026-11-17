@@ -2,7 +2,7 @@
 
 Use this sequence with the [private setting and routing reference](https://github.com/RayzorDuff/RootedOps/blob/feature/dank-storefront-cutover-runbook/doc/dank-woocommerce-cutover.md). Run one block, check its result, then continue. Keep the same shell where a block defines variables. Store live keys, private JSON, DSNs and backups on the Linode under restricted permissions. Share only the results explicitly described below.
 
-The production runner starts in **pilot** mode. After the owner purchase works, switch to **review** mode. In review mode the signed receiver saves new Woo orders for inspection. Each write still requires choosing an exact Woo ID and approving that order in ERP. Financial posting also requires the exact verified Clover charge. The inbox is durable. The owner works the queue. Woo owns the published counter during sales, while MushroomProcess (MP) owns physical stock and reservations.
+The production runner starts in **pilot** mode. After the owner purchase works, switch to **review** mode. In review mode the signed receiver saves new Woo orders for inspection. Each write still requires choosing an exact Woo ID and approving that order in ERP. Financial posting also requires the exact verified Clover charge. The inbox is durable. The owner works the queue. MushroomProcess (MP) owns physical stock, reservations and fulfillment. Public checkout also requires the MP fulfillment action to update the linked Woo order and MP availability to reach the published Woo listings safely.
 
 ## A. Confirm and prepare the host
 
@@ -49,7 +49,32 @@ SQL
 )
 ```
 
-**Pass.** ERP lists `rootedops_commerce`. MP shows the expected database and nonblank intake, availability and confirmation signatures. A blank shipment signature is expected before migration 055. **Stop** here and share these results. A missing prerequisite needs migration history review before any deployment.
+**Pass.** ERP lists `rootedops_commerce`, and MP shows the expected database. The initial Linode check returned `mushroomprocess_bridge` with intake and availability installed. Blank confirmation and shipment signatures mean the bridge is missing required functions. **Stop** before deploying. Use A2a to distinguish absent functions from a partial migration.
+
+### A2a. Inspect the installed commerce bridge and movement prerequisites
+
+Run on the Linode. This is read-only and uses the same database connection as A2.
+
+```bash
+(
+  set -eu
+  sudo docker exec -i mushroomprocess-bridge-postgres sh -ec \
+    'exec psql -X -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d "$POSTGRES_DB"' <<'SQL'
+SELECT current_database() AS database,
+       to_regclass('public.mp_commerce_payment_matches') AS payment_matches,
+       to_regclass('public.mp_commerce_erp_links') AS erp_links,
+       to_regclass('public.mp_commerce_shipments') AS shipments,
+       to_regprocedure('public.mp_commerce_match_payment(jsonb)') AS match_payment,
+       to_regprocedure('public.mp_commerce_acknowledge_products(text,text,text,text,jsonb)') AS acknowledge,
+       to_regprocedure('public.mp_product_set_storage_location(bigint,bigint)') AS move_product,
+       (SELECT count(*) FROM public.locations
+         WHERE active AND regexp_replace(lower(name),'[^a-z0-9]','','g')='shipped')
+         AS active_shipped_locations;
+SQL
+)
+```
+
+**Pass.** The database matches A2, payment matching and the product movement helper are present, and there is one active Shipped location. Missing ERP links, shipments and acknowledgment together are consistent with 054 still pending. **Stop** here and share the single row. Investigate any partial 054 footprint or absent prerequisite before applying either migration.
 
 ### A3. Merge and prepare the checkout
 
@@ -105,9 +130,9 @@ sha256sum "$BACKUP_DIR/"{woo.sql,woo-files.tar.gz,mp.dump} > "$BACKUP_DIR/SHA256
 
 **Pass.** Bench reports backup files and the MP dump passes the archive check. **Stop** if a command fails or backups cannot be recovered. Keep ERP backups with the site's recovery copy.
 
-### A6. Add the order code and shipment migration
+### A6. Add the order code and MushroomProcess bridge
 
-Run on the Linode in the deployment window. `MP_REPO` is the verified checkout with merged MushroomProcess #115.
+Run on the Linode in the deployment window, after A2a confirms the older bridge prerequisites, A5 backups are verified, and the code has merged. `MP_REPO` is the verified checkout with merged MushroomProcess #115.
 
 ```bash
 ./erpnext/deploy.sh erp.danks.store commerce &&
@@ -116,15 +141,22 @@ curl -fsS --max-time 10 https://erp.danks.store/api/method/ping
 
 **Pass.** Commerce deploy and migration succeed and the ping returns pong. **Stop** on failure before changing any Woo routing.
 
+Apply 054 when A2a and migration history show it is pending. If it is already installed, skip the 054 `psql -f` line after checking its full footprint.
+
 ```bash
+test "$(psql "$MP_ADMIN_DSN" -X -v ON_ERROR_STOP=1 -Atc 'SELECT current_database()')" = mushroomprocess_bridge &&
+test -r "$MP_REPO/schema/pgsql/054_commerce_operational_bridge.sql" &&
 test -r "$MP_REPO/schema/pgsql/055_commerce_atomic_shipment.sql" &&
 psql "$MP_ADMIN_DSN" -X -v ON_ERROR_STOP=1 \
+  -f "$MP_REPO/schema/pgsql/054_commerce_operational_bridge.sql" &&
+psql "$MP_ADMIN_DSN" -X -v ON_ERROR_STOP=1 \
   -f "$MP_REPO/schema/pgsql/055_commerce_atomic_shipment.sql" &&
-psql "$MP_ADMIN_DSN" -X -Atc \
-  "SELECT to_regprocedure('public.mp_commerce_ship_products(text,text,text,text,jsonb)')"
+psql "$MP_ADMIN_DSN" -X -v ON_ERROR_STOP=1 -c "
+  SELECT to_regprocedure('public.mp_commerce_confirm_reservation(text,text,text)') AS confirmation,
+         to_regprocedure('public.mp_commerce_ship_products(text,text,text,text,jsonb)') AS shipment"
 ```
 
-**Pass.** The final line prints the shipment function. **Stop** on a database or grant mismatch. Keep Ecwid accepting sales until the cutover window.
+**Pass.** Both signatures are present. Verify execution grants for the configured worker and fulfillment roles using the same role connections. **Stop** on a database, migration or grant mismatch. Keep Ecwid accepting sales until the cutover window.
 
 ## B. Switch with checkout restricted and complete the pilot
 
@@ -246,7 +278,7 @@ order capture --posting-date "$REVIEWED_POSTING_DATE"
 order ledger
 ```
 
-**Pass.** The one verified charge produces one ERP invoice/receipt pair and a confirmed MP reservation. Repeat the same verified command to confirm replay behavior. **Stop** for a failed capture, incorrect financial references, or an unreviewed refund. For the MP shipment and ERP acknowledgment use the explicit movement block in the routing reference. Confirm ERP receipt replay preserves one document.
+**Pass.** The one verified charge produces one ERP invoice/receipt pair and a confirmed MP reservation. Repeat the same verified command to confirm replay behavior. **Stop** for a failed capture, incorrect financial references, or an unreviewed refund. For an engineering-only smoke test, use the explicit MP movement and ERP acknowledgment block in the routing reference. Confirm ERP receipt replay preserves one document. Public checkout also requires the actual MushroomProcess fulfillment action and Woo projections in D.
 
 ## C. Accept public orders with a durable review queue
 
@@ -268,7 +300,7 @@ order queue
 order ledger --order-id "$PILOT_WOO_ORDER_ID"
 ```
 
-**Pass.** Queue displays order IDs/counts and the pilot's ledger keeps its original references. **Stop** if signed intake is unhealthy or you cannot staff the queue during the sales window. Keep checkout restricted until known checkout paths, mappings, stock, and the entire owner pilot are accepted. Open only the Woo sales window. Keep Ecwid in maintenance. Run the next block on the Linode only after those checks pass.
+**Pass.** Queue displays order IDs/counts and the pilot's ledger keeps its original references. **Stop** if signed intake is unhealthy or you cannot staff the queue during the sales window. Keep checkout restricted until known checkout paths, mappings, stock, and the entire owner pilot are accepted, and the MP-to-Woo checks in D pass. Open only the Woo sales window. Keep Ecwid in maintenance. Run the next block on the Linode only after those checks pass.
 
 ```bash
 sudo ln -sfn /etc/nginx/dank-woo/checkout-open.conf \
@@ -330,7 +362,7 @@ order capture --order-id "$WOO_ORDER_ID" --charge-id "$CLOVER_CHARGE_ID" \
 order ledger --order-id "$WOO_ORDER_ID"
 ```
 
-**Pass.** The invoice/receipt are linked and MP confirms the hold for the order. Check the amount and reference once. **Stop** on a capture that is unverified, refunded, mismatched or missing. Follow the refund/rollback reference as needed. Ship only against the confirmed MP reservation. Record the physical movement in MP and project that same movement to ERP:
+**Pass.** The invoice/receipt are linked and MP confirms the hold for the order. Check the amount and reference once. **Stop** on a capture that is unverified, refunded, mismatched or missing. Follow the refund/rollback reference as needed. Ship only against the confirmed MP reservation. The following command exercises the existing ERP projection for a movement already committed by MP:
 
 ```bash
 order shipment --order-id "$WOO_ORDER_ID" --movement-reference "$MOVEMENT_REFERENCE"
@@ -339,12 +371,16 @@ order ledger --order-id "$WOO_ORDER_ID"
 
 **Pass.** The committed movement has an ERP acknowledgment and the shipped quantity matches. **Stop** on a missing movement, quantity mismatch, or unconfirmed capture. Retry an ERP timeout using the same reference.
 
-## D. Keep stock safe during public sales
+## D. Verify MushroomProcess fulfillment and Woo stock before public checkout
 
-1. **At opening.** Set Woo stock to only the MP units allocated to Woo. Close Ecwid checkout and fence those units from POS/other sales. Use a short SKU/pool sheet with starting units, accepted orders, held/shipped units, corrections and closing count. Any pool that cannot be isolated stays unavailable. Keep managed stock enabled and backorders disabled.
-2. **During sales.** Let Woo apply its own checkout reservations/decrements. Never replenish from a raw MP snapshot while receipts are pending or Woo has unresolved unpaid orders. Reconcile cancellations in Woo and MP before adjusting counts. Woo's configured hold setting affects eligible unpaid checkout orders, so confirm actual Woo stock/reservation state rather than inferring release from the label alone. [Woo order status and held stock](https://woocommerce.com/document/managing-orders/order-statuses/)
-3. **To replenish or correct.** Restrict checkout, compare Woo orders including pending and failed payments with the durable queue, and finish or explicitly hold unresolved orders. Export fresh MP availability. For each reviewed SKU, count only free units allocated to Woo and account for commitments outside MP. Set only that quantity in Woo admin. Read back the published quantity with the opening-stock check, then reopen. No scheduled published-stock writer is assumed.
-4. **Stop selling when you cannot reconcile.** Shut checkout before investigating an unexpected count, unprocessed backlog, broken listener, oversold order, unsigned or missing webhook, or payment discrepancy. Keep the signed inbox available for orders already accepted. Keep Ecwid closed until a deliberate routing rollback reconciles Woo charges and stock.
+MushroomProcess is where you assign the physical products and mark them Shipped. The PostgreSQL fulfillment workflow used by the legacy screen writes the product location and association. Ecwid quantity publication runs separately in the scheduled Commercial Inventory Sync. The existing Woo ledger shipment operation (055) moves products and records the acknowledgment together. It still needs to be wired into the MushroomProcess fulfillment screen for Woo orders. The current RootedOps shipment command sends that committed movement to ERP. Woo order status and ongoing published quantities still need their own projections. The existing Woo inventory writer in Commercial Inventory Sync is limited to draft products.
+
+Use these acceptance checks with disposable Woo and the actual MushroomProcess fulfillment screen before public opening:
+
+1. **Pick and ship in MushroomProcess.** A verified paid Woo order appears in the fulfillment screen. Assign a physical product to the correct Woo line. Confirm the product moved to Shipped in the same transaction as the stable movement record and that the reserved quantity decreased once. Repeat the action and verify the original movement is reused.
+2. **Project fulfillment to Woo and ERP.** Keep a partially shipped order open in Woo. Complete the Woo order when every line is fulfilled. Retry the same movement after either destination times out and confirm there is one ERP acknowledgment and one Woo completion. Reject automatic completion after a cancellation or refund that needs review. Verify the resulting Woo webhook does not trigger another movement or accounting entry.
+3. **Publish MushroomProcess availability.** Use one reviewed mapping per physical pool, including exact Woo parent and variation IDs where applicable. Verify published quantities after replenishment and an inventory correction. In a concurrent checkout test, verify a Woo commitment that has not reached MP cannot be added back by an availability refresh. When MP ships an already reserved unit, verify Woo sellable stock does not fall a second time. After partial shipment and cancellation, release only the unshipped holds and reconcile both systems.
+4. **Keep the owner pilot restricted until these checks pass.** The existing stock readback in B2 is for opening and exception checks. Routine packing and replenishment should run from MP. Keep Ecwid checkout closed during Woo sales and prevent POS from selling units allocated to Woo.
 
 To close Woo checkout for a stock count or an incident, run on the Linode:
 
