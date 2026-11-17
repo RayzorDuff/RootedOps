@@ -22,7 +22,7 @@ def get_charge(charge_id, private_key, *, production=False):
     class NoRedirect(HTTPRedirectHandler):
         def redirect_request(self,*args,**kwargs):raise ValueError('Clover redirect refused')
     request=Request((PRODUCTION_BASE if production else BASE)+charge_id,headers={'Authorization':'Bearer '+private_key,
-        'Accept':'application/json','User-Agent':'RootedOps-Commerce/0.3 sandbox-reconciliation'},method='GET')
+        'Accept':'application/json','User-Agent':'RootedOps-Commerce/0.3 charge-reconciliation'},method='GET')
     try:
         with build_opener(NoRedirect).open(request,timeout=30) as response:
             body=response.read(1024*1024+1)

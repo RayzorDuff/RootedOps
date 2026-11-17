@@ -44,10 +44,11 @@ def connector(dsn, expected_name):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('command', choices=('init', 'serve', 'status', 'work-once', 'capture', 'shipment'))
+    parser.add_argument('command', choices=('init', 'serve', 'status', 'work-once', 'capture', 'shipment', 'replay'))
     parser.add_argument('--config', required=True, type=Path)
     parser.add_argument('--port', type=int, default=8102)
     parser.add_argument('--posting-date')
+    parser.add_argument('--event-id')
     parser.add_argument('--movement-reference')
     args = parser.parse_args()
     if os.environ.get('COMMERCE_PRODUCTION_ORDER_PILOT') != '1' or args.config.stat().st_mode & 0o077:
@@ -66,6 +67,12 @@ def main():
         return
     if command == 'status':
         print(json.dumps(inbox.order_status(key), default=str))
+        return
+    if command == 'replay':
+        if not args.event_id or not any(row['event_id'] == args.event_id
+                                       for row in inbox.order_status(key)):
+            parser.error('Receipt is outside the approved production order')
+        inbox.replay((key[0], key[1], args.event_id))
         return
     if command == 'serve':
         secret = os.environ['COMMERCE_LIVE_WEBHOOK_SECRET']
