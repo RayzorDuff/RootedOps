@@ -155,6 +155,30 @@ class Inbox:
         fields = ('event_id', 'revision', 'state', 'last_error', 'mushroomprocess', 'erp')
         return [dict(zip(fields, row)) for row in rows]
 
+    def order_queue(self, provider, site):
+        """Report delivery receipts, including orders awaiting finance after intake."""
+        with self.connect() as db:
+            rows = db.execute("""SELECT i.external_order_id, max(i.received_at),
+                       count(*) FILTER (WHERE d.state='pending'),
+                       count(*) FILTER (WHERE d.state='leased'),
+                       count(*) FILTER (WHERE d.state='dead'),
+                       count(*) FILTER (WHERE d.state='done')
+                FROM commerce_inbox i JOIN commerce_delivery d USING(provider,site_key,event_id)
+                WHERE i.provider=%s AND i.site_key=%s
+                GROUP BY i.external_order_id ORDER BY max(i.received_at) DESC, i.external_order_id
+                """, (provider, site)).fetchall()
+        fields = ('order_id', 'latest_receipt', 'pending', 'leased', 'review', 'done')
+        return [dict(zip(fields, row)) for row in rows]
+
+    def latest_order_source(self, key):
+        with self.connect() as db:
+            row = db.execute("""SELECT event_id,raw_body FROM commerce_inbox
+                WHERE provider=%s AND site_key=%s AND external_order_id=%s
+                ORDER BY revision DESC,received_at DESC,event_id DESC LIMIT 1""", key).fetchone()
+        if not row:
+            raise ValueError('No signed receipt for the selected order')
+        return woo_source(bytes(row[1]), key[1], row[0])
+
     def completed_woo_payment_source(self, key):
         with self.connect() as db:
             row = db.execute("""SELECT i.payload,d.state,i.raw_body FROM commerce_inbox i
@@ -191,6 +215,8 @@ def deliver_one(inbox, mp_target, erp_target, *, max_attempts=5, retry_seconds=3
     if not claim:
         return False
     event = claim['payload']
+    production = getattr(erp_target, 'production', False) is True
+    validated = False
     try:
         mode = event.get('order_intake_mode')
         if mode in ('unpaid_pilot_pending', 'unpaid_pilot', 'reviewed_mapping'):
@@ -210,6 +236,9 @@ def deliver_one(inbox, mp_target, erp_target, *, max_attempts=5, retry_seconds=3
                     event['compiled_draft'] = {'draft': draft, 'quote': quote}
                 else:
                     erp_target.draft_for(event)
+                if production:
+                    erp_target.validate_production(event)
+                    validated = True
                 inbox.materialize_order(claim, event)
         elif tax_policies is not None:
             from tax_policy import require_approved_item
@@ -220,7 +249,7 @@ def deliver_one(inbox, mp_target, erp_target, *, max_attempts=5, retry_seconds=3
                 require_approved_item(line['erp_item_code'], policy)
         mp = claim['mp_receipt']
         if mp is None:
-            if getattr(erp_target, 'production', False) is True:
+            if production and not validated:
                 erp_target.validate_production(event)
             operational = {key: value for key, value in event.items() if key != 'compiled_draft'}
             mp = mp_target(operational)
