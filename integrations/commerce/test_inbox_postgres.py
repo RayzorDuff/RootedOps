@@ -138,6 +138,14 @@ class NativeInboxTests(unittest.TestCase):
         other = self.inbox.claim(site='synthetic', order_id='9')
         self.assertEqual(other['payload']['external_order_id'], '9')
 
+    def test_production_review_queue_counts_each_order_without_claiming(self):
+        self.receive(id=9, status='pending')
+        self.receive(id=10, status='pending')
+        queue = {row['order_id']: row for row in self.inbox.order_queue('woocommerce', 'synthetic')}
+        self.assertEqual(set(queue), {'9', '10'})
+        self.assertTrue(all(row['pending'] == 1 and row['leased'] == 0 for row in queue.values()))
+        self.assertEqual(self.inbox.latest_order_source(('woocommerce', 'synthetic', '9'))[0]['id'], 9)
+
     def test_deferred_mapping_review_can_replay_original_receipt(self):
         import sys
         sys.path.insert(0, str(Path(__file__).resolve().parents[2] / 'tests'))
