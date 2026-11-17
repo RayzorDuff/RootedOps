@@ -90,8 +90,9 @@ def main():
         from staging_origin import staging_origin
         customer_sites = {}
         for site, row in config.get('customer_sites', {}).items():
-            if staging_origin('https://' + site, 'shop') != 'https://' + site:
-                raise ValueError('Use exact staging host as customer site key')
+            from staging_origin import customer_pair
+            customer_pair(row['erp_base_url'], 'https://' + site,
+                          production_erp_pilot=row.get('production_erp_pilot', False))
             customer_sites[site] = {'secrets': [os.environ[name] for name in row['secret_envs']]}
         # No public bind switch. Use only an independently reviewed test proxy.
         with make_server('127.0.0.1', a.port, application(inbox, sites, customer_sites)) as server:

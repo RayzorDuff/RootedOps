@@ -34,10 +34,12 @@ class Inbox:
         self.connect = connect
 
     def receive(self, raw, signature, *, secrets, site, mappings=None, gateways=None,
-                tax_policy=None, unpaid_pilot=False):
+                tax_policy=None, unpaid_pilot=False, admit=None):
         if unpaid_pilot:
             receipt = authenticate(raw, signature, secrets)
-            _, event = woo_source(raw, site, receipt)
+            order, event = woo_source(raw, site, receipt)
+            if admit is not None and not admit(order):
+                return {'ignored': True}
             event['order_intake_mode'] = 'unpaid_pilot_pending'
         else:
             event = normalize_woo(raw, signature, secrets, site, mappings, gateways, tax_policy=tax_policy)
@@ -64,7 +66,7 @@ class Inbox:
             db.execute('INSERT INTO commerce_delivery(provider,site_key,event_id) VALUES(%s,%s,%s) ON CONFLICT DO NOTHING',key)
         return {'event_id': event['event_id'], 'duplicate': not bool(inserted)}
 
-    def claim(self, lease_seconds=60, *, provider="woocommerce", site=None):
+    def claim(self, lease_seconds=60, *, provider="woocommerce", site=None, order_id=None):
         token=uuid.uuid4().hex
         with self.connect() as db:
             # A delayed or locked earlier receipt blocks later receipts for
@@ -74,6 +76,7 @@ class Inbox:
                          THEN i.raw_body END
                 FROM commerce_delivery d JOIN commerce_inbox i USING(provider,site_key,event_id)
                 WHERE d.provider=%s AND (%s::text IS NULL OR d.site_key=%s)
+                  AND (%s::text IS NULL OR i.external_order_id=%s)
                   AND ((d.state='pending' AND d.next_attempt_at<=now())
                     OR (d.state='leased' AND d.lease_until<now()))
                   AND (d.provider<>'woocommerce' OR NOT EXISTS (
@@ -84,7 +87,7 @@ class Inbox:
                       AND prior.state IN ('pending','leased')
                       AND (earlier.received_at,earlier.event_id)<(i.received_at,i.event_id)))
                 ORDER BY i.received_at,i.event_id FOR UPDATE OF d SKIP LOCKED LIMIT 1''',
-                (provider,site,site)).fetchone()
+                (provider,site,site,order_id,order_id)).fetchone()
             if not row:return None
             db.execute('''UPDATE commerce_delivery SET state='leased',attempts=attempts+1,
                 lease_token=%s,lease_until=now()+(%s * interval '1 second')
@@ -182,8 +185,9 @@ def reconcile_order(inbox, mp_target, erp_target, key):
 
 
 def deliver_one(inbox, mp_target, erp_target, *, max_attempts=5, retry_seconds=30,
-                tax_policies=None, pilot_configs=None, site=None):
-    claim = inbox.claim(site=site) if site else inbox.claim()
+                tax_policies=None, pilot_configs=None, site=None, order_id=None):
+    claim = inbox.claim(site=site, order_id=order_id) if order_id else (
+        inbox.claim(site=site) if site else inbox.claim())
     if not claim:
         return False
     event = claim['payload']
@@ -216,6 +220,8 @@ def deliver_one(inbox, mp_target, erp_target, *, max_attempts=5, retry_seconds=3
                 require_approved_item(line['erp_item_code'], policy)
         mp = claim['mp_receipt']
         if mp is None:
+            if getattr(erp_target, 'production', False) is True:
+                erp_target.validate_production(event)
             operational = {key: value for key, value in event.items() if key != 'compiled_draft'}
             mp = mp_target(operational)
             inbox.record(claim, 'mp', mp)
@@ -239,10 +245,11 @@ def deliver_one(inbox, mp_target, erp_target, *, max_attempts=5, retry_seconds=3
 
 
 class PostgresInventory:
-    def __init__(self,connect,erp_site='erp-test.danks.store'):
+    def __init__(self,connect,erp_site='erp-test.danks.store', *, production=False):
         from staging_origin import staging_origin
         from urllib.parse import urlsplit
-        self.erp_site=urlsplit(staging_origin('https://'+erp_site,'erp')).hostname
+        self.erp_site = (erp_site if production and erp_site == 'erp.danks.store'
+                         else urlsplit(staging_origin('https://'+erp_site,'erp')).hostname)
         self.connect=connect
     def __call__(self,event):
         try:
@@ -294,9 +301,11 @@ class PostgresInventory:
 
 class ReviewedERP:
     """Transport adapter: order-specific commercial draft must be reviewed first."""
-    def __init__(self,base,authorization,approved,request, *, mapping_policy=None):
+    def __init__(self,base,authorization,approved,request, *, mapping_policy=None, production=False):
         from staging_origin import staging_origin
-        self.base=staging_origin(base,'erp');self.authorization=authorization;self.approved=approved;self.request=request
+        self.base = base if production and base == 'https://erp.danks.store' else staging_origin(base, 'erp')
+        self.authorization, self.approved, self.request = authorization, approved, request
+        self.production = production
         self.mapping_policy = mapping_policy
     def draft_for(self, event):
         key = '|'.join(event[field] for field in ('provider', 'site_key', 'external_order_id'))
@@ -314,7 +323,14 @@ class ReviewedERP:
         except (KeyError, TypeError) as exc:
             raise OrderReview('draft_review') from exc
 
+    def validate_production(self, event):
+        if self._stage(event, preflight=True)['status'] != 'validated':
+            raise OrderReview('draft_review')
+
     def __call__(self,event,mp_receipt):
+        return self._stage(event)
+
+    def _stage(self, event, *, preflight=False):
         if event.get('order_intake_mode') == 'reviewed_mapping':
             compiled = event['compiled_draft']
             draft = compiled['draft']
@@ -323,6 +339,8 @@ class ReviewedERP:
         else:
             draft = self.draft_for(event)
         payload={'event':event,'reviewed_draft':draft}
+        if preflight:
+            payload['preflight'] = True
         return self.request(self.base+'/api/method/rootedops_commerce.order_service.stage_order',
                             self.authorization,'POST',{'payload':json.dumps(payload)})['message']
 

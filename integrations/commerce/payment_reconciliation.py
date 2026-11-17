@@ -4,12 +4,12 @@ import hmac
 import json
 from urllib.parse import urlsplit
 
-from staging_origin import staging_pair
+from staging_origin import order_pair
 
 
-def reconcile_capture(inbox, inventory, erp, clover, key, posting_date, secret):
+def reconcile_capture(inbox, inventory, erp, clover, key, posting_date, secret, *, production=False):
     provider, site, order_id = key
-    staging_pair(erp.base, 'https://' + site)
+    order_pair(erp.base, 'https://' + site, production=production)
     if provider != 'woocommerce' or not isinstance(secret, str) or len(secret) < 32:
         raise ValueError('Staging Woo identity and private evidence key required')
     event, number = inbox.completed_woo_payment_source(key)

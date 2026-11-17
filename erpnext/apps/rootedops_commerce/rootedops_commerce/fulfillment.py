@@ -5,6 +5,7 @@ import json
 import frappe
 
 from rootedops_commerce.clover_payment import STAGING
+from rootedops_commerce import live_order
 from rootedops_commerce.contract import mapping_key
 from rootedops_commerce.external_receipt import canonical, finish, lock_receipt
 
@@ -34,9 +35,10 @@ def acknowledge_shipment(payload, signature):
     config = frappe.conf.get('commerce_mp_fulfillment_pilot') or {}
     secret = config.get('movement_hmac') or ''
     data = frappe.parse_json(payload)
+    live = live_order.authorize(data)
     if (config.get('enabled') is not True or len(secret) < 32
             or data.get('provider') != 'woocommerce'
-            or STAGING.get(frappe.local.site) != data.get('site_key')
+            or not live and STAGING.get(frappe.local.site) != data.get('site_key')
             or not data.get('reference')):
         raise ValueError('Matched staging MP fulfillment pilot required')
     if not {'System Manager', 'Accounts Manager'} & set(frappe.get_roles()):

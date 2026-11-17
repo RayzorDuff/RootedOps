@@ -62,7 +62,7 @@ def normalize_woo(raw, signature, secrets, site, mappings, gateways, tax_policy=
     return normalize_order(order, identity, mappings, gateways, tax_policy=tax_policy)
 
 
-def normalize_order(order, identity, mappings, gateways, *, tax_policy=None, pilot_items=None, reviewed_mapping=False, clover_capture_pilot=False):
+def normalize_order(order, identity, mappings, gateways, *, tax_policy=None, pilot_items=None, reviewed_mapping=False, clover_capture_pilot=False, production=False):
     statuses = {'pending', 'on-hold', 'processing', 'completed', 'cancelled', 'failed', 'refunded'}
     if order['status'] not in statuses:
         raise OrderReview('order_status_review')
@@ -154,6 +154,8 @@ def normalize_order(order, identity, mappings, gateways, *, tax_policy=None, pil
         if 'external_customer_id' not in result:
             raise OrderReview('customer_mapping_review')
         if reviewed_mapping:
+            if production:
+                result['source_created_gmt'] = order['date_created_gmt']
             result.update(order_intake_mode='reviewed_mapping', line_sources=sources,
                           commercial=woo_commercial(order, amounts))
             return result
