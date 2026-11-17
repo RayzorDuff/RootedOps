@@ -3,12 +3,15 @@ import hmac
 import json
 from urllib.parse import urlsplit
 
-from staging_origin import staging_pair
+from staging_origin import order_pair, staging_pair
 
 
-def reconcile_shipment(inventory, erp, key, reference, secret):
+def reconcile_shipment(inventory, erp, key, reference, secret, *, production=False):
     provider, site, order_id = key
-    staging_pair(erp.base, 'https://' + site)
+    if production:
+        order_pair(erp.base, 'https://' + site, production=True)
+    else:
+        staging_pair(erp.base, 'https://' + site)
     if provider != 'woocommerce' or not reference or not isinstance(secret, str) or len(secret) < 32:
         raise ValueError('Reviewed movement, staging identity and private proof key required')
     erp_site = urlsplit(erp.base).hostname

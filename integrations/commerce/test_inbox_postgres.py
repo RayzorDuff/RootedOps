@@ -129,6 +129,15 @@ class NativeInboxTests(unittest.TestCase):
         self.assertEqual(self.inbox.order_status(('woocommerce', 'synthetic', '10'))[-1]['erp'],
                          {'status': 'stale_skipped'})
 
+    def test_production_claim_selects_only_approved_order(self):
+        self.receive(id=9, status='pending')
+        self.receive(id=10, status='pending')
+        approved = self.inbox.claim(site='synthetic', order_id='10')
+        self.assertEqual(approved['payload']['external_order_id'], '10')
+        self.assertIsNone(self.inbox.claim(site='synthetic', order_id='10'))
+        other = self.inbox.claim(site='synthetic', order_id='9')
+        self.assertEqual(other['payload']['external_order_id'], '9')
+
     def test_deferred_mapping_review_can_replay_original_receipt(self):
         import sys
         sys.path.insert(0, str(Path(__file__).resolve().parents[2] / 'tests'))

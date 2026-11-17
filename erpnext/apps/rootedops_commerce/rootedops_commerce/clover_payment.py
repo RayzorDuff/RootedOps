@@ -5,6 +5,7 @@ import json
 import frappe
 
 from rootedops_commerce.contract import mapping_key
+from rootedops_commerce import live_order
 from rootedops_commerce.external_receipt import canonical, finish, lock_receipt
 from rootedops_commerce.order_service import _authorized, attach_financial_documents
 from rootedops_commerce.tax_contract import _money
@@ -14,17 +15,18 @@ STAGING = {'erp-test.danks.store': 'shop-test.danks.store',
 
 
 def verified_config(data, signature):
+    live = live_order.authorize(data, capture=True)
     config = frappe.conf.get('commerce_clover_capture_pilot') or {}
     secret = config.get('evidence_hmac') or ''
     if (config.get('enabled') is not True or len(secret) < 32
-            or STAGING.get(frappe.local.site) != data.get('site_key')
+            or not live and STAGING.get(frappe.local.site) != data.get('site_key')
             or config.get('merchant_id') != data.get('merchant_id')
             or not config.get('merchant_id')):
         raise ValueError('Clover capture posting requires the matched sandbox pilot')
     proof = hmac.digest(secret.encode(), canonical(data), 'sha256').hex()
     if not isinstance(signature, str) or not hmac.compare_digest(proof, signature):
         raise ValueError('Payment evidence is not authenticated')
-    if (data.get('processor') != 'clover' or data.get('provider_environment') != 'sandbox'
+    if (data.get('processor') != 'clover' or data.get('provider_environment') != ('production' if live else 'sandbox')
             or data.get('verification') != 'verified_adapter' or data.get('state') != 'captured'
             or data.get('processor_reference_type') != 'clover_ecommerce_charge'
             or data.get('provider') != 'woocommerce' or not data.get('payment_id')
