@@ -170,7 +170,7 @@ add_action( 'template_redirect', function () {
 		}
 	}
 	if ( $target && $path !== untrailingslashit( (string) wp_parse_url( $target, PHP_URL_PATH ) )
-		&& wp_safe_redirect( $target, 302, 'Dank Storefront' ) ) {
+		&& wp_safe_redirect( $target, '1' === get_option( 'rootedops_ecwid_redirect_permanent' ) ? 301 : 302, 'Dank Storefront' ) ) {
 		exit;
 	}
 }, 9 );
