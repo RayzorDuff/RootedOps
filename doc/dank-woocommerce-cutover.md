@@ -92,10 +92,11 @@ sha256sum "$cutover_backup/"{woo.sql,woo-files.tar.gz,mp.dump,nginx.txt} \
 
 Before changing DNS, preserve the saved Ecwid sitemap and audit both ad feed
 configuration records below. Review published opening stock ownership and Woo
-settings without opening sales. At the switch, pause Ecwid checkout with its
-storefront controls and verify a signed-out browser cannot purchase through the
+settings without opening sales. At the switch, open **Ecwid → Settings → General → Store Profile**, enable
+storefront maintenance mode (close the storefront), and verify a signed-out
+browser cannot purchase through the
 apex or the old Ecwid storefront URL. Keep the Ecwid account and restoration
-path available. Pause Woo stock/projection schedules and walk through cashier
+path available. [Ecwid storefront maintenance steps](https://support.ecwid.com/hc/en-us/articles/207101209-Closing-your-storefront-for-maintenance) Pause Woo stock/projection schedules and walk through cashier
 and market sales with staff. Confirm there is no independent channel selling the
 same MP pool during the controlled opening window. Existing Ecwid orders may
 still need fulfillment or stock holds and must be included in opening availability.
@@ -355,6 +356,8 @@ os.replace(out.name, site)
 
 Prepare a new dedicated Postgres inbox and its restricted role, separate
 from MP. Use private DSNs `COMMERCE_LIVE_INBOX_DSN` and `COMMERCE_LIVE_MP_DSN`.
+Include an explicit dbname in each worker DSN. Supply passwords through the
+private PostgreSQL service/passfile rather than placing them in CLI arguments.
 Confirm `SELECT current_database()` on each. Supply `ERP_AUTHORIZATION` from a
 scoped Frappe user with Sales Manager and Accounts Manager permissions.
 Use a new `COMMERCE_LIVE_WEBHOOK_SECRET` of at least 32 characters and separate
@@ -375,7 +378,16 @@ In Woo, enable the **Order created** and **Order updated** v3 webhooks at
 `https://danks.store/webhooks/woocommerce/danks.store` with the new secret.
 Trigger a fresh, valid Woo save of the approved pending order after enabling.
 Use the staging runbook's native Woo webhook setup method if the UI sends an
-unsigned test ping. Confirm unsigned requests are rejected and authenticated
+unsigned test ping. From the reviewed Woo sender network, expect HTTP 400 from
+this unsigned check before placing an order:
+
+```bash
+curl -sS -o /dev/null -w '%{http_code}\n' \
+  -H 'Content-Type: application/json' -d '{}' \
+  https://danks.store/webhooks/woocommerce/danks.store
+```
+
+Confirm unsigned requests are rejected and authenticated
 but unapproved IDs are ignored without a durable receipt. Avoid two distinct
 Woo status changes within the same timestamp second. A same-second conflict
 goes to review. In the worker shell with the same private env:
