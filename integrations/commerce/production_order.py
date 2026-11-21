@@ -13,6 +13,7 @@ from inbox import Inbox, PostgresInventory, ReviewedERP, application, deliver_on
 from payment_reconciliation import reconcile_capture
 from orders import normalize_order
 from shipment_reconciliation import reconcile_shipment
+from mp_publication import publish
 
 SITE, ERP = 'danks.store', 'https://erp.danks.store'
 STAMP = '%Y-%m-%dT%H:%M:%S'
@@ -40,7 +41,7 @@ def order_scope(config, command, selected=None):
     if config.get('mode') != 'review' or config.get('enabled') is not True:
         raise ValueError('Explicit production review mode required')
     cutoff = datetime.strptime(config['not_before_gmt'], STAMP)
-    if command in ('serve', 'init', 'queue'):
+    if command in ('serve', 'init', 'queue', 'publish'):
         if selected is not None:
             raise ValueError('This command does not take an order ID')
         return None, cutoff
@@ -78,7 +79,7 @@ def order_ledger(mp, key):
                      (SELECT coalesce(sum(r.quantity),0) FROM public.mp_commerce_reservations r
                        WHERE (r.provider,r.site_key,r.external_order_id) =
                              (o.provider,o.site_key,o.external_order_id)),
-                     (SELECT count(*) FROM public.mp_commerce_shipped_products p
+                     (SELECT count(*) FROM public.mp_commerce_shipped_units p
                        WHERE (p.provider,p.site_key,p.external_order_id) =
                              (o.provider,o.site_key,o.external_order_id))
                 FROM public.mp_commerce_orders o LEFT JOIN public.mp_commerce_erp_links l
@@ -106,7 +107,7 @@ def connector(dsn, expected_name):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('command', choices=('init', 'serve', 'status', 'queue', 'review', 'ledger', 'work-once', 'capture', 'shipment', 'replay'))
+    parser.add_argument('command', choices=('init', 'serve', 'status', 'queue', 'review', 'ledger', 'work-once', 'capture', 'shipment', 'replay', 'publish'))
     parser.add_argument('--config', required=True, type=Path)
     parser.add_argument('--port', type=int, default=8102)
     parser.add_argument('--order-id')
@@ -158,6 +159,12 @@ def main():
                            erp_site='erp.danks.store', production=True)
     if command == 'ledger':
         print(json.dumps(order_ledger(mp, key), default=str))
+        return
+    if command == 'publish':
+        if config.get('publication_enabled') is not True:
+            parser.error('Explicit MP publication opt-in required')
+        erp = ReviewedERP(ERP, os.environ['ERP_AUTHORIZATION'], {}, request_erp_customer, production=True)
+        print(json.dumps(publish(mp, erp, config)))
         return
     policy = config['draft_policy']
     if args.tax_quote is not None:

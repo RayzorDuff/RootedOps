@@ -1,5 +1,7 @@
 # Dank WooCommerce switch and day-to-day operations
 
+Continue with [the current MP fulfillment and stock acceptance runbook](commerce-fulfillment-launch.md) for the shop-test rehearsal, migrations 054–057, label preparation, dispatch and automatic published-stock operation. The earlier blocks below retain the pilot setup and host evidence.
+
 Use this sequence with the [private setting and routing reference](https://github.com/RayzorDuff/RootedOps/blob/feature/dank-storefront-cutover-runbook/doc/dank-woocommerce-cutover.md). Run one block, check its result, then continue. Keep the same shell where a block defines variables. Store live keys, private JSON, DSNs and backups on the Linode under restricted permissions. Share only the results explicitly described below.
 
 The production runner starts in **pilot** mode. After the owner purchase works, switch to **review** mode. In review mode the signed receiver saves new Woo orders for inspection. Each write still requires choosing an exact Woo ID and approving that order in ERP. Financial posting also requires the exact verified Clover charge. The inbox is durable. The owner works the queue. MushroomProcess (MP) owns physical stock, reservations and fulfillment. Public checkout also requires the MP fulfillment action to update the linked Woo order and MP availability to reach the published Woo listings safely.
@@ -373,14 +375,7 @@ order ledger --order-id "$WOO_ORDER_ID"
 
 ## D. Verify MushroomProcess fulfillment and Woo stock before public checkout
 
-MushroomProcess is where you assign the physical products and mark them Shipped. The PostgreSQL fulfillment workflow used by the legacy screen writes the product location and association. Ecwid quantity publication runs separately in the scheduled Commercial Inventory Sync. The existing Woo ledger shipment operation (055) moves products and records the acknowledgment together. It still needs to be wired into the MushroomProcess fulfillment screen for Woo orders. The current RootedOps shipment command sends that committed movement to ERP. Woo order status and ongoing published quantities still need their own projections. The existing Woo inventory writer in Commercial Inventory Sync is limited to draft products.
-
-Use these acceptance checks with disposable Woo and the actual MushroomProcess fulfillment screen before public opening:
-
-1. **Pick and ship in MushroomProcess.** A verified paid Woo order appears in the fulfillment screen. Assign a physical product to the correct Woo line. Confirm the product moved to Shipped in the same transaction as the stable movement record and that the reserved quantity decreased once. Repeat the action and verify the original movement is reused.
-2. **Project fulfillment to Woo and ERP.** Keep a partially shipped order open in Woo. Complete the Woo order when every line is fulfilled. Retry the same movement after either destination times out and confirm there is one ERP acknowledgment and one Woo completion. Reject automatic completion after a cancellation or refund that needs review. Verify the resulting Woo webhook does not trigger another movement or accounting entry.
-3. **Publish MushroomProcess availability.** Use one reviewed mapping per physical pool, including exact Woo parent and variation IDs where applicable. Verify published quantities after replenishment and an inventory correction. In a concurrent checkout test, verify a Woo commitment that has not reached MP cannot be added back by an availability refresh. When MP ships an already reserved unit, verify Woo sellable stock does not fall a second time. After partial shipment and cancellation, release only the unshipped holds and reconcile both systems.
-4. **Keep the owner pilot restricted until these checks pass.** The existing stock readback in B2 is for opening and exception checks. Routine packing and replenishment should run from MP. Keep Ecwid checkout closed during Woo sales and prevent POS from selling units allocated to Woo.
+Use the [current fulfillment acceptance sequence](commerce-fulfillment-launch.md). It supplies the Product/whole-Lot packing UI, label handoff, atomic MP dispatch and independent ERP/Woo publication. Verify native and hosted acceptance before opening public checkout. Routine replenishment and fulfillment use MP and its publisher. Opening inventory and unexplained differences still require reconciliation.
 
 To close Woo checkout for a stock count or an incident, run on the Linode:
 

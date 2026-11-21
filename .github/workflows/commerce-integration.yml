@@ -41,7 +41,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: RayzorDuff/MushroomProcess
-          ref: 1205f94a6c873e923413fdeb3ef3299e4c2bc21c
+          ref: ac74cf68c61a22bb39ec54c45feea788833f9be2
           path: .ci/mushroomprocess
       - uses: actions/setup-python@v5
         with:

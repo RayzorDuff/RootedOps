@@ -18,7 +18,7 @@ def reconcile_shipment(inventory, erp, key, reference, secret, *, production=Fal
     with inventory.connect() as db:
         rows = db.execute("""SELECT l.sales_order, p.line_id, x.value->>'erp_item_code', count(*)
                FROM public.mp_commerce_shipments s
-               JOIN public.mp_commerce_shipped_products p USING(provider, site_key, movement_reference, external_order_id)
+               JOIN public.mp_commerce_shipped_units p USING(provider, site_key, movement_reference, external_order_id)
                JOIN public.mp_commerce_orders o USING(provider, site_key, external_order_id)
                JOIN public.mp_commerce_erp_links l USING(provider, site_key, external_order_id)
                CROSS JOIN LATERAL jsonb_array_elements(o.snapshot->'lines') x(value)
