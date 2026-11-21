@@ -58,6 +58,9 @@ add_filter('woocommerce_can_restock_refunded_items', 'rootedops_mp_native_restor
 
 function rootedops_mp_tracking_details($order) {
     $shipments = $order->get_meta('_rootedops_mp_shipments', true) ?: array();
+    $shipments = array_filter($shipments, function ($row) {
+        return !empty($row['tracking']['tracking_number']) && ($row['tracking']['label_status'] ?? '') !== 'voided';
+    });
     if (!$shipments) return;
     echo '<h2>' . esc_html__('Shipment tracking', 'rootedops') . '</h2><ul>';
     foreach ($shipments as $row) {
@@ -73,6 +76,7 @@ add_action('woocommerce_email_after_order_table', function ($order, $sent_to_adm
     if ($plain_text) {
         foreach (($order->get_meta('_rootedops_mp_shipments', true) ?: array()) as $row) {
             $t = $row['tracking'];
+            if (empty($t['tracking_number']) || ($t['label_status'] ?? '') === 'voided') continue;
             echo sanitize_text_field(trim(($t['carrier'] ?? '') . ' ' . ($t['service'] ?? '') . ' ' . ($t['tracking_number'] ?? ''))) . "\n";
         }
     } else rootedops_mp_tracking_details($order);
@@ -191,6 +195,7 @@ function rootedops_mp_stock($request) {
         $owner = $product && $product->get_parent_id() ? wc_get_product($product->get_parent_id()) : $product;
         if (!$product || !$owner || $owner->get_status() !== 'publish' || $product->get_status() !== 'publish'
             || $product->get_sku() !== $row['sku'] || !$product->get_manage_stock()
+            || $product->get_parent_id() !== (int) ($row['parent_woo_id'] ?? 0)
             || $product->get_stock_managed_by_id() !== $id || $product->get_backorders() !== 'no'
             || $owner->get_meta('_rootedops_source_key', true) !== $row['source_key']
             || isset($products[$id])) throw new InvalidArgumentException('Exact published stock ownership required');

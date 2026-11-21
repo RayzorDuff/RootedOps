@@ -100,7 +100,8 @@ def inventory_snapshot(mp, mappings, site):
                  WHERE p.provider='woocommerce' AND p.site_key=%s AND x->>'line_id'=p.line_id
                    AND (x->>'ecommerce_id')::bigint=%s GROUP BY p.external_order_id,p.line_id
                 ) x GROUP BY external_order_id,line_id""", (site, ecommerce_id, site, ecommerce_id)).fetchall()
-            products.append(dict(woo_id=int(mapping['woo_id']), sku=mapping['sku'],
+            parent_id = int(row[5]) if row[6] not in (None, '', '0') else 0
+            products.append(dict(woo_id=int(mapping['woo_id']), parent_woo_id=parent_id, sku=mapping['sku'],
                 source_key=mapping['source_key'], available=row[2],
                 represented={f'{order}:{line}':qty for order, line, qty in represented}))
     if not products:

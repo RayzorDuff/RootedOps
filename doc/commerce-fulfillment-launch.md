@@ -57,6 +57,7 @@ SELECT current_database() AS database,
  to_regclass('public.mp_commerce_shipments') AS shipments,
  to_regclass('public.mp_commerce_packages') AS packages,
  to_regclass('public.mp_commerce_lot_picks') AS lot_picks,
+ to_regprocedure('public.mp_lot_set_location(bigint,bigint)') AS lot_move,
  EXISTS(SELECT 1 FROM information_schema.columns WHERE table_schema='public'
    AND table_name='mp_commerce_orders' AND column_name='reservation_confirmed') AS confirmation_column;
 SQL

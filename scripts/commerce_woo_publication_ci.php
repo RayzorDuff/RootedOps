@@ -90,10 +90,41 @@ mp_expect(wc_get_product($id)->get_stock_quantity() === 11, 'Replenishment faile
 $snapshot['products'][0]['available'] = 99;
 mp_expect(rootedops_mp_stock(mp_request($snapshot))['status'] === 'stale', 'Old snapshot admitted');
 mp_expect(wc_get_product($id)->get_stock_quantity() === 11, 'Stale snapshot changed stock');
+$parent = new WC_Product_Variable();
+$parent->set_name('Disposable MP variable');
+$parent->set_status('publish');
+$parent->update_meta_data('_rootedops_source_key', 'synthetic:mp-variable');
+$parent_id = $parent->save();
+$variation = new WC_Product_Variation();
+$variation->set_parent_id($parent_id);
+$variation->set_status('publish');
+$variation->set_sku('MP-CI-VARIATION');
+$variation->set_regular_price('10');
+$variation->set_manage_stock(true);
+$variation->set_stock_quantity(4);
+$variation->set_backorders('no');
+$variation_id = $variation->save();
+$snapshot['revision']++;
+$snapshot['products'][0]['available'] = 11;
+$snapshot['products'][] = array('woo_id' => $variation_id, 'parent_woo_id' => $parent_id,
+    'sku' => 'MP-CI-VARIATION', 'source_key' => 'synthetic:mp-variable', 'available' => 4, 'represented' => array());
+rootedops_mp_stock(mp_request($snapshot));
+mp_expect(wc_get_product($variation_id)->get_stock_quantity() === 4, 'Published variation failed');
+$snapshot['revision']++;
+$snapshot['products'][0]['available'] = 77;
+$snapshot['products'][1]['parent_woo_id'] = $parent_id + 999;
+try {
+    rootedops_mp_stock(mp_request($snapshot));
+    throw new RuntimeException('Wrong variation parent was accepted');
+} catch (InvalidArgumentException $error) {
+    mp_expect(wc_get_product($id)->get_stock_quantity() === 11, 'Invalid batch partially changed stock');
+}
 $link = rootedops_mp_identity(array('id' => $order->get_id()));
 mp_expect($link['edit_url'] === wc_get_order($order->get_id())->get_edit_order_url(), 'Generated admin URL differs');
 $order->delete(true);
 $late->delete(true);
 wc_get_product($id)->delete(true);
+wc_get_product($variation_id)->delete(true);
+wc_get_product($parent_id)->delete(true);
 delete_option('rootedops_mp_inventory_revision');
 echo "Native Woo publication, webhook lag, partial/full dispatch, cancellation and replay passed.\n";
