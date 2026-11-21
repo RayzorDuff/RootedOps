@@ -4,6 +4,39 @@ Production endpoints (operator configured with Nginx/Certbot): **Rallly** `https
 
 **Operational status (October 2026):** Tymeslot and Rallly have been brought online, with Google login/Calendar and Google Meet integration exercised by the operator. Google OAuth verification and final appointment-type testing are separate acceptance work. The shared RootedOps backup completed a production upload on 2026-10-28, but an **isolated restore test is still required**. Subsequent sections include historical setup steps and test-host examples; treat them as a runbook, not a claim that production remains unconfigured.
 
+## Tymeslot 1.40.0 upgrade and invitation-only hosts (RootedOps #17)
+
+Tymeslot 1.40.0 (2026-11-05) adds **Admin → Users → Invite** for new scheduling organizers, including when public registration is disabled. Public booking guests still do not need Tymeslot user accounts. The existing deployment used 1.6.0; do not assume a large version jump has been validated against local data until the smoke test below passes.
+
+**Production preflight:** Preserve the untracked root `.env`, the Tymeslot encryption keys, original image/volume configuration, and a restorable embedded PostgreSQL dump. Only Tymeslot should be recreated; **do not** run `docker compose down -v` or alter Rallly. The root `.env` overrides the sample's pinned image tag. Keep production host explicitly set to `TYMESLOT_PUBLIC_HOST=schedule.rootedpsyche.org`.
+
+```bash
+cd ~/RootedOps
+sudo docker compose --env-file .env -p rootedops-scheduling -f docker/scheduling/tymeslot.compose.yml config --quiet
+# Before upgrade, use the current running PostgreSQL tools for a compatible custom-format dump:
+mkdir -p ~/tymeslot-backups && chmod 700 ~/tymeslot-backups
+BACKUP="$HOME/tymeslot-backups/pre-tymeslot-1.40.0-$(date +%Y%m%d-%H%M%S).dump"
+umask 077
+sudo docker exec rootedops-tymeslot su - postgres -c 'pg_dump -Fc -d tymeslot' > "$BACKUP"
+test -s "$BACKUP"
+# Host pg_restore may be older than dump format 1.16: verify using the container tool.
+sudo docker exec -i rootedops-tymeslot su - postgres -c 'pg_restore -l' < "$BACKUP" >/dev/null
+```
+
+After the backup succeeds, edit the **private** `.env` to set `TYMESLOT_IMAGE_TAG=1.40.0` and `TYMESLOT_PUBLIC_HOST=schedule.rootedpsyche.org`. Keep `SECRET_KEY_BASE`, `DATA_ENCRYPTION_KEY`, and OAuth credentials unchanged. Pull and recreate **only** Tymeslot:
+
+```bash
+sudo docker compose --env-file .env -p rootedops-scheduling -f docker/scheduling/tymeslot.compose.yml pull tymeslot
+sudo docker compose --env-file .env -p rootedops-scheduling -f docker/scheduling/tymeslot.compose.yml up -d --no-deps --force-recreate tymeslot
+sudo docker logs --tail 100 rootedops-tymeslot
+```
+
+Check migration completion, `PHX_HOST`, admin Google Workspace login, existing booking links, connected Calendar/Meet and a fictional booking. Visit `/admin` to verify the **Users → Invite** action. Only after this succeeds, close **Registration** and **Password authentication** under Admin → Authentication, leaving Google login on for existing Workspace users. For a reproducible setting, environment overrides `REGISTRATION_ENABLED=false` and `PASSWORD_AUTH_ENABLED=false` are supported, but enforce these only after verifying the administrator can sign in. Test organizer invitations with an eligible Workspace account, not public participants.
+
+**Rollback caution:** application migrations can change PostgreSQL schema. Simply restoring the old Docker image does **not** roll back database migrations. Preserve both the pre-upgrade dump and the original image tag and perform restoration to a separate test instance before any rollback that would overwrite the upgraded database.
+
+Reference: https://tymeslot.app/changelog and https://tymeslot.app/docs/admin-setup
+
 ## SMTP: reuse the Listmonk Gmail pattern
 
 Listmonk already used Gmail SMTP; scheduling uses the same provider but a **separate Google app password** for Tymeslot. Authentication user: `rootedpsyche@gmail.com`. SMTP: `smtp.gmail.com`, port `587`, STARTTLS, password authentication. Use the same authorized email address as sender. Never commit app passwords. Google OAuth *client secret* is unrelated to Gmail SMTP *app password*.
