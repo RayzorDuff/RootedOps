@@ -90,7 +90,7 @@ After block 1 confirms no conflicting net vhost and the documented ports, instal
 cd ~/RootedOps
 sudo install -m 644 nginx/snippets/dank-commerce-webhooks.conf \
   /etc/nginx/snippets/dank-commerce-webhooks.conf
-sudo install -m 644 nginx/dank-wordpress-canonical.conf \
+sudo install -m 644 nginx/production/dank-wordpress-canonical.conf \
   /etc/nginx/sites-available/dank-wordpress-canonical
 sudo ln -s /etc/nginx/sites-available/dank-wordpress-canonical \
   /etc/nginx/sites-enabled/dank-wordpress-canonical
