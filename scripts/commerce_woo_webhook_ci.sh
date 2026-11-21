@@ -41,4 +41,12 @@ cp wordpress/dank-mu-plugins/rootedops-fulfillment.php "$fixture/wordpress/wp-co
 "$COMMERCE_WP_CLI" config set ROOTEDOPS_MP_WOO_ENABLED true --raw
 "$COMMERCE_WP_CLI" config set ROOTEDOPS_MP_WOO_CUTOFF 0 --raw
 "$COMMERCE_WP_CLI" eval-file "$GITHUB_WORKSPACE/scripts/commerce_woo_publication_ci.php"
+"$COMMERCE_WP_CLI" eval-file "$GITHUB_WORKSPACE/scripts/commerce_wordpress_hostname_ci.php" seed
+mkdir -m 700 "$fixture/hostname-private"
+"$COMMERCE_WP_CLI" eval-file "$GITHUB_WORKSPACE/scripts/commerce_wordpress_hostname.php" preview
+"$COMMERCE_WP_CLI" eval-file "$GITHUB_WORKSPACE/scripts/commerce_wordpress_hostname_ci.php" before
+"$COMMERCE_WP_CLI" eval-file "$GITHUB_WORKSPACE/scripts/commerce_wordpress_hostname.php" apply /fixture/hostname-private/journal.json
+"$COMMERCE_WP_CLI" eval-file "$GITHUB_WORKSPACE/scripts/commerce_wordpress_hostname_ci.php" after
+"$COMMERCE_WP_CLI" eval-file "$GITHUB_WORKSPACE/scripts/commerce_wordpress_hostname.php" restore /fixture/hostname-private/journal.json
+"$COMMERCE_WP_CLI" eval-file "$GITHUB_WORKSPACE/scripts/commerce_wordpress_hostname_ci.php" before
 python integrations/commerce/test_inbox_postgres.py -v

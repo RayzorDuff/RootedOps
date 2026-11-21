@@ -6,7 +6,7 @@ from shipment_reconciliation import reconcile_shipment
 
 def woo_request(origin, authorization, method, path, payload=None):
     import subprocess
-    if origin not in ('https://shop-test.danks.store', 'https://danks.store'):
+    if origin not in ('https://shop-test.danks.store', 'https://danks.store', 'https://dankmushrooms.net'):
         raise ValueError('Exact installed Woo origin required')
     if any(ord(c) < 32 for c in authorization):
         raise ValueError('Invalid authorization header')

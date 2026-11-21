@@ -161,6 +161,34 @@ class ProfileSync(unittest.TestCase):
             with self.assertRaises(ValueError):
                 self.sync.stored_link_key('danks.store', 12)
 
+    def test_new_transport_preserves_customer_and_order_identity(self):
+        conf = dict(woo_site='shop-test.danks.store', same_woo_installation=True,
+                    production_erp_pilot=True, woo_origin='https://dankmushrooms.net',
+                    woo_authorization='Basic synthetic')
+        reply = Mock()
+        reply.__enter__ = Mock(return_value=io.StringIO('{"id":12,"role":"customer"}'))
+        reply.__exit__ = Mock(return_value=False)
+        with patch.multiple(self.sync.frappe, create=True,
+                            conf={'commerce_customer_sync': conf},
+                            local=SimpleNamespace(site='erp.danks.store'),
+                            db=SimpleNamespace(exists=lambda *args: False)):
+            expected = self.sync.link_key('shop-test.danks.store', 12)
+            self.assertEqual(self.sync.stored_link_key('dankmushrooms.net', 12), expected)
+            self.assertEqual(self.sync.stored_link_key('danks.store', 12), expected)
+            for body, suffix in ((None, '?context=edit'), ({'synthetic': True}, '/rootedops-projection')):
+                reply.__enter__.return_value = io.StringIO('{"id":12,"role":"customer"}')
+                with patch.object(self.sync, 'build_opener') as opener:
+                    opener.return_value.open.return_value = reply
+                    self.sync.woo_request('shop-test.danks.store', '12', conf, body)
+                    request = opener.return_value.open.call_args.args[0]
+                    self.assertEqual(request.full_url, 'https://dankmushrooms.net/wp-json/wc/v3/customers/12' + suffix)
+                    self.assertEqual(request.get_method(), 'GET' if body is None else 'PUT')
+            for origin in ('https://evil.invalid', 'http://dankmushrooms.net', 'https://dankmushrooms.net@evil.invalid'):
+                with patch.dict(conf, woo_origin=origin), self.assertRaises(ValueError):
+                    self.sync.woo_request('shop-test.danks.store', '12', conf)
+            with patch.dict(conf, same_woo_installation=False), self.assertRaises(ValueError):
+                self.sync.woo_request('shop-test.danks.store', '12', conf)
+
     def test_production_pilot_requires_exact_pair_and_valid_configured_ids(self):
         conf = {'enabled': True, 'woo_site': 'shop-test.danks.store',
                 'production_erp_pilot': True, 'woo_customer_ids': [12]}

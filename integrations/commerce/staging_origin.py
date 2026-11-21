@@ -22,7 +22,7 @@ def staging_pair(erp, shop):
 
 def customer_pair(erp, shop, production_erp_pilot=False):
     if production_erp_pilot is True:
-        if erp != 'https://erp.danks.store' or shop not in ('https://shop-test.danks.store', 'https://danks.store'):
+        if erp != 'https://erp.danks.store' or shop not in ('https://shop-test.danks.store', 'https://danks.store', 'https://dankmushrooms.net'):
             raise ValueError('Production ERP customer pilot requires the exact shared-Linode pair')
         return erp, shop
     return staging_pair(erp, shop)

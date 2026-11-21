@@ -1,5 +1,7 @@
 # Woo order, inventory and MushroomProcess dispatch acceptance
 
+Canonical hostname update: use [dankmushrooms.net preparation](dankmushrooms-canonical-domain.md) before hosted acceptance. It supersedes older deployment prose naming danks.store as the primary website. Keep danks.store as the existing logical order identity. Ecwid keeps its current public routing until the later cutover.
+
 The installed rehearsal uses `shop-test.danks.store`, production ERP at `erp.danks.store`, and the existing Linode. Use the same Woo installation for the final `danks.store` hostname. Disposable CI supplies development verification. Clover Flex and REST Pay Display are separate work.
 
 ## What runs automatically

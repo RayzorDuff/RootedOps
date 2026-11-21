@@ -1,0 +1,6 @@
+# Optional overlay for the existing n8n service; keep activation explicit.
+services:
+  n8n:
+    environment:
+      MP_COMMERCE_FULFILLMENT_ENABLED: ${MP_COMMERCE_FULFILLMENT_ENABLED:-false}
+      MP_COMMERCE_WOO_ORIGIN: ${MP_COMMERCE_WOO_ORIGIN:-https://dankmushrooms.net}

@@ -41,7 +41,7 @@ function do_action( $name, ...$args ) {
 
 function current_user_can( $capability, $id ) { return $GLOBALS['allow_edit']; }
 function get_userdata( $id ) { return (object) array( 'roles' => array( $id === 3 ? 'customer' : 'editor' ) ); }
-function home_url() { return 'https://shop-test.danks.store'; }
+function home_url() { return $GLOBALS['fixture_origin'] ?? 'https://shop-test.danks.store'; }
 function wp_parse_url( $url, $component ) { return parse_url( $url, $component ); }
 function wp_generate_uuid4() { return 'ed219744-fa90-4a23-90e5-45c8dfd74543'; }
 function wp_json_encode( $value, $flags ) { return json_encode( $value, $flags ); }
@@ -89,4 +89,13 @@ do_action( 'edit_user_profile_update', 4 );
 $allow_edit = false;
 do_action( 'edit_user_profile_update', 3 );
 expect( $wpdb->locks === 0, 'Noncustomers and unauthorized edits must not take the sync lock' );
+$fixture_origin = 'https://dankmushrooms.net';
+$allow_edit = true;
+do_action( 'edit_user_profile_update', 3 );
+$first_name = 'New hostname';
+do_action( 'profile_update', 3 );
+end_fixture_request();
+expect( count( $events ) === 2, 'Canonical hostname must emit existing customer edits' );
+$fixture_origin = 'https://unreviewed.invalid';
+expect( !rootedops_customer_projection_enabled(), 'Unknown hostname must remain disabled' );
 echo "Woo admin customer sync checks passed.\n";

@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.5.31] - 2026-11-21
+
+- Separate the canonical dankmushrooms.net Woo connection URL from existing customer/order store identities. Preserve link keys, inbox receipts and reservations.
+- Add guarded private configuration updates and a content-only, serialization-safe WordPress URL migration with a private compare-before-restore journal.
+- Document dual-host signed webhook routing, backups, third-party connection checks, staged acceptance and rollback. Keep Ecwid routing unchanged until its later cutover.
+
 ## [1.5.30] - 2026-11-21
 
 - Add an opt-in timer cycle for reviewed Woo orders, reusing their approved quote and exact ERP scope for later webhook updates and cancellations.

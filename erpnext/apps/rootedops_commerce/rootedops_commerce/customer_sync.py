@@ -36,7 +36,7 @@ def settings(site):
     if pilot:
         paired = frappe.local.site == 'erp.danks.store' and (
             site == 'shop-test.danks.store' or
-            site == 'danks.store' and conf.get('same_woo_installation') is True)
+            site in ('danks.store', 'dankmushrooms.net') and conf.get('same_woo_installation') is True)
         ids = conf.get('woo_customer_ids', [])
         if (not isinstance(ids, list)
                 or any(not re.fullmatch(r'[1-9][0-9]{0,18}', str(value)) for value in ids)):
@@ -76,7 +76,13 @@ def woo_profile(doc, scope):
 
 
 def woo_request(site, customer_id, conf, body=None):
-    path = f'https://{site}/wp-json/wc/v3/customers/{customer_id}'
+    origin = conf.get('woo_origin', 'https://' + site)
+    if origin != 'https://' + site:
+        if (frappe.local.site != 'erp.danks.store' or conf.get('production_erp_pilot') is not True
+                or conf.get('same_woo_installation') is not True
+                or origin not in ('https://shop-test.danks.store', 'https://danks.store', 'https://dankmushrooms.net')):
+            raise ValueError('Reviewed same-installation Woo origin required')
+    path = f'{origin}/wp-json/wc/v3/customers/{customer_id}'
     path += '?context=edit' if body is None else '/rootedops-projection'
     req = Request(path, data=None if body is None else json.dumps(body).encode(),
                   method='GET' if body is None else 'PUT',
@@ -102,11 +108,11 @@ def link_key(site, customer_id):
 
 
 def customer_link_site(site):
-    if site != 'danks.store':
+    if site not in ('danks.store', 'dankmushrooms.net'):
         return site
     conf = frappe.conf.get('commerce_customer_sync') or {}
     if (frappe.local.site != 'erp.danks.store'
-            or conf.get('woo_site') not in ('shop-test.danks.store', 'danks.store')
+            or conf.get('woo_site') not in ('shop-test.danks.store', 'danks.store', 'dankmushrooms.net')
             or conf.get('same_woo_installation') is not True):
         raise ValueError('Final Woo site requires reviewed same-installation customer identity')
     return 'shop-test.danks.store'
