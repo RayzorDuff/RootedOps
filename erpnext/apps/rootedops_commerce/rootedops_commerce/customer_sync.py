@@ -105,7 +105,8 @@ def customer_link_site(site):
     if site != 'danks.store':
         return site
     conf = frappe.conf.get('commerce_customer_sync') or {}
-    if (frappe.local.site != 'erp.danks.store' or conf.get('woo_site') != site
+    if (frappe.local.site != 'erp.danks.store'
+            or conf.get('woo_site') not in ('shop-test.danks.store', 'danks.store')
             or conf.get('same_woo_installation') is not True):
         raise ValueError('Final Woo site requires reviewed same-installation customer identity')
     return 'shop-test.danks.store'

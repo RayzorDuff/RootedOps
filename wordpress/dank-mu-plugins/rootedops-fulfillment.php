@@ -94,6 +94,13 @@ function rootedops_mp_identity($request) {
         'status' => $order->get_status());
 }
 
+function rootedops_mp_save_order($order) {
+    $order->save();
+    if (method_exists($order, 'get_last_save_error') && $order->get_last_save_error() !== null) {
+        throw new RuntimeException('Woo order save failed. Retry the same movement.');
+    }
+}
+
 function rootedops_mp_shipment($request) {
     rootedops_mp_lock();
     $p = $request->get_json_params();
@@ -108,10 +115,12 @@ function rootedops_mp_shipment($request) {
         if ($stored[$reference]['tracking'] !== ($p['tracking'] ?? array())) {
             $stored[$reference]['tracking'] = $p['tracking'] ?? array();
             $order->update_meta_data('_rootedops_mp_shipments', $stored);
-            $order->save();
+            rootedops_mp_save_order($order);
         }
         if ($stored[$reference]['complete'] && $order->has_status('processing')) {
-            $order->update_status('completed', 'Dispatch confirmed by MushroomProcess');
+            if (!$order->update_status('completed', 'Dispatch confirmed by MushroomProcess')) {
+                throw new RuntimeException('Woo completion failed. Retry the same movement.');
+            }
         }
         return array('status' => 'duplicate', 'order_status' => $order->get_status());
     }
@@ -138,8 +147,11 @@ function rootedops_mp_shipment($request) {
     $stored[$reference] = array('digest' => $digest, 'lines' => $p['lines'], 'tracking' => $tracking, 'complete' => $complete);
     $order->update_meta_data('_rootedops_mp_shipments', $stored);
     // Save durable movement proof before completion. Retry can finish completion below.
-    $order->save();
-    if ($complete && !$order->has_status('completed')) $order->update_status('completed', 'Dispatch confirmed by MushroomProcess');
+    rootedops_mp_save_order($order);
+    if ($complete && !$order->has_status('completed')
+        && !$order->update_status('completed', 'Dispatch confirmed by MushroomProcess')) {
+        throw new RuntimeException('Woo completion failed. Retry the same movement.');
+    }
     return array('status' => 'recorded', 'order_status' => $order->get_status());
 }
 
@@ -202,8 +214,16 @@ function rootedops_mp_stock($request) {
         $entry['quantity'] = rootedops_mp_publish_quantity($entry['row']['available'], $reduced[$id], $entry['row']['represented']);
     }
     unset($entry);
-    foreach ($products as $entry) wc_update_product_stock($entry['product'], $entry['quantity'], 'set');
-    update_option('rootedops_mp_inventory_revision', $p['revision'], false);
+    foreach ($products as $entry) {
+        $written = wc_update_product_stock($entry['product'], $entry['quantity'], 'set');
+        if (is_wp_error($written) || $written === false || $written === null || (int) $written !== $entry['quantity']) {
+            throw new RuntimeException('Woo stock write failed. Retry publication.');
+        }
+    }
+    if (!update_option('rootedops_mp_inventory_revision', $p['revision'], false)
+        && (int) get_option('rootedops_mp_inventory_revision') !== $p['revision']) {
+        throw new RuntimeException('Woo inventory receipt save failed. Retry publication.');
+    }
     return array('status' => 'published', 'count' => count($products), 'revision' => $p['revision']);
 }
 

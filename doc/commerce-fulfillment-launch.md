@@ -105,7 +105,14 @@ cd ~/RootedOps
 curl -fsS --max-time 10 https://erp.danks.store/api/method/ping
 ```
 
-Success is deployment validation and pong. Stop on failure. Follow the existing commerce-worker setup in the Linode runbook. Use `woo_origin: https://shop-test.danks.store` in its private config during rehearsal. Keep logical order identity `woocommerce / danks.store / numeric ID` for the same Woo database across both hostnames. The Woo delivery URL uses that configured canonical site key. Customer sync retains its existing installation alias/link migration from #116. Never relink a customer by matching names or create another ERP Customer for the hostname switch.
+Success is deployment validation and pong. Stop on failure. Follow the existing commerce-worker setup in the Linode runbook. Use `woo_origin: https://shop-test.danks.store` in its private config during rehearsal. Keep logical order identity `woocommerce / danks.store / numeric ID` for the same Woo database across both hostnames. The Woo delivery URL uses that configured canonical site key. The order's canonical identity can resolve the existing shop-test Customer link before and after the hostname switch. Enable the reviewed same-installation flag below after deploying commerce 0.3.5. It retains the current customer worker hostname and all other private settings.
+
+```bash
+sudo docker exec -i --user frappe erpnext-backend python3 - same-installation \
+  < scripts/commerce_live_approve.py
+```
+
+Success prints ERP same-installation applied. Stop on a missing/mismatched customer configuration. The registered buyer's canonical Woo ID must resolve to its existing Customer. Never relink a customer by matching names or create another ERP Customer for the hostname switch.
 
 Add the following private worker settings using actual reviewed IDs. The worker validates SKU, MP catalog ID, exact Woo ID, ownership and unique physical pool. The variation ID goes in `woo_id` for a variation.
 

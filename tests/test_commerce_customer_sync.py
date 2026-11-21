@@ -147,6 +147,20 @@ class ProfileSync(unittest.TestCase):
     def signal(self, values):
         return json.dumps(dict(site_key=SITE, id=12, scope='account', digest=self.sync.profile_digest(values)))
 
+    def test_canonical_order_customer_identity_before_and_after_hostname_switch(self):
+        conf = dict(woo_site='shop-test.danks.store', same_woo_installation=True)
+        with patch.multiple(self.sync.frappe, create=True,
+                            conf={'commerce_customer_sync': conf},
+                            local=SimpleNamespace(site='erp.danks.store'),
+                            db=SimpleNamespace(exists=lambda *args: False)):
+            before = self.sync.stored_link_key('danks.store', 12)
+            self.assertEqual(before, self.sync.link_key('shop-test.danks.store', 12))
+            conf['woo_site'] = 'danks.store'
+            self.assertEqual(self.sync.stored_link_key('danks.store', 12), before)
+            conf['same_woo_installation'] = False
+            with self.assertRaises(ValueError):
+                self.sync.stored_link_key('danks.store', 12)
+
     def test_production_pilot_requires_exact_pair_and_valid_configured_ids(self):
         conf = {'enabled': True, 'woo_site': 'shop-test.danks.store',
                 'production_erp_pilot': True, 'woo_customer_ids': [12]}

@@ -44,7 +44,7 @@ def apply(scope, action, order_id=None, charge_id=None):
 
 def main():
     p = argparse.ArgumentParser(description=__doc__)
-    p.add_argument('action', choices=('review', 'admit', 'capture'))
+    p.add_argument('action', choices=('review', 'admit', 'capture', 'same-installation'))
     p.add_argument('--order-id')
     p.add_argument('--charge-id')
     args = p.parse_args()
@@ -52,8 +52,15 @@ def main():
     with lock.open('a') as handle:
         fcntl.flock(handle, fcntl.LOCK_EX)
         config = json.loads(SITE_CONFIG.read_text())
-        config['commerce_live_order'] = apply(config['commerce_live_order'], args.action,
-                                             args.order_id, args.charge_id)
+        if args.action == 'same-installation':
+            customer = config['commerce_customer_sync']
+            if (customer.get('enabled') is not True or customer.get('production_erp_pilot') is not True
+                    or customer.get('woo_site') not in ('shop-test.danks.store', 'danks.store')):
+                raise ValueError('Verify the existing shared-Linode customer sync first')
+            customer['same_woo_installation'] = True
+        else:
+            config['commerce_live_order'] = apply(config['commerce_live_order'], args.action,
+                                                 args.order_id, args.charge_id)
         with tempfile.NamedTemporaryFile(mode='w', dir=SITE_CONFIG.parent, delete=False) as output:
             json.dump(config, output, indent=2)
             output.write('\n')

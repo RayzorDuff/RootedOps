@@ -28,12 +28,14 @@ $order->update_status('processing');
 mp_expect(wc_get_product($id)->get_stock_quantity() === 8, 'Native checkout deduction');
 try {
     $order->set_status('completed');
-    $order->save();
+    rootedops_mp_guard_completion($order);
     throw new RuntimeException('Label completion was accepted before MP dispatch');
 } catch (RuntimeException $error) {
     mp_expect(str_contains($error->getMessage(), 'Complete dispatch in MushroomProcess'), 'Premature completion guard failed');
 }
+$order->save();
 $order = wc_get_order($order->get_id());
+mp_expect($order->has_status('processing'), 'Completion guard did not protect the saved order');
 $snapshot = array('revision' => 1, 'products' => array(array('woo_id' => $id, 'sku' => 'MP-CI-PUBLISHED',
     'source_key' => 'synthetic:mp', 'available' => 8, 'represented' => array($order->get_id() . ':' . $line => 2))));
 rootedops_mp_stock(mp_request($snapshot));
@@ -51,10 +53,29 @@ rootedops_mp_shipment(mp_request($packet, $order->get_id()));
 mp_expect(wc_get_order($order->get_id())->get_status() === 'processing', 'Partial order completed');
 rootedops_mp_shipment(mp_request($packet, $order->get_id()));
 $packet['reference'] = 'synthetic-package-2';
+$failed_completion = false;
+$completion_count = 0;
+add_action('woocommerce_before_order_object_save', function ($candidate) use ($order, &$failed_completion) {
+    if ($candidate->get_id() === $order->get_id() && ($candidate->get_changes()['status'] ?? '') === 'completed' && !$failed_completion) {
+        $failed_completion = true;
+        throw new RuntimeException('Synthetic failure before completion save');
+    }
+}, 500);
+add_action('woocommerce_order_status_completed', function ($id) use ($order, &$completion_count) {
+    if ($id === $order->get_id()) $completion_count++;
+});
+try {
+    rootedops_mp_shipment(mp_request($packet, $order->get_id()));
+    throw new RuntimeException('Failed Woo completion was acknowledged');
+} catch (RuntimeException $error) {
+    mp_expect(str_contains($error->getMessage(), 'Woo completion failed'), 'Completion failure not returned for retry');
+}
+mp_expect(wc_get_order($order->get_id())->has_status('processing'), 'Failed completion changed the persisted status');
 rootedops_mp_shipment(mp_request($packet, $order->get_id()));
 mp_expect(wc_get_order($order->get_id())->get_status() === 'completed', 'Full order not completed');
 mp_expect(wc_get_product($id)->get_stock_quantity() === 7, 'Dispatch deducted Woo stock again');
 rootedops_mp_shipment(mp_request($packet, $order->get_id()));
+mp_expect($completion_count === 1, 'Completion replay emitted another notification event');
 $packet['tracking']['tracking_number'] = 'SYNTHETIC-REPLACEMENT';
 rootedops_mp_shipment(mp_request($packet, $order->get_id()));
 mp_expect(count(wc_get_order($order->get_id())->get_meta('_rootedops_mp_shipments', true)) === 2, 'Tracking replacement created a movement');
