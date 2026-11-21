@@ -5,6 +5,7 @@
 - Add disabled-by-default MP dispatch publication to Woo and ERP, with independent destination retry, canonical Woo order IDs and generated administrative order links.
 - Publish reservation-aware MP stock to reviewed published Woo products while accounting for native Woo deductions, webhook lag, cancellations and physical shipments.
 - Keep packing, label preparation and dispatch separate and include tracking in completed-order notifications.
+- Retain existing customer links while shop-test orders use the final logical store identity, then preserve those links through the hostname switch.
 - Add native disposable Woo regressions and an operator runbook for shop-test with production ERP on the existing Linode. Hosted acceptance and live payment/postage remain owner steps.
 
 ## [1.5.28] - 2026-11-03

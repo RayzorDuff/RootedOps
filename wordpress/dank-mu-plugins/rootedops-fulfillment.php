@@ -16,7 +16,9 @@ function rootedops_mp_lock() {
     if (!rootedops_mp_enabled() || $held) return;
     $name = 'rootedops_mp_' . get_current_blog_id();
     if ((int) $wpdb->get_var($wpdb->prepare('SELECT GET_LOCK(%s, 15)', $name)) !== 1) {
-        throw new RuntimeException('Inventory publication busy. Retry this operation.');
+        // Woo 11.2 catches Exception during save and can still emit status hooks.
+        // Error must escape that path so a failed lock cannot become a write.
+        throw new Error('Inventory publication busy. Retry this operation.');
     }
     $held = true;
     register_shutdown_function(function () use ($wpdb, $name) {
@@ -27,10 +29,7 @@ add_action('woocommerce_before_order_object_save', 'rootedops_mp_lock', -1000);
 add_action('woocommerce_product_before_set_stock', 'rootedops_mp_lock', -1000);
 add_action('woocommerce_variation_before_set_stock', 'rootedops_mp_lock', -1000);
 
-function rootedops_mp_guard_completion($order) {
-    if (!rootedops_mp_enabled() || !defined('ROOTEDOPS_MP_WOO_CUTOFF')
-        || !$order->get_date_created() || $order->get_date_created()->getTimestamp() < ROOTEDOPS_MP_WOO_CUTOFF
-        || ($order->get_changes()['status'] ?? '') !== 'completed') return;
+function rootedops_mp_completion_proof($order) {
     $counts = array();
     foreach (($order->get_meta('_rootedops_mp_shipments', true) ?: array()) as $row) {
         foreach ($row['lines'] as $line) {
@@ -40,11 +39,28 @@ function rootedops_mp_guard_completion($order) {
     }
     foreach ($order->get_items() as $id => $item) {
         if (($counts[(string) $id] ?? 0) !== (int) $item->get_quantity()) {
-            throw new RuntimeException('Complete dispatch in MushroomProcess before completing this Woo order.');
+            return false;
         }
+    }
+    return true;
+}
+function rootedops_mp_guard_completion($order) {
+    if (!rootedops_mp_enabled() || !defined('ROOTEDOPS_MP_WOO_CUTOFF')
+        || !$order->get_date_created() || $order->get_date_created()->getTimestamp() < ROOTEDOPS_MP_WOO_CUTOFF
+        || ($order->get_changes()['status'] ?? '') !== 'completed') return;
+    if (!rootedops_mp_completion_proof($order)) {
+        throw new Error('Complete dispatch in MushroomProcess before completing this Woo order.');
     }
 }
 add_action('woocommerce_before_order_object_save', 'rootedops_mp_guard_completion', -900);
+add_action('woocommerce_order_status_completed', function ($id) {
+    if (!rootedops_mp_enabled() || !defined('ROOTEDOPS_MP_WOO_CUTOFF')) return;
+    $saved = new WC_Order($id);
+    if (!$saved->get_date_created() || $saved->get_date_created()->getTimestamp() < ROOTEDOPS_MP_WOO_CUTOFF) return;
+    if (!$saved->has_status('completed') || !rootedops_mp_completion_proof($saved)) {
+        throw new Error('Woo completion failed. Retry the same movement.');
+    }
+}, -1000);
 
 // Release stock only when the cancellation has reached MP. This also protects a
 // dispatched package whose Woo acknowledgment is still retrying after a timeout.
@@ -102,6 +118,11 @@ function rootedops_mp_save_order($order) {
     $order->save();
     if (method_exists($order, 'get_last_save_error') && $order->get_last_save_error() !== null) {
         throw new RuntimeException('Woo order save failed. Retry the same movement.');
+    }
+    $saved = new WC_Order($order->get_id());
+    $saved->read_meta_data(true);
+    if ($saved->get_meta('_rootedops_mp_shipments', true) !== $order->get_meta('_rootedops_mp_shipments', true)) {
+        throw new RuntimeException('Woo movement proof did not persist. Retry the same movement.');
     }
 }
 

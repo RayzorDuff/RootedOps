@@ -30,10 +30,12 @@ try {
     $order->set_status('completed');
     rootedops_mp_guard_completion($order);
     throw new RuntimeException('Label completion was accepted before MP dispatch');
-} catch (RuntimeException $error) {
+} catch (Throwable $error) {
     mp_expect(str_contains($error->getMessage(), 'Complete dispatch in MushroomProcess'), 'Premature completion guard failed');
 }
-$order->save();
+try { $order->save(); } catch (Throwable $error) {
+    mp_expect(str_contains($error->getMessage(), 'Complete dispatch in MushroomProcess'), 'Unexpected save failure');
+}
 $order = wc_get_order($order->get_id());
 mp_expect($order->has_status('processing'), 'Completion guard did not protect the saved order');
 $snapshot = array('revision' => 1, 'products' => array(array('woo_id' => $id, 'sku' => 'MP-CI-PUBLISHED',
@@ -67,7 +69,7 @@ add_action('woocommerce_order_status_completed', function ($id) use ($order, &$c
 try {
     rootedops_mp_shipment(mp_request($packet, $order->get_id()));
     throw new RuntimeException('Failed Woo completion was acknowledged');
-} catch (RuntimeException $error) {
+} catch (Throwable $error) {
     mp_expect(str_contains($error->getMessage(), 'Woo completion failed'), 'Completion failure not returned for retry');
 }
 mp_expect(wc_get_order($order->get_id())->has_status('processing'), 'Failed completion changed the persisted status');
