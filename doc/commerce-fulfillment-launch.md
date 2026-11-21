@@ -4,7 +4,7 @@ The installed rehearsal uses `shop-test.danks.store`, production ERP at `erp.dan
 
 ## What runs automatically
 
-Signed Woo webhooks are durably received before HTTP 202. The existing inbox tracks MP and ERP independently. Accepted ERP drafts and verified Clover captures retain the existing stable references and retry behavior. The ongoing review queue in #118 accepts multiple orders. Unknown items, customer links, tax quotes, money differences, refunds and conflicting snapshots need review. ERP Sales Order approval/submission and the initial financial/account mapping remain owner steps. This release uses the existing per-order review procedure for accounting. A receiver alone does not process that review queue.
+Signed Woo webhooks are durably received before HTTP 202. The existing inbox tracks MP and ERP independently. Accepted ERP drafts and verified Clover captures retain the existing stable references and retry behavior. The ongoing review queue in #118 accepts multiple orders. The reviewed-order cycle continues their later snapshots after initial approval. Unknown items, customer links, tax quotes, money differences, refunds and conflicting snapshots need review. ERP Sales Order approval/submission and the initial financial/account mapping remain owner steps. This release uses the existing per-order review procedure for accounting. A receiver alone does not process that review queue.
 
 After a confirmed paid order appears in MP, the operator scans its physical units into a package. Packing keeps the reservation and current location. Label/tracking preparation updates the package without dispatching. Confirm dispatch when the parcel leaves, pickup is handed over, or local delivery is completed. That transaction moves physical units, consumes their holds and creates one delivery row for each of Woo and ERP. A timer retries destinations independently and automatically publishes MP availability to reviewed published Woo IDs. A failed delivery stays visible and retries with the same movement reference. ERP records fulfillment in a stock-neutral Commerce External Receipt and its linked Commerce Order State quantities. MP commits the physical movement.
 
@@ -200,6 +200,61 @@ SELECT target,count(*) AS pending FROM public.mp_commerce_shipment_delivery
 WHERE delivered_at IS NULL GROUP BY target;
 SQL
 ```
+
+## 5a. Keep approved orders moving automatically
+
+Use this after the owner acceptance has passed and ERP is in review mode. The cycle follows later updates for orders whose reviewed quote is present in a private directory. New unreviewed orders remain in the signed inbox. Tax/draft review, ERP Sales Order submission, exact Clover capture approval and posting-date approval remain explicit. The timer handles subsequent order snapshots, independent target retries, cancellation intake, dispatch delivery and stock publication.
+
+In the private worker config, set `automation_enabled: true`, `quote_directory` to an absolute private directory, and initially `automatic_capture: false`. Keep `mode: review`, the original cutoff and all existing mappings. Use the exact same live environment and interpreter as the tested publisher.
+
+Run on the Linode once to create the private quote directory.
+
+```bash
+cd ~/RootedOps
+REVIEWED_QUOTES_DIR="$HOME/commerce-migration/reviewed-quotes"
+install -d -m 700 "$REVIEWED_QUOTES_DIR"
+```
+
+Success is a private directory. Set that exact path in the private config. For each new reviewed order, use the previously prepared `ORDER_QUOTE` from the order review procedure. Admit its exact ID in ERP, then publish its quote to the timer. This replaces repeated `work-once` calls for that order.
+
+```bash
+[[ "$WOO_ORDER_ID" =~ ^[1-9][0-9]*$ ]] &&
+sudo docker exec -i --user frappe erpnext-backend python3 - admit --order-id "$WOO_ORDER_ID" \
+  < scripts/commerce_live_approve.py &&
+install -m 600 "$ORDER_QUOTE" "$REVIEWED_QUOTES_DIR/.$WOO_ORDER_ID.pending" &&
+mv "$REVIEWED_QUOTES_DIR/.$WOO_ORDER_ID.pending" "$REVIEWED_QUOTES_DIR/$WOO_ORDER_ID.json"
+```
+
+Success prints the exact ERP order admission and installs a file named with that Woo ID. Stop on any mismatch. The quote's `source_order` must be the same numeric ID as a string. Keep an approved quote stable while receipts have pending effects. Later changed amounts or destinations require review. A cancelled order's later snapshot is processed automatically with the existing reviewed context, and only unshipped MP holds/picks are released.
+
+To automate the existing verified capture step, first approve the exact charge using the existing ERP capture helper and submit its reviewed Sales Order. Then set `automatic_capture: true` and add the exact reviewed ISO posting date under `capture_posting_dates[woo_order_id]` in the private worker config. The date remains fixed across partial failures and retries. A missing date reports `posting_date_review`, a missing approval or failed verification reports `capture_review`, and refunds report `refund_review`. The cycle never infers a posting date from the day a retry happens. Keep the manual capture command available for review.
+
+Run one cycle on the Linode before changing the timer.
+
+```bash
+order cycle
+```
+
+Success lists only reviewed quote IDs, receipt work results and publication results. A confirmed reservation skips another capture request. Stop on an unexpected order ID, review state or inventory error. Inspect `order status --order-id "$WOO_ORDER_ID"` and the four-system ledger before proceeding.
+
+After that pass succeeds, change the existing timer's service to the cycle. Run on the Linode from `~/RootedOps`, with the same absolute `ORDER_PYTHON` and `LIVE_ORDER_CONFIG` used earlier.
+
+```bash
+sudo mkdir -p /etc/systemd/system/dank-woo-mp-publication.service.d
+sudo tee /etc/systemd/system/dank-woo-mp-publication.service.d/20-order-cycle.conf >/dev/null <<UNIT
+[Service]
+ExecStart=
+ExecStart=$ORDER_PYTHON integrations/commerce/production_order.py cycle --config $LIVE_ORDER_CONFIG
+UNIT
+sudo systemctl daemon-reload &&
+sudo systemctl restart dank-woo-mp-publication.timer &&
+sudo systemctl start dank-woo-mp-publication.service &&
+sudo systemctl show dank-woo-mp-publication.service -p Result -p ExecMainStatus
+```
+
+Success shows `Result=success` and `ExecMainStatus=0`. Stop if the unit fails. Continue comparing the Woo Orders screen with the inbox queue and resolving new orders that need approval. Remove a quote from the watched directory to pause further automated processing for that order while reviewing it. Keep the inbox, current references and quote history. A review/dead receipt still requires the existing explicit replay after fixing its cause.
+
+To return this service to publication only, disable its timer, rename the override to `20-order-cycle.conf.disabled`, reload systemd and verify the resulting ExecStart before resuming. Keep accepted order and payment data throughout a pause or routing rollback.
 
 ## 6. Owner acceptance on shop-test
 

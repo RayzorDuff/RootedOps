@@ -41,7 +41,7 @@ def order_scope(config, command, selected=None):
     if config.get('mode') != 'review' or config.get('enabled') is not True:
         raise ValueError('Explicit production review mode required')
     cutoff = datetime.strptime(config['not_before_gmt'], STAMP)
-    if command in ('serve', 'init', 'queue', 'publish'):
+    if command in ('serve', 'init', 'queue', 'publish', 'cycle'):
         if selected is not None:
             raise ValueError('This command does not take an order ID')
         return None, cutoff
@@ -105,9 +105,58 @@ def connector(dsn, expected_name):
     return connect
 
 
+def cycle(inbox, mp, config):
+    """Keep later receipts moving after an order's private quote/ERP review."""
+    if config.get('mode') != 'review' or config.get('automation_enabled') is not True:
+        raise ValueError('Enable the reviewed multi-order cycle explicitly')
+    directory = Path(config['quote_directory'])
+    if not directory.is_dir() or directory.stat().st_mode & 0o077:
+        raise ValueError('Private reviewed quote directory required')
+    base_policy = config['draft_policy']
+    if base_policy.get('allow_zero_tax_fixture'):
+        raise ValueError('Production requires reviewed tax quotes')
+    clover = None
+    if config.get('automatic_capture') is True:
+        clover = CloverSandboxEvidence(site_key=SITE, merchant_id=os.environ['CLOVER_LIVE_MERCHANT_ID'],
+                  private_key=os.environ['CLOVER_LIVE_PRIVATE_KEY'], enabled=True, production=True)
+    outcomes = []
+    for path in sorted(directory.glob('*.json')):
+        order_id = path.stem
+        order_scope(config, 'work-once', order_id)
+        if path.stat().st_mode & 0o077:
+            raise ValueError('Private reviewed quote required')
+        quote = json.loads(path.read_text())
+        if quote.get('source_order') != order_id:
+            raise ValueError('Reviewed quote differs from its numeric filename')
+        policy = dict(base_policy, tax_quotes={**base_policy.get('tax_quotes', {}), order_id: quote})
+        erp = ReviewedERP(ERP, os.environ['ERP_AUTHORIZATION'], {}, request_erp_customer,
+                          mapping_policy=policy, production=True)
+        worked = deliver_one(inbox, mp, erp, site=SITE, order_id=order_id,
+                             pilot_configs={SITE: pilot_config(config)})
+        outcome = dict(order_id=order_id, worked=worked)
+        if clover is not None:
+            try:
+                key = ('woocommerce', SITE, order_id)
+                event, _ = inbox.completed_woo_payment_source(key)
+                if event.get('refunds'):
+                    outcome['capture'] = 'refund_review'
+                elif event['status'] in ('processing', 'completed') and not order_ledger(mp, key).get('reservation_confirmed'):
+                    posting_date = config.get('capture_posting_dates', {}).get(order_id)
+                    if posting_date is None:
+                        outcome['capture'] = 'posting_date_review'
+                    else:
+                        outcome['capture'] = reconcile_capture(inbox, mp, erp, clover, key,
+                            posting_date, os.environ['COMMERCE_CAPTURE_EVIDENCE_KEY'],
+                            production=True)['status']
+            except Exception:
+                outcome['capture'] = 'capture_review'
+        outcomes.append(outcome)
+    return outcomes
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('command', choices=('init', 'serve', 'status', 'queue', 'review', 'ledger', 'work-once', 'capture', 'shipment', 'replay', 'publish'))
+    parser.add_argument('command', choices=('init', 'serve', 'status', 'queue', 'review', 'ledger', 'work-once', 'capture', 'shipment', 'replay', 'publish', 'cycle'))
     parser.add_argument('--config', required=True, type=Path)
     parser.add_argument('--port', type=int, default=8102)
     parser.add_argument('--order-id')
@@ -159,6 +208,13 @@ def main():
                            erp_site='erp.danks.store', production=True)
     if command == 'ledger':
         print(json.dumps(order_ledger(mp, key), default=str))
+        return
+    if command == 'cycle':
+        result = {'orders': cycle(inbox, mp, config)}
+        if config.get('publication_enabled') is True:
+            erp = ReviewedERP(ERP, os.environ['ERP_AUTHORIZATION'], {}, request_erp_customer, production=True)
+            result['publication'] = publish(mp, erp, config)
+        print(json.dumps(result))
         return
     if command == 'publish':
         if config.get('publication_enabled') is not True:

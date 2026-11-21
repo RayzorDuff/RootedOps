@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.5.30] - 2026-11-21
+
+- Add an opt-in timer cycle for reviewed Woo orders, reusing their approved quote and exact ERP scope for later webhook updates and cancellations.
+- Reuse verified capture reconciliation with explicitly approved posting dates that stay stable across retries. Keep tax, Sales Order and capture approval visible in the operator procedure.
+- Combine reviewed order processing, MP dispatch delivery and published stock in the existing supervised service.
+
 ## [1.5.29] - 2026-11-21
 
 - Add disabled-by-default MP dispatch publication to Woo and ERP, with independent destination retry, canonical Woo order IDs and generated administrative order links.
