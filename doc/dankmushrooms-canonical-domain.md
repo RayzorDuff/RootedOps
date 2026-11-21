@@ -178,7 +178,13 @@ test -n "${LIVE_ORDER_CONFIG:-}"
 python3 scripts/commerce_storefront_config.py "$LIVE_ORDER_CONFIG"
 ```
 
-Success: transport updated; store identities/flags retained; a mode-0600 `.before-dankmushrooms-net` backup exists. The helper refuses an unknown old origin or non-private file. Set `MP_COMMERCE_WOO_ORIGIN=https://dankmushrooms.net` in private `.env` using the existing private-configuration procedure. Do not change `MP_COMMERCE_FULFILLMENT_ENABLED`, Woo stock or payment enable flags. Import the MP hostname workflow follow-up using the normal versioned workflow deployment. It preserves webhook names and validates the new origin.
+Success: transport updated; store identities/flags retained; a mode-0600 `.before-dankmushrooms-net` backup exists. The helper refuses an unknown old origin or non-private file. Update the private dotenv transport with the same guarded helper (mode 0600 required):
+
+```bash
+python3 scripts/commerce_storefront_config.py --dotenv .env
+```
+
+Success: only MP_COMMERCE_WOO_ORIGIN changes; a private original backup is retained. Duplicate/unknown origins stop for review. Do not change `MP_COMMERCE_FULFILLMENT_ENABLED`, Woo stock or payment enable flags. Import the MP hostname workflow follow-up using the normal versioned workflow deployment. It preserves webhook names and validates the new origin.
 
 Restart only affected worker units identified by the installed service preflight. Recreate n8n only in an agreed shared-service window and only when this env setting is used by its installed workflow. Use the existing Compose project and its normal core compose files, adding `-f docker/docker-compose.commerce-hostname.yml`, then `up -d --no-deps n8n`; never `down` or `--remove-orphans` on this shared server. STOP if any target/reference/readback fails. Native ERP configuration may be cached in long-lived workers: use the existing ERP service reload procedure in the shared-service window if cache clearing alone does not refresh it. Do not restart unrelated applications.
 
@@ -228,7 +234,17 @@ To undo only content changed by this migration:
   restore /hostname-private/content.json
 ```
 
-Success: exact original changed rows restored. The journal restore compares current values to its recorded after-values and aborts the transaction if content changed meanwhile; resolve those rows manually rather than overwrite newer content. Keep net resolving to the same WP during recovery. Restore **only transport settings** to shop-test from the private backups; preserve newer receipts, approvals and records. Never restore the entire site_config or worker JSON over newer operational changes without reviewing the difference. Keep the same logical store identities. Revalidate customer requests and repeat a safe signed replay after resuming the existing services.
+Success: exact original changed rows restored. The journal restore compares current values to its recorded after-values and aborts the transaction if content changed meanwhile; resolve those rows manually rather than overwrite newer content. Keep net resolving to the same WP during recovery. Restore **only transport settings**, keeping the existing config paths:
+
+```bash
+python3 scripts/commerce_storefront_config.py --dotenv .env --origin https://shop-test.danks.store
+python3 scripts/commerce_storefront_config.py "$LIVE_ORDER_CONFIG" --origin https://shop-test.danks.store
+sudo docker exec -i --user frappe erpnext-backend python3 - storefront-domain \
+  --woo-origin https://shop-test.danks.store < scripts/commerce_live_approve.py
+sudo docker exec --user frappe erpnext-backend bench --site erp.danks.store clear-cache
+```
+
+Skip the worker command if no worker was deployed. Reload only its installed service and the reviewed n8n overlay in the shared-service window. This preserves settings unrelated to the transport; preserve newer receipts, approvals and records. Never restore the entire site_config or worker JSON over newer operational changes without reviewing the difference. Keep the same logical store identities. Revalidate customer requests and repeat a safe signed replay after resuming the existing services.
 
 At the later owner-approved public cutover, pause Ecwid checkout, reconcile outstanding commitments/opening inventory, and switch danks.store HTTPS frontend traffic to net using temporary 302s. Preserve any established exact signed webhook routes ahead of frontend redirects. Review saved sitemap paths/QR labels at net with no hop through shop-test, verify maps/shipped/pickup/delivery/tax/email/Clover, then owner purchase and lifecycle trace. Only after verification change frontend redirects to 301. Retain Ecwid for rollback and preserve Woo orders/payments already accepted. Keep the feed ownership/item-ID transition, first-payout reconciliation and Clover entitlement after Ecwid cancellation on the retirement checklist. Settlement/fee evidence stays visible; Flex is independent.
 

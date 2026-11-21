@@ -25,6 +25,16 @@ class HostnameTests(unittest.TestCase):
         self.assertEqual(changed, before)
         with self.assertRaises(ValueError): module.update({'woo_origin': 'https://unknown.invalid'})
 
+    def test_private_env_update_changes_one_key_and_preserves_flags(self):
+        source = 'SECRET=synthetic-only\nMP_COMMERCE_FULFILLMENT_ENABLED=false\n'
+        changed = module.update_env(source)
+        self.assertEqual(changed, source + 'MP_COMMERCE_WOO_ORIGIN=https://dankmushrooms.net\n')
+        self.assertEqual(module.update_env(changed), changed)
+        self.assertEqual(module.update_env(changed, 'https://shop-test.danks.store'),
+                         source + 'MP_COMMERCE_WOO_ORIGIN=https://shop-test.danks.store\n')
+        with self.assertRaises(ValueError): module.update_env(changed + 'MP_COMMERCE_WOO_ORIGIN=https://dankmushrooms.net\n')
+        with self.assertRaises(ValueError): module.update_env('MP_COMMERCE_WOO_ORIGIN=https://unknown.invalid\n')
+
     def test_origin_is_separate_from_the_order_identity(self):
         self.assertEqual(customer_pair('https://erp.danks.store', 'https://dankmushrooms.net', True),
                          ('https://erp.danks.store', 'https://dankmushrooms.net'))

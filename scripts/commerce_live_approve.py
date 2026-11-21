@@ -45,6 +45,8 @@ def apply(scope, action, order_id=None, charge_id=None):
 def main():
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument('action', choices=('review', 'admit', 'capture', 'same-installation', 'storefront-domain'))
+    p.add_argument('--woo-origin', choices=('https://shop-test.danks.store', 'https://dankmushrooms.net'),
+                   default='https://dankmushrooms.net')
     p.add_argument('--order-id')
     p.add_argument('--charge-id')
     args = p.parse_args()
@@ -68,7 +70,7 @@ def main():
                         os.fsync(saved.fileno())
             customer['same_woo_installation'] = True
             if args.action == 'storefront-domain':
-                customer['woo_origin'] = 'https://dankmushrooms.net'
+                customer['woo_origin'] = args.woo_origin
         else:
             config['commerce_live_order'] = apply(config['commerce_live_order'], args.action,
                                                  args.order_id, args.charge_id)
