@@ -41,7 +41,7 @@ Tracking retrieval through an installed label plugin has not been verified. The 
 
 ## 2. Merge and back up
 
-Review the stack in this order, retargeting children after their parent merges. RootedOps #111 → #112 → #113 → #115 → #116 → #118 → this fulfillment follow-up. RootedOps #117 contains the independent final-host routing/redirect/feed runbook. MushroomProcess #115 precedes its pack/dispatch follow-up. RootedOps #114 remains the settlement/fee track. Preserve the current ERP/customer-sync worker, timer and Woo hooks.
+Review the stack in this order, retargeting children after their parent merges. RootedOps #111 → #112 → #113 → #115 → #116 → #118 → #119 → #120. Retarget each child after its parent merges. If a parent is squash-merged, rebase its child before merging. RootedOps #117 contains the independent final-host routing/redirect/feed runbook. MushroomProcess #115 → #116 must be merged and deployed before activating RootedOps #119/#120 publication. Follow the repository owner’s reviewed promotion from main to the production branch. RootedOps #114 remains the settlement/fee track. Preserve the current ERP/customer-sync worker, timer and Woo hooks.
 
 Use blocks A3–A5 in [the Linode runbook](dank-woocommerce-linode.md) to update the clean checkout and verify Woo, ERP and MP backups. Keep recovery copies off-host. Save the current private settings, worker unit files and NGINX configuration. Stop if a backup or archive check fails. Merge and backup precede production migration and service changes.
 
