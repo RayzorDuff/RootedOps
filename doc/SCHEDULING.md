@@ -37,6 +37,56 @@ Check migration completion, `PHX_HOST`, admin Google Workspace login, existing b
 
 Reference: https://tymeslot.app/changelog and https://tymeslot.app/docs/admin-setup
 
+## Tested Tymeslot PR-source image for RootedOps #122 (2026-11-21)
+
+**Purpose:** test the upstream invitation Google-OAuth CSP fix at [Tymeslot PR #225](https://github.com/Tymeslot/tymeslot/pull/225) against the existing (mostly fresh) Rooted Psyche production Tymeslot installation without merging that PR or requiring an isolated Tymeslot environment. **Do not merge or close upstream PR #225 until the exact tested revision passes acceptance.**
+
+The RootedOps Compose service accepts an optional `TYMESLOT_IMAGE_REPOSITORY`, defaulting to the published `luka1thb/tymeslot`. This keeps normal releases untouched while allowing a locally built, immutable PR-source image. Preserve the existing root `.env` secrets and both named Compose volumes. Never use `down -v` for this upgrade.
+
+**Prepare and build:** on the deployment Linode, where Docker is available and your fork is accessible:
+
+```bash
+# Use the exact reviewed PR head; if PR changes, update the SHA and repeat checks.
+PR_SHA=2f4d5fbef2e741c5637ffddaab52c60ba4103eac
+PR_TAG="pr225-${PR_SHA:0:12}"
+
+git clone https://github.com/RayzorDuff/tymeslot.git "$HOME/tymeslot-pr225"
+cd "$HOME/tymeslot-pr225"
+git fetch origin "$PR_SHA"
+git checkout --detach "$PR_SHA"
+test "$(git rev-parse HEAD)" = "$PR_SHA" || exit 1
+sudo docker build -f Dockerfile.docker -t "rootedops/tymeslot:$PR_TAG" .
+sudo docker image inspect "rootedops/tymeslot:$PR_TAG" --format '{{.Id}}'
+```
+
+The upstream Dockerfile's default final stage (`release`) **includes embedded PostgreSQL**, matching the existing two-volume RootedOps Compose service. Do not build its `release-slim` stage, which requires external PostgreSQL.
+
+**Pre-change backup:** From `~/RootedOps`, verify the existing Tymeslot backup or make a new custom-format PostgreSQL dump using the running container. Check the archive with the running container's own `pg_restore -l`; the Ubuntu host's `pg_restore` may be older than the archive format. For rollback, remember that reverting an image does not revert database migrations; preserve volume data and a compatible pre-upgrade dump.
+
+**Pin PR image in the private `~/RootedOps/.env`:**
+
+```dotenv
+TYMESLOT_IMAGE_REPOSITORY=rootedops/tymeslot
+TYMESLOT_IMAGE_TAG=pr225-2f4d5fbef2e7
+```
+
+Then check Compose resolution **without printing secrets**:
+
+```bash
+cd ~/RootedOps
+sudo docker compose --env-file .env -p rootedops-scheduling -f docker/scheduling/tymeslot.compose.yml config --format json \
+  | python3 -c 'import json,sys; c=json.load(sys.stdin); print(c["services"]["tymeslot"]["image"])'
+# MUST print rootedops/tymeslot:pr225-2f4d5fbef2e7
+sudo docker compose --env-file .env -p rootedops-scheduling -f docker/scheduling/tymeslot.compose.yml up -d --no-deps --no-build --force-recreate tymeslot
+sudo docker logs --tail 100 rootedops-tymeslot
+```
+
+**Do not run Compose `pull` for the locally built image.** Keep `TYMESLOT_PUBLIC_HOST=schedule.rootedpsyche.org` and existing OAuth/encryption/SMTP credentials.
+
+**Acceptance:** Confirm admin Workspace sign-in; create a fresh invite (prior invitation URL/token was shared), click Google in Chrome, confirm the provider redirect is not blocked by CSP and that the invited Workspace identity completes registration; public registration and password auth remain disabled; guest booking, confirmations, reschedule, cancel and Calendar/Meet integration still work. Record the tested commit and image digest in #122. Report result on upstream PR #225 without sensitive tokens/headers.
+
+**Rollback:** If the current PR image does not work, stop and collect non-secret logs. Restore prior private image configuration (published `luka1thb/tymeslot:1.40.0`) only if the database schema remains compatible; otherwise coordinate database restore from the pre-change dump rather than running old code on migrated tables. Keep the PR open while debugging.
+
 ## SMTP: reuse the Listmonk Gmail pattern
 
 Listmonk already used Gmail SMTP; scheduling uses the same provider but a **separate Google app password** for Tymeslot. Authentication user: `rootedpsyche@gmail.com`. SMTP: `smtp.gmail.com`, port `587`, STARTTLS, password authentication. Use the same authorized email address as sender. Never commit app passwords. Google OAuth *client secret* is unrelated to Gmail SMTP *app password*.
