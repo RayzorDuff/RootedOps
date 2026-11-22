@@ -11,6 +11,8 @@
     "site_key",
     "external_order_id",
     "revision",
+    "fulfillment_line_map",
+    "fulfilled_quantities",
     "status",
     "draft_hash",
     "sales_order",
@@ -42,6 +44,18 @@
       "label": "External Order Id",
       "fieldtype": "Data",
       "reqd": 1
+    },
+    {
+      "fieldname": "fulfillment_line_map",
+      "label": "Fulfillment Line Map",
+      "fieldtype": "Long Text",
+      "read_only": 1
+    },
+    {
+      "fieldname": "fulfilled_quantities",
+      "label": "Fulfilled Quantities",
+      "fieldtype": "Long Text",
+      "read_only": 1
     },
     {
       "fieldname": "revision",

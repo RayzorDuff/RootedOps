@@ -9,6 +9,7 @@ import json
 from decimal import Decimal
 import frappe
 from rootedops_commerce.contract import mapping_key
+from rootedops_commerce import live_order
 
 
 def _authorized(financial=False):
@@ -80,13 +81,96 @@ def validate_draft(values,event):
     if not net.is_finite() or net!=Decimal(event['total']):raise ValueError('Reviewed order total mismatch')
 
 
+def _pilot_customer(event, values):
+    allowed = {'erp-test.danks.store': 'shop-test.danks.store',
+               'erp-test2.danks.store': 'shop-test2.danks.store'}
+    live = live_order.authorize(event) if frappe.local.site == live_order.ERP_SITE else False
+    if live and (not event.get('source_created_gmt') or event.get('order_intake_mode') != 'reviewed_mapping'):
+        raise ValueError('Production order needs the signed launch timestamp and reviewed mapping')
+    if (event['provider'] != 'woocommerce' or not live and allowed.get(frappe.local.site) != event['site_key']
+            or 'external_customer_id' not in event):
+        raise ValueError('Unpaid Woo pilot requires the matching staging ERP site and customer identity')
+    capture_enabled = live or (frappe.conf.get('commerce_clover_capture_pilot') or {}).get('enabled') is True
+    clover = (event.get('order_intake_mode') == 'reviewed_mapping'
+              and event.get('payment_processor') == 'clover' and capture_enabled)
+    cash = (event.get('order_intake_mode') == 'reviewed_mapping'
+            and event.get('payment_processor') == 'cash'
+            and (frappe.conf.get('commerce_cash_accounting') or {}).get('enabled') is True
+            and event['status'] in ('pending', 'on-hold', 'processing', 'completed', 'cancelled')
+            and not event.get('processor_payment_id') and not event.get('refunds'))
+    if not clover and not cash and (event['status'] not in ('pending', 'on-hold', 'cancelled')
+                       or event.get('payment_processor') != 'manual_unpaid'
+                       or event.get('processor_payment_id') or event.get('refunds')):
+        raise ValueError('Only approved unpaid or Clover sandbox fixture orders can use the staging pilot')
+    if event['external_customer_id'] is None and not values.get('customer'):
+        raise ValueError('Explicit reviewed guest Customer required')
+
+
+def _validate_pilot_commercial(values, event):
+    if values.get('taxes') or event.get('tax_quote') is not None:
+        raise ValueError('Unpaid fixture requires zero tax, fees, shipping and discounts')
+    expected = {}
+    for line in event['lines']:
+        item = line['erp_item_code']
+        expected[item] = expected.get(item, 0) + Decimal(event['line_amounts'][line['line_id']])
+    actual = {}
+    for row in values['items']:
+        item = row['item_code']
+        actual[item] = actual.get(item, 0) + Decimal(str(row['qty'])) * Decimal(str(row['rate']))
+    if actual != expected:
+        raise ValueError('Reviewed ERP Item amounts differ from the unpaid Woo fixture')
+
+
+def _validate_mapped_commercial(values, event):
+    from rootedops_commerce.tax_contract import _money
+    commercial = event['commercial']
+    shipping = _money(commercial['shipping'])
+    expected = {}
+    for line in event['lines']:
+        item = line['erp_item_code']
+        expected[item] = expected.get(item, 0) + _money(commercial['line_totals'][line['line_id']])
+    lines = list(event['lines'])
+    if shipping:
+        item = frappe.conf.get('commerce_order_shipping_item')
+        if not item or item in expected:
+            raise ValueError('Separate reviewed nonstock shipping Item required')
+        shipping_item = frappe.get_doc('Item', item)
+        shipping_item.check_permission('read')
+        if shipping_item.is_stock_item or shipping_item.disabled or shipping_item.has_variants:
+            raise ValueError('Enabled nonstock shipping Item required')
+        expected[item] = shipping
+        lines.append({'erp_item_code': item, 'quantity': 1})
+    actual = {}
+    for row in values['items']:
+        item = row['item_code']
+        actual[item] = actual.get(item, 0) + _money(row['rate']) * Decimal(str(row['qty']))
+    if actual != expected:
+        raise ValueError('Mapped draft Item amounts differ from signed order')
+    if sum(_money(row['tax_amount']) for row in values.get('taxes', [])) != _money(commercial['tax']):
+        raise ValueError('Mapped tax differs from signed total')
+    quote = event.get('tax_quote')
+    if quote is None and (frappe.local.site == live_order.ERP_SITE
+                          or not frappe.conf.get('commerce_mapped_zero_tax_fixture') or _money(commercial['tax'])):
+        raise ValueError('Destination tax quote required')
+    if quote is not None and quote.get('location_ref') != commercial['destination']:
+        raise ValueError('Tax quote destination mismatch')
+    return dict(event, lines=lines)
+
+
 @frappe.whitelist(methods=['POST'])
 def stage_order(payload):
     _authorized();data=frappe.parse_json(payload);event=data['event'];values=deepcopy(data['reviewed_draft'])
     customer_sync = frappe.conf.get('commerce_customer_sync') or {}
-    if (customer_sync.get('enabled') and customer_sync.get('production_erp_pilot') is not True
-            and event['provider'] == 'woocommerce'
-            and event['site_key'] == customer_sync.get('woo_site')):
+    mode = event.get('order_intake_mode')
+    pilot = mode in ('unpaid_pilot', 'reviewed_mapping')
+    live = live_order.authorize(event)
+    if live and not pilot:
+        raise ValueError('Production order requires reviewed mapping')
+    if pilot:
+        _pilot_customer(event, values)
+    if pilot or (customer_sync.get('enabled') and customer_sync.get('production_erp_pilot') is not True
+                 and event['provider'] == 'woocommerce'
+                 and event['site_key'] == customer_sync.get('woo_site')):
         if 'external_customer_id' not in event:
             raise ValueError('Woo order must declare registered or guest checkout')
         if event['external_customer_id'] is not None:
@@ -95,7 +179,15 @@ def stage_order(payload):
             if values.get('customer') and values['customer'] != customer:
                 raise ValueError('Reviewed order customer differs from registered Woo link')
             values['customer'] = customer
-    validate_draft(values,event)
+    validation_event = _validate_mapped_commercial(values, event) if mode == 'reviewed_mapping' else event
+    validate_draft(values, validation_event)
+    if mode == 'unpaid_pilot':
+        _validate_pilot_commercial(values, event)
+    if data.get('preflight') is True:
+        if not live:
+            raise ValueError('Production-only order validation')
+        check_draft_records(values)
+        return {'status': 'validated'}
     key=mapping_key(event['provider'],event['site_key'],event['external_order_id'])
     # Preserve pre-existing order fingerprints when no tax quote was supplied.
     # Once a quote is supplied, its immutable identity binds every replay.
@@ -103,6 +195,12 @@ def stage_order(payload):
         'draft':values, 'tax_quote':event['tax_quote']}
     fingerprint=hashlib.sha256(json.dumps(
         hash_input,sort_keys=True,separators=(',',':')).encode()).hexdigest()
+    fulfillment_map = None
+    if pilot:
+        fulfillment_map = {line['line_id']: {'item_code': line['erp_item_code'],
+                           'quantity': line['quantity']} for line in event['lines']}
+        if len(fulfillment_map) != len(event['lines']):
+            raise ValueError('Duplicate fulfillment line IDs')
     if frappe.db.exists('Commerce Order State',key):
         # Lock state before checking revision and writing ERP status/identities.
         frappe.db.sql('SELECT name FROM `tabCommerce Order State` WHERE name=%s FOR UPDATE',(key,))
@@ -114,12 +212,13 @@ def stage_order(payload):
         order=frappe.get_doc('Sales Order',state.sales_order);order.check_permission('read')
         if order.docstatus==2:raise ValueError('Cancelled ERP order requires explicit reconciliation')
         if Decimal(str(order.grand_total))!=Decimal(event['total']):raise ValueError('ERP order total drift requires review')
+        if fulfillment_map is not None:
+            if state.fulfillment_line_map and json.loads(state.fulfillment_line_map) != fulfillment_map:
+                raise ValueError('Fulfillment line identity drift')
+            state.fulfillment_line_map = json.dumps(fulfillment_map, sort_keys=True)
         state.revision=int(event['revision']);state.status=event['status'];state.save()
     else:
-        customer=frappe.get_doc('Customer',values['customer']);customer.check_permission('read')
-        for row in values['items']:
-            item=frappe.get_doc('Item',row['item_code']);item.check_permission('read')
-            if item.disabled or item.has_variants:raise ValueError('Enabled leaf Item required')
+        check_draft_records(values)
         # Reserve the unique source key before creating the ERP document.
         state=frappe.get_doc({'doctype':'Commerce Order State','source_key':key,'provider':event['provider'],
             'site_key':event['site_key'],'external_order_id':event['external_order_id'],'revision':int(event['revision']),
@@ -128,6 +227,8 @@ def stage_order(payload):
             raise ValueError('Unseen terminal order requires review, not new demand')
         order=frappe.get_doc(dict(values,doctype='Sales Order')).insert()
         if Decimal(str(order.grand_total))!=Decimal(event['total']):raise ValueError('ERP calculated total mismatch')
+        if fulfillment_map is not None:
+            state.fulfillment_line_map = json.dumps(fulfillment_map, sort_keys=True)
         state.sales_order=order.name;state.save()
     return {'status':'staged','source_key':key,'sales_order':state.sales_order,
             'sales_invoice':state.sales_invoice,'payment_entry':state.payment_entry,
@@ -135,10 +236,23 @@ def stage_order(payload):
             'reconciliation_required':order.docstatus==1 and event['status'] in ('cancelled','failed','refunded')}
 
 
+def check_draft_records(values):
+    customer = frappe.get_doc('Customer', values['customer'])
+    customer.check_permission('read')
+    if customer.disabled:
+        raise ValueError('Enabled Customer required')
+    for row in values['items']:
+        item = frappe.get_doc('Item', row['item_code'])
+        item.check_permission('read')
+        if item.disabled or item.has_variants:
+            raise ValueError('Enabled leaf Item required')
+
+
 @frappe.whitelist(methods=['POST'])
 def resolve_order(payload):
     """Read current durable references after an explicit accounting link, without replay."""
     _authorized();data=frappe.parse_json(payload)
+    live_order.authorize(data)
     key=mapping_key(data['provider'],data['site_key'],data['external_order_id'])
     state=frappe.get_doc('Commerce Order State',key);state.check_permission('read')
     order=frappe.get_doc('Sales Order',state.sales_order);order.check_permission('read')
@@ -151,6 +265,13 @@ def resolve_order(payload):
 def attach_financial_documents(payload):
     """Accounts Manager links already submitted ERP documents; creates none."""
     _authorized(financial=True);data=frappe.parse_json(payload)
+    live_order.authorize(data)
+    return _attach_financial_documents(data)
+
+
+def _attach_financial_documents(data):
+    """Shared financial validation; caller must perform its source-specific admission."""
+    _authorized(financial=True)
     key=mapping_key(data['provider'],data['site_key'],data['external_order_id'])
     frappe.db.sql('SELECT name FROM `tabCommerce Order State` WHERE name=%s FOR UPDATE',(key,))
     state=frappe.get_doc('Commerce Order State',key);state.check_permission('write')

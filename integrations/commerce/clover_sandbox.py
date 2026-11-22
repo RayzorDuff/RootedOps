@@ -11,17 +11,18 @@ from urllib.request import Request,build_opener,HTTPRedirectHandler
 from orders import reconcile_clover
 
 BASE='https://scl-sandbox.dev.clover.com/v1/charges/'
+PRODUCTION_BASE='https://scl.clover.com/v1/charges/'
 
 
-def get_charge(charge_id, private_key):
+def get_charge(charge_id, private_key, *, production=False):
     if not isinstance(charge_id,str) or not re.fullmatch(r'[A-Za-z0-9_-]{5,128}',charge_id):
         raise ValueError('Invalid charge identity')
     if not isinstance(private_key,str) or len(private_key)<32 or any(c in private_key for c in '\r\n'):
         raise ValueError('Private sandbox key required')
     class NoRedirect(HTTPRedirectHandler):
         def redirect_request(self,*args,**kwargs):raise ValueError('Clover redirect refused')
-    request=Request(BASE+charge_id,headers={'Authorization':'Bearer '+private_key,
-        'Accept':'application/json','User-Agent':'RootedOps-Commerce/0.3 sandbox-reconciliation'},method='GET')
+    request=Request((PRODUCTION_BASE if production else BASE)+charge_id,headers={'Authorization':'Bearer '+private_key,
+        'Accept':'application/json','User-Agent':'RootedOps-Commerce/0.3 charge-reconciliation'},method='GET')
     try:
         with build_opener(NoRedirect).open(request,timeout=30) as response:
             body=response.read(1024*1024+1)
@@ -35,7 +36,7 @@ def get_charge(charge_id, private_key):
         return json.loads(body,object_pairs_hook=unique)
     except Exception:
         # Never include keys, charge data/card details or provider response bodies.
-        raise RuntimeError('Sandbox charge lookup failed; reconciliation remains unverified') from None
+        raise RuntimeError('Clover charge lookup failed; reconciliation remains unverified') from None
 
 
 def cents(value):
@@ -44,13 +45,17 @@ def cents(value):
 
 
 class CloverSandboxEvidence:
-    def __init__(self, *, site_key, merchant_id, private_key, enabled=False, transport=get_charge):
+    def __init__(self, *, site_key, merchant_id, private_key, enabled=False, transport=None, production=False):
         if enabled is not True:raise ValueError('Explicit sandbox evidence opt-in required')
-        if site_key not in ('shop-test','synthetic'):raise ValueError('Dedicated sandbox site required')
+        allowed = ('danks.store',) if production else ('shop-test', 'shop-test.danks.store', 'shop-test2.danks.store', 'synthetic')
+        if site_key not in allowed:
+            raise ValueError('Clover environment/site mismatch')
         if not site_key or not re.fullmatch(r'[A-Za-z0-9_-]{5,64}',merchant_id):raise ValueError('Reviewed site/merchant binding required')
         if not isinstance(private_key,str) or len(private_key)<32 or any(c in private_key for c in '\r\n'):
             raise ValueError('Private sandbox key required')
-        self.site,self.merchant,self._key,self._get=site_key,merchant_id,private_key,transport
+        self.site, self.merchant, self._key = site_key, merchant_id, private_key
+        self.production = production
+        self._get = transport or (lambda charge, key: get_charge(charge, key, production=production))
 
     def evidence(self, order, *, reviewed_order):
         if order['site_key']!=self.site or order['payment_processor']!='clover':raise ValueError('Site/processor binding mismatch')
@@ -65,10 +70,13 @@ class CloverSandboxEvidence:
         if order['currency'] not in ('USD','CAD'):raise ValueError('Reviewed two-minor-unit currency required')
         try:charge=self._get(charge_id,self._key)
         except Exception:
-            raise RuntimeError('Sandbox charge lookup failed; reconciliation remains unverified') from None
+            raise RuntimeError('Clover charge lookup failed; reconciliation remains unverified') from None
         if not isinstance(charge,dict) or charge.get('object')!='charge' or charge.get('id')!=charge_id:
             raise ValueError('Exact single charge response required')
-        if charge.get('livemode') is not False:raise ValueError('Explicit sandbox response required')
+        reported_merchant = charge.get('merchant_id')
+        if reported_merchant is not None and reported_merchant != self.merchant:
+            raise ValueError('Clover charge merchant mismatch')
+        if charge.get('livemode') is not self.production:raise ValueError('Explicit Clover environment required')
         if charge.get('external_reference_id')!=reviewed_order_number:raise ValueError('Charge/order reference mismatch')
         if charge.get('status')!='succeeded' or charge.get('paid') is not True or charge.get('captured') is not True:
             raise ValueError('Successful captured charge required; authorization/failed IDs are insufficient')
@@ -76,7 +84,7 @@ class CloverSandboxEvidence:
         amount=cents(charge.get('amount'));captured=cents(charge.get('amount_captured'));refunded=cents(charge.get('amount_refunded'))
         if amount!=captured or Decimal(refunded)>Decimal(captured):raise ValueError('Partial capture or invalid refund requires review')
         result={'verification':'verified_adapter','processor':'clover','state':'captured',
-            'site_key':self.site,'merchant_id':self.merchant,'provider_environment':'sandbox',
+            'site_key':self.site,'merchant_id':self.merchant,'provider_environment':'production' if self.production else 'sandbox',
             'external_order_id':order['external_order_id'],'external_order_number':reviewed_order_number,
             'payment_id':charge_id,'processor_reference_type':'clover_ecommerce_charge',
             'currency':order['currency'],'captured_amount':captured,'refunded_amount':refunded}

@@ -16,4 +16,6 @@ CREATE TABLE IF NOT EXISTS commerce_delivery (
   FOREIGN KEY(provider,site_key,event_id) REFERENCES commerce_inbox(provider,site_key,event_id)
 );
 CREATE INDEX IF NOT EXISTS commerce_delivery_ready ON commerce_delivery(state,next_attempt_at);
+CREATE INDEX IF NOT EXISTS commerce_inbox_order_receipts
+  ON commerce_inbox(provider,site_key,external_order_id,received_at,event_id);
 COMMIT;

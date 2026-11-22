@@ -82,7 +82,7 @@ function rootedops_customer_profile_unlock( $key ) {
 function rootedops_customer_projection_enabled() {
 	return rootedops_customer_sync_enabled() && in_array(
 		wp_parse_url( home_url(), PHP_URL_HOST ),
-		array( 'shop-test.danks.store', 'shop-test2.danks.store', 'dankmushrooms.net' ),
+		array( 'shop-test.danks.store', 'shop-test2.danks.store', 'danks.store', 'dankmushrooms.net' ),
 		true
 	);
 }

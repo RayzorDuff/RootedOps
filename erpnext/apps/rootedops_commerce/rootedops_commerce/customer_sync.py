@@ -34,7 +34,9 @@ def settings(site):
                'erp-test2.danks.store': 'shop-test2.danks.store'}
     pilot = conf.get('production_erp_pilot') is True
     if pilot:
-        paired = frappe.local.site == 'erp.danks.store' and site == 'shop-test.danks.store'
+        paired = frappe.local.site == 'erp.danks.store' and (
+            site == 'shop-test.danks.store' or
+            site in ('danks.store', 'dankmushrooms.net') and conf.get('same_woo_installation') is True)
         ids = conf.get('woo_customer_ids', [])
         if (not isinstance(ids, list)
                 or any(not re.fullmatch(r'[1-9][0-9]{0,18}', str(value)) for value in ids)):
@@ -76,10 +78,11 @@ def woo_profile(doc, scope):
 def woo_request(site, customer_id, conf, body=None):
     origin = conf.get('woo_origin', 'https://' + site)
     if origin != 'https://' + site:
-        if (frappe.local.site != 'erp.danks.store' or site != 'shop-test.danks.store'
+        if (frappe.local.site != 'erp.danks.store'
+                or site not in ('shop-test.danks.store', 'danks.store', 'dankmushrooms.net')
                 or conf.get('production_erp_pilot') is not True
                 or conf.get('same_woo_installation') is not True
-                or origin != 'https://dankmushrooms.net'):
+                or origin not in ('https://shop-test.danks.store', 'https://danks.store', 'https://dankmushrooms.net')):
             raise ValueError('Reviewed same-installation Woo origin required')
     path = f'{origin}/wp-json/wc/v3/customers/{customer_id}'
     path += '?context=edit' if body is None else '/rootedops-projection'
@@ -107,14 +110,32 @@ def link_key(site, customer_id):
     return mapping_key('woocommerce', site, str(customer_id))
 
 
+def customer_link_site(site):
+    if site not in ('danks.store', 'dankmushrooms.net'):
+        return site
+    conf = frappe.conf.get('commerce_customer_sync') or {}
+    if (frappe.local.site != 'erp.danks.store'
+            or conf.get('woo_site') not in ('shop-test.danks.store', 'danks.store', 'dankmushrooms.net')
+            or conf.get('same_woo_installation') is not True):
+        raise ValueError('Final Woo site requires reviewed same-installation customer identity')
+    return 'shop-test.danks.store'
+
+
+def stored_link_key(site, customer_id):
+    stored_site = customer_link_site(site)
+    if site != stored_site and frappe.db.exists(LINK, link_key(site, customer_id)):
+        raise ValueError('Conflicting final-host Woo customer link requires reconciliation')
+    return link_key(stored_site, customer_id)
+
+
 def lock_link(site, customer_id, create=False):
-    key = link_key(site, customer_id)
+    key = stored_link_key(site, customer_id)
     if frappe.db.exists(LINK, key):
         link = frappe.get_doc(LINK, key, for_update=True)
         link.check_permission('write')
         return link
     if create:
-        return frappe.get_doc(dict(doctype=LINK, source_key=key, site_key=site,
+        return frappe.get_doc(dict(doctype=LINK, source_key=key, site_key=customer_link_site(site),
                                     woo_customer_id=str(customer_id))).insert()
     return None
 
@@ -366,7 +387,7 @@ def bind_existing(link, data, conf, reviewed=False):
     customer = frappe.get_doc('Customer', link.customer, for_update=True)
     customer.check_permission('read')
     # One account per ERP customer and store. Serialize review by Customer.
-    if frappe.db.exists(LINK, {'site_key': site, 'customer': customer.name, 'name': ['!=', link.name]}):
+    if frappe.db.exists(LINK, {'site_key': customer_link_site(site), 'customer': customer.name, 'name': ['!=', link.name]}):
         raise ValueError('ERP Customer already linked to another account in this store')
     if link.ecwid_identity:
         previous = frappe.get_doc('Commerce Migration Identity', link.ecwid_identity)
@@ -398,7 +419,7 @@ def bind_existing(link, data, conf, reviewed=False):
 
 
 def registered_customer(site, customer_id):
-    link = frappe.get_doc(LINK, link_key(site, customer_id))
+    link = frappe.get_doc(LINK, stored_link_key(site, customer_id))
     link.check_permission('read')
     if not link.customer:
         raise ValueError('Registered Woo order needs a resolved customer link')
@@ -462,7 +483,7 @@ def queue_projections():
         return
     site = conf.get('woo_site')
     conf = settings(site)
-    links = frappe.get_all(LINK, filters={'site_key': site, 'customer': ['is', 'set']},
+    links = frappe.get_all(LINK, filters={'site_key': customer_link_site(site), 'customer': ['is', 'set']},
                            fields=['name', 'woo_customer_id', 'woo_review_approved', 'woo_signup_provisioned'])
     for link in links:
         if not projection_allowed(conf, link, link.woo_customer_id):

@@ -1,0 +1,8 @@
+{
+  "enabled": false,
+  "production": true,
+  "erp_origin": "https://erp.danks.store",
+  "woo_origin": "https://dankmushrooms.net",
+  "mp_database": "mushroomprocess_bridge",
+  "approved_receipts": {}
+}
