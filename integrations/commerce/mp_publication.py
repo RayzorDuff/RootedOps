@@ -78,12 +78,14 @@ def inventory_snapshot(mp, mappings, site):
         for mapping in mappings:
             ecommerce_id = mapping['ecommerce_id']
             row = db.execute("""SELECT c.item_id,c.strain_id,i.available_quantity,c.provider,c.site_key,
-                    c.external_product_id,c.external_variation_id,c.external_sku
+                    c.external_product_id,c.external_variation_id,c.external_sku,s.pool_key,s.is_owner
                 FROM public.mp_ecommerce_catalog_inventory() c JOIN public.mp_commerce_inventory() i
-                USING(ecommerce_id) WHERE c.ecommerce_id=%s""", (ecommerce_id,)).fetchone()
+                USING(ecommerce_id) JOIN public.mp_inventory_specs() s USING(ecommerce_id) WHERE c.ecommerce_id=%s""", (ecommerce_id,)).fetchone()
             if not row or row[3:5] != ('woocommerce', site):
                 raise ValueError('Exact MP Woo mapping required')
-            pool = row[:2]
+            if row[9] is not True:
+                raise ValueError('Woo publication requires the reviewed inventory pool owner')
+            pool = row[8]
             if pool in pools:
                 raise ValueError('Multiple published Woo listings share physical inventory')
             pools.add(pool)

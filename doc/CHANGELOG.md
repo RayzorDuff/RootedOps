@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.5.32] - 2026-11-21
+
+- Require the reviewed Woo publication owner before sending stock and deduplicate by the shared MP specification pool. Keep nonowner stock in review.
+- Carry the merged Ecwid correction into the Woo test contract and document the explicit, reversible cutover owner handoff.
+- Preserve the accepted Ecwid Coco baseline and keep current customer/order identities through the canonical hostname change.
+
 ## [1.5.31] - 2026-11-21
 
 - Separate the canonical dankmushrooms.net Woo connection URL from existing customer/order store identities. Preserve link keys, inbox receipts and reservations.
