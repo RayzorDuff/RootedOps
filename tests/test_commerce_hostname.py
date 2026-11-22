@@ -1,53 +1,44 @@
-"""Standalone hostname configuration on the deployed customer-sync baseline."""
-import json
-import os
+"""Transport changes preserve durable identity and activation boundaries."""
+import copy
+import importlib.util
 from pathlib import Path
-import subprocess
 import sys
-import tempfile
 import unittest
-
 ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT / 'integrations/commerce'))
+from staging_origin import customer_pair, order_pair
+spec = importlib.util.spec_from_file_location('storefront_config', ROOT / 'scripts/commerce_storefront_config.py')
+module = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(module)
 
+class HostnameTests(unittest.TestCase):
+    def test_transport_change_retains_exact_configuration(self):
+        config = {'woo_origin': 'https://shop-test.danks.store', 'site_key': 'danks.store',
+                  'customer_sites': {'shop-test.danks.store': {'enabled': True}},
+                  'enabled': False, 'approved_orders': {'11': {'enabled': True}},
+                  'secret': 'synthetic-only', 'mappings': {'2': 7}}
+        before = copy.deepcopy(config)
+        changed = module.update(config)
+        self.assertEqual(config, before)
+        self.assertEqual(changed.pop('woo_origin'), 'https://dankmushrooms.net')
+        before.pop('woo_origin')
+        self.assertEqual(changed, before)
+        with self.assertRaises(ValueError): module.update({'woo_origin': 'https://unknown.invalid'})
 
-class HostnameConfiguration(unittest.TestCase):
-    def test_existing_private_config_and_transport_only_rollback(self):
-        source = (ROOT / 'scripts/commerce-configure-woo-signup.sh').read_text()
-        code = source.split('"$python" -c \'', 1)[1].split('\n\' "$site"', 1)[0]
-        with tempfile.TemporaryDirectory() as directory:
-            site = Path(directory) / 'erp.danks.store'
-            site.mkdir()
-            path = site / 'site_config.json'
-            original = {'db_password': 'synthetic-db', 'commerce_customer_sync': {
-                'enabled': True, 'production_erp_pilot': True,
-                'woo_site': 'shop-test.danks.store', 'woo_customer_ids': [3],
-                'woo_authorization': 'Basic synthetic', 'project_enabled': True,
-                'provision_new_woo_customers': True}}
-            path.write_text(json.dumps(original))
-            def run(mode):
-                return subprocess.run([sys.executable, '-c', code, str(site), mode],
-                                      text=True, capture_output=True)
-            self.assertEqual(run('hostname').returncode, 0)
-            updated = json.loads(path.read_text())
-            expected = json.loads(json.dumps(original))
-            expected['commerce_customer_sync'].update(
-                woo_origin='https://dankmushrooms.net', same_woo_installation=True)
-            self.assertEqual(updated, expected)
-            backup = path.with_name('site_config.json.before-standalone-hostname')
-            self.assertEqual(json.loads(backup.read_text()), original)
-            self.assertEqual(os.stat(backup).st_mode & 0o777, 0o600)
-            self.assertEqual(os.stat(path).st_mode & 0o777, 0o600)
-            self.assertEqual(run('hostname').returncode, 0)
-            updated['newer_setting'] = 'preserve after rollback'
-            path.write_text(json.dumps(updated))
-            self.assertEqual(run('restore_hostname').returncode, 0)
-            restored = json.loads(path.read_text())
-            self.assertEqual(restored['newer_setting'], updated['newer_setting'])
-            self.assertEqual(restored['commerce_customer_sync']['woo_origin'],
-                             'https://shop-test.danks.store')
-            self.assertEqual(json.loads(backup.read_text()), original)
-            restored['commerce_customer_sync']['woo_origin'] = 'https://unknown.invalid'
-            path.write_text(json.dumps(restored))
-            before = path.read_text()
-            self.assertNotEqual(run('hostname').returncode, 0)
-            self.assertEqual(path.read_text(), before)
+    def test_private_env_update_changes_one_key_and_preserves_flags(self):
+        source = 'SECRET=synthetic-only\nMP_COMMERCE_FULFILLMENT_ENABLED=false\n'
+        changed = module.update_env(source)
+        self.assertEqual(changed, source + 'MP_COMMERCE_WOO_ORIGIN=https://dankmushrooms.net\n')
+        self.assertEqual(module.update_env(changed), changed)
+        self.assertEqual(module.update_env(changed, 'https://shop-test.danks.store'),
+                         source + 'MP_COMMERCE_WOO_ORIGIN=https://shop-test.danks.store\n')
+        with self.assertRaises(ValueError): module.update_env(changed + 'MP_COMMERCE_WOO_ORIGIN=https://dankmushrooms.net\n')
+        with self.assertRaises(ValueError): module.update_env('MP_COMMERCE_WOO_ORIGIN=https://unknown.invalid\n')
+
+    def test_origin_is_separate_from_the_order_identity(self):
+        self.assertEqual(customer_pair('https://erp.danks.store', 'https://dankmushrooms.net', True),
+                         ('https://erp.danks.store', 'https://dankmushrooms.net'))
+        self.assertEqual(order_pair('https://erp.danks.store', 'https://danks.store', production=True),
+                         ('https://erp.danks.store', 'https://danks.store'))
+        with self.assertRaises(ValueError): order_pair('https://erp.danks.store', 'https://dankmushrooms.net', production=True)
+        with self.assertRaises(ValueError): customer_pair('https://erp-test.danks.store', 'https://dankmushrooms.net')

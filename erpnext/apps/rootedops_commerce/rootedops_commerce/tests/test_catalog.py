@@ -184,4 +184,170 @@ class TestCatalog(IntegrationTestCase):
             self.assertEqual(frappe.db.get_value('Sales Order',order.name,'docstatus'),1)
             self.assertEqual(frappe.db.count('Sales Invoice'),before_invoice)
             self.assertEqual(frappe.db.count('Payment Entry'),before_payment)
+            if frappe.local.site == 'erp-test.danks.store':
+                from rootedops_commerce.customer_sync import link_key
+                shop = 'shop-test.danks.store'
+                registered = frappe.get_doc(dict(doctype='Customer',
+                    customer_name='Synthetic linked Woo buyer', customer_type='Individual')).insert()
+                frappe.get_doc(dict(doctype='Commerce Customer Link', source_key=link_key(shop, '123'),
+                                    site_key=shop, woo_customer_id='123', customer=registered.name)).insert()
+                event.update(site_key=shop, revision=10, status='pending',
+                             order_intake_mode='unpaid_pilot', payment_processor='manual_unpaid',
+                             lines=[{'line_id': '1', 'erp_item_code': item.name, 'quantity': 1}],
+                             line_amounts={'1': '10.00'})
+                for woo_customer_id, order_id, expected in (
+                    (None, '451', customer.name), ('123', '452', registered.name),
+                ):
+                    reviewed = dict(draft)
+                    if woo_customer_id is not None:
+                        del reviewed['customer']
+                    event.update(external_customer_id=woo_customer_id, external_order_id=order_id)
+                    result = stage_order({'event': event, 'reviewed_draft': reviewed})
+                    draft_order = frappe.get_doc('Sales Order', result['sales_order'])
+                    self.assertEqual(draft_order.customer, expected)
+                    self.assertEqual(draft_order.docstatus, 0)
+                    self.assertFalse(result['accounting_posted'])
+
+                self._assert_native_capture_recovery(company, event, draft)
+                self._assert_native_cash_recovery(company, draft)
         finally:frappe.conf.commerce_order_integration_enabled=old
+
+    def _assert_native_capture_recovery(self, company, event, draft):
+        import hmac
+        from unittest.mock import patch
+
+        from rootedops_commerce.clover_payment import reconcile_capture
+        from rootedops_commerce.external_receipt import canonical
+        from rootedops_commerce.order_service import stage_order
+
+        year = draft['transaction_date'][:4]
+        if not frappe.db.exists('Fiscal Year', {'year_start_date': year + '-01-01',
+                                               'year_end_date': year + '-12-31'}):
+            frappe.get_doc(dict(doctype='Fiscal Year', year='Commerce ' + year,
+                                year_start_date=year + '-01-01', year_end_date=year + '-12-31')).insert()
+        parent = frappe.db.get_value('Account', {'company': company, 'root_type': 'Asset', 'is_group': 1})
+        account_name = 'Fixture Clover Clearing'
+        clearing = frappe.get_doc(dict(doctype='Account', account_name=account_name, parent_account=parent,
+                                      company=company, account_type='Bank', account_currency='USD')).insert()
+        secret = 'synthetic-capture-proof-fixture-only'
+        with patch.dict(frappe.conf, {'commerce_clover_capture_pilot': dict(enabled=True,
+                evidence_hmac=secret, merchant_id='SYNTHETIC', company=company,
+                clearing_account=clearing.name), 'commerce_mapped_zero_tax_fixture': True}):
+            paid = dict(event, order_intake_mode='reviewed_mapping', payment_processor='clover',
+                        processor_payment_id='fixture-charge-453', external_order_id='453',
+                        external_customer_id=None, status='processing', refunds=[],
+                        commercial=dict(line_totals={'1': '10.00'}, shipping='0', tax='0'))
+            paid['lines'] = [dict(paid['lines'][0], quantity=2)]
+            reviewed = dict(draft, items=[dict(draft['items'][0], qty=2, rate='5.00')])
+            order_id = stage_order({'event': paid, 'reviewed_draft': reviewed})['sales_order']
+            frappe.get_doc('Sales Order', order_id).submit()
+            evidence = dict(provider='woocommerce', site_key=paid['site_key'], external_order_id='453',
+                            processor='clover', provider_environment='sandbox',
+                            verification='verified_adapter', state='captured', merchant_id='SYNTHETIC',
+                            processor_reference_type='clover_ecommerce_charge',
+                            payment_id='fixture-charge-453', currency='USD', captured_amount='10.00',
+                            refunded_amount='0.00', posting_date=draft['transaction_date'])
+            proof = hmac.digest(secret.encode(), canonical(evidence), 'sha256').hex()
+            count = frappe.db.count('Sales Invoice')
+            frappe.db.savepoint('capture_fixture')
+            path = 'erpnext.accounts.doctype.payment_entry.payment_entry.get_payment_entry'
+            with patch(path, side_effect=RuntimeError('Fixture payment failure')):
+                with self.assertRaisesRegex(RuntimeError, 'Fixture payment failure'):
+                    reconcile_capture(evidence, proof)
+            frappe.db.rollback(save_point='capture_fixture')
+            self.assertEqual(frappe.db.count('Sales Invoice'), count)
+            first = reconcile_capture(evidence, proof)
+            self.assertEqual(first, reconcile_capture(evidence, proof))
+            invoice = frappe.get_doc('Sales Invoice', first['sales_invoice'])
+            payment = frappe.get_doc('Payment Entry', first['payment_entry'])
+            self.assertEqual((invoice.docstatus, invoice.update_stock, payment.docstatus), (1, 0, 1))
+            self.assertEqual(payment.paid_to, clearing.name)
+
+            from rootedops_commerce.fulfillment import acknowledge_shipment
+            shipment_key = 'synthetic-shipment-proof-fixture-only'
+            with patch.dict(frappe.conf, {'commerce_mp_fulfillment_pilot':
+                                         dict(enabled=True, movement_hmac=shipment_key)}):
+                shipment = dict(provider='woocommerce', site_key=paid['site_key'],
+                                external_order_id='453', reference='fixture-movement',
+                                sales_order=order_id,
+                                lines=[dict(line_id='1', item_code=reviewed['items'][0]['item_code'],
+                                            quantity=1)])
+                proof = hmac.digest(shipment_key.encode(), canonical(shipment), 'sha256').hex()
+                deliveries = frappe.db.count('Delivery Note')
+                projected = acknowledge_shipment(shipment, proof)
+                self.assertEqual(projected['status'], 'partial')
+                cancelled = dict(paid, revision=paid['revision'] + 1, status='cancelled')
+                stage_order({'event': cancelled, 'reviewed_draft': reviewed})
+                self.assertEqual(projected, acknowledge_shipment(shipment, proof))
+                self.assertEqual(frappe.db.count('Delivery Note'), deliveries)
+
+    def _assert_native_cash_recovery(self, company, draft):
+        import hmac
+        from unittest.mock import patch
+        from rootedops_commerce.cash_payment import reconcile_receipt
+        from rootedops_commerce.external_receipt import canonical
+        parent = frappe.db.get_value('Account', {'company': company, 'root_type': 'Asset', 'is_group': 1})
+        cash = frappe.get_doc(dict(doctype='Account', account_name='Fixture Cash On Hand',
+            parent_account=parent, company=company, account_type='Cash', account_currency='USD')).insert()
+        data = dict(provider='ecwid', site_key='cash-native', external_order_id='cash-order-1',
+            receipt_id='cb745708-5f2b-4099-b220-bbe3196493f7', amount='10.00', currency='USD',
+            received_at=draft['transaction_date']+'T12:00:00+00:00', operator='synthetic@example.invalid',
+            processor='cash', state='received', verification='mp_operator_receipt', refunded_amount='0.00',
+            source_fingerprint='a'*64, lines=[dict(line_id='1',erp_item_code=draft['items'][0]['item_code'],quantity=1)])
+        secret='synthetic-cash-receipt-evidence-key-only'
+        approval=dict(enabled=True,source_fingerprint='a'*64,reviewed_draft=draft,posting_date=draft['transaction_date'])
+        config=dict(enabled=True,evidence_hmac=secret,company=company,cash_account=cash.name,
+            approved_orders={'ecwid|cash-native|cash-order-1':approval})
+        proof=hmac.digest(secret.encode(),canonical(data),'sha256').hex()
+        with patch.dict(frappe.conf, {'commerce_cash_accounting':config}):
+            with self.assertRaisesRegex(ValueError,'not authenticated'):
+                reconcile_receipt(data,'invalid')
+            invoices=frappe.db.count('Sales Invoice');payments=frappe.db.count('Payment Entry')
+            stock_entries=frappe.db.count('Stock Ledger Entry');deliveries=frappe.db.count('Delivery Note')
+            frappe.db.savepoint('cash_receipt_fixture')
+            with patch('erpnext.accounts.doctype.payment_entry.payment_entry.get_payment_entry',side_effect=RuntimeError('Cash payment write failure')):
+                with self.assertRaisesRegex(RuntimeError,'Cash payment write failure'):
+                    reconcile_receipt(data,proof)
+            frappe.db.rollback(save_point='cash_receipt_fixture')
+            self.assertEqual(frappe.db.count('Sales Invoice'),invoices)
+            first=reconcile_receipt(data,proof)
+            self.assertEqual(first,reconcile_receipt(data,proof))
+            self.assertEqual(frappe.db.count('Sales Invoice'),invoices+1)
+            self.assertEqual(frappe.db.count('Payment Entry'),payments+1)
+            invoice=frappe.get_doc('Sales Invoice',first['sales_invoice'])
+            payment=frappe.get_doc('Payment Entry',first['payment_entry'])
+            self.assertEqual((invoice.docstatus,invoice.update_stock,payment.docstatus),(1,0,1))
+            self.assertEqual(payment.paid_to,cash.name)
+            self.assertEqual(payment.reference_no,'mp-cash:'+data['receipt_id'])
+            self.assertEqual(frappe.db.count('Stock Ledger Entry'),stock_entries)
+            self.assertEqual(frappe.db.count('Delivery Note'),deliveries)
+            changed=dict(data,amount='11.00')
+            badproof=hmac.digest(secret.encode(),canonical(changed),'sha256').hex()
+            with self.assertRaises(ValueError):reconcile_receipt(changed,badproof)
+            # Woo cash must reuse its admitted sale, including a native shipping
+            # Item, rather than create a parallel order from the receipt.
+            shipping=frappe.get_doc(dict(doctype='Item',item_code='_Test Cash Shipping',
+                item_name='Synthetic cash shipping',item_group='_Test Commerce Group',
+                stock_uom='Nos',is_stock_item=0)).insert()
+            woo_draft=dict(draft,items=list(draft['items'])+[dict(item_code=shipping.name,qty=1,rate='3.00',delivery_date=draft['delivery_date'])])
+            commercial=dict(line_totals={'1':'10.00'},shipping='3.00',tax='0.00',destination='native-cash-fixture')
+            woo_data=dict(data,provider='woocommerce',site_key='shop-test.danks.store',external_order_id='cash-woo-1',
+                receipt_id='00a690c5-616c-4fb0-8050-ea286ad8e217',amount='13.00',commercial=commercial)
+            woo_event=dict(schema_version=1,provider='woocommerce',site_key=woo_data['site_key'],
+                external_order_id=woo_data['external_order_id'],external_customer_id=None,revision=1,
+                status='pending',currency='USD',total='13.00',lines=woo_data['lines'],refunds=[],
+                payment_processor='cash',processor_payment_id=None,order_intake_mode='reviewed_mapping',commercial=commercial)
+            config['approved_orders']['woocommerce|shop-test.danks.store|cash-woo-1']=dict(approval,reviewed_draft=woo_draft)
+            from rootedops_commerce.order_service import stage_order
+            with patch.dict(frappe.conf, {'commerce_mapped_zero_tax_fixture':True,'commerce_order_shipping_item':shipping.name}):
+                existing=stage_order({'event':woo_event,'reviewed_draft':woo_draft})['sales_order']
+                frappe.get_doc('Sales Order',existing).submit()
+                count=frappe.db.count('Sales Order')
+                proof=hmac.digest(secret.encode(),canonical(woo_data),'sha256').hex()
+                posted=reconcile_receipt(woo_data,proof)
+                self.assertEqual(posted,reconcile_receipt(woo_data,proof))
+                self.assertEqual(posted['sales_order'],existing)
+                self.assertEqual(frappe.db.count('Sales Order'),count)
+                self.assertEqual(frappe.db.count('Sales Invoice'),invoices+2)
+                self.assertEqual(frappe.db.count('Payment Entry'),payments+2)
+                self.assertEqual(frappe.db.count('Stock Ledger Entry'),stock_entries)

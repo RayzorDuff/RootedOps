@@ -5,9 +5,13 @@ import hashlib
 import hmac
 import json
 import os
+import subprocess
+from threading import Thread
+import time
+from wsgiref.simple_server import make_server
 from pathlib import Path
 import unittest
-from inbox import Inbox,PostgresInventory,deliver_one,reconcile_order
+from inbox import Inbox, PostgresInventory, ReviewedERP, application, deliver_one, reconcile_order
 from runtime import connect_test
 
 class NativeInboxTests(unittest.TestCase):
@@ -29,6 +33,8 @@ class NativeInboxTests(unittest.TestCase):
             for table in ['mp_commerce_shipped_products','mp_commerce_shipments','commerce_delivery','commerce_inbox','erp_draft_probe','mp_commerce_erp_links','mp_commerce_payment_matches','mp_commerce_events','mp_commerce_reservations','mp_commerce_orders']:
                 db.execute('DELETE FROM '+table)
             db.execute('UPDATE products SET storage_location_id=%s WHERE item_id=%s',(self.storage,self.item))
+            db.execute("UPDATE ecommerce SET external_sku='SYN-1', external_product_id=NULL WHERE nocopk=%s",
+                       (self.ecommerce,))
         self.inbox=Inbox(self.connect);self.mp=PostgresInventory(self.connect)
     def receive(self, **changes):
         order={'id':10,'status':'processing','currency':'USD','total':'12.00','date_modified_gmt':'2026-10-30T10:00:00',
@@ -95,6 +101,195 @@ class NativeInboxTests(unittest.TestCase):
             self.assertEqual(json.loads(raw)['id'],10)
 
 
+    def pilot_config(self, product_id='1'):
+        return dict(pilot_items={'ERP-SYN-1'}, gateways={'': 'manual_unpaid'},
+                    mappings={str(product_id): dict(sku='NATIVE-WOO-SYN',
+                        ecommerce_id=self.ecommerce, erp_item_code='ERP-SYN-1')})
+
+    def test_retry_blocks_later_snapshot_and_same_second_update_requires_review(self):
+        self.receive(status='pending')
+        self.receive(status='cancelled')  # distinct source content, same Woo second
+        def failed_erp(*_):
+            raise TimeoutError('synthetic ERP timeout')
+        deliver_one(self.inbox, self.mp, failed_erp, retry_seconds=30)
+        self.assertFalse(deliver_one(self.inbox, self.mp, failed_erp))
+        with self.connect() as db:
+            db.execute("UPDATE commerce_delivery SET next_attempt_at=now()")
+            self.assertEqual(db.execute('SELECT count(*) FROM mp_commerce_events').fetchone()[0], 1)
+        erp = lambda *_: {'sales_order': 'SYNTHETIC-SO'}
+        deliver_one(self.inbox, self.mp, erp)
+        deliver_one(self.inbox, self.mp, lambda *_: self.fail('Conflicted order reached ERP'))
+        self.assertEqual(self.inbox.status(), [('dead', 'revision_conflict', 1), ('done', None, 1)])
+        self.assertEqual(self.available(), 1)
+        self.receive(status='cancelled', date_modified_gmt='2026-10-30T10:00:02')
+        deliver_one(self.inbox, self.mp, erp)
+        self.assertEqual(self.available(), 2)
+        self.receive(status='on-hold', date_modified_gmt='2026-10-30T10:00:01')
+        deliver_one(self.inbox, self.mp, lambda *_: self.fail('Stale order reached ERP'))
+        self.assertEqual(self.inbox.order_status(('woocommerce', 'synthetic', '10'))[-1]['erp'],
+                         {'status': 'stale_skipped'})
+
+    def test_production_claim_selects_only_approved_order(self):
+        self.receive(id=9, status='pending')
+        self.receive(id=10, status='pending')
+        approved = self.inbox.claim(site='synthetic', order_id='10')
+        self.assertEqual(approved['payload']['external_order_id'], '10')
+        self.assertIsNone(self.inbox.claim(site='synthetic', order_id='10'))
+        other = self.inbox.claim(site='synthetic', order_id='9')
+        self.assertEqual(other['payload']['external_order_id'], '9')
+
+    def test_production_review_queue_counts_each_order_without_claiming(self):
+        self.receive(id=9, status='pending')
+        self.receive(id=10, status='pending')
+        queue = {row['order_id']: row for row in self.inbox.order_queue('woocommerce', 'synthetic')}
+        self.assertEqual(set(queue), {'9', '10'})
+        self.assertTrue(all(row['pending'] == 1 and row['leased'] == 0 for row in queue.values()))
+        self.assertEqual(self.inbox.latest_order_source(('woocommerce', 'synthetic', '9'))[0]['id'], 9)
+
+    def test_deferred_mapping_review_can_replay_original_receipt(self):
+        import sys
+        sys.path.insert(0, str(Path(__file__).resolve().parents[2] / 'tests'))
+        from test_commerce_order_pilot import fixture, sign, SECRET
+        raw = json.dumps(fixture()).encode()
+        with self.connect() as db:
+            db.execute("UPDATE ecommerce SET external_sku='NATIVE-WOO-SYN', external_product_id='1' WHERE nocopk=%s",
+                       (self.ecommerce,))
+        config = self.pilot_config()
+        denied = dict(config, mappings={})
+        erp = ReviewedERP('https://erp-test.danks.store', '', {
+            'woocommerce|synthetic|10': {'customer': 'SYN-GUEST'}},
+            lambda *_: {'message': {'sales_order': 'SYNTHETIC-SO'}})
+        original = self.inbox.receive(raw, sign(raw), site='synthetic',
+                                      unpaid_pilot=True, secrets=[SECRET])
+        key = ('woocommerce', 'synthetic', '10')
+        deliver_one(self.inbox, self.mp, erp, pilot_configs={'synthetic': denied})
+        self.assertEqual(self.inbox.order_status(key)[0]['last_error'], 'item_unmapped')
+        self.assertEqual(self.available(), 2)
+        self.inbox.replay(('woocommerce', 'synthetic', original['event_id']))
+        deliver_one(self.inbox, self.mp, erp, pilot_configs={'synthetic': config})
+        self.assertEqual(self.inbox.order_status(key)[0]['state'], 'done')
+        self.assertTrue(self.inbox.receive(raw, sign(raw), site='synthetic',
+                                         unpaid_pilot=True, secrets=[SECRET])['duplicate'])
+        self.assertEqual(self.available(), 1)
+
+    @unittest.skipUnless(os.environ.get('COMMERCE_WP_CLI'), 'Disposable native Woo CLI not configured')
+    def test_native_woo_order_created_updated_and_cancel(self):
+        self._native_woo_order_lifecycle()
+
+    def test_native_cash_woo_signed_intake_replay_and_cancel(self):
+        self._native_woo_order_lifecycle(cash=True)
+
+    def _native_woo_order_lifecycle(self, cash=False):
+        site = 'shop-test.danks.store'
+        secret = 'synthetic-native-woocommerce-webhook-secret'
+        app = application(self.inbox, {site: dict(unpaid_pilot=True, secrets=[secret])})
+        def wp(*args):
+            result = subprocess.run([os.environ['COMMERCE_WP_CLI'], *args],
+                                    capture_output=True, text=True, timeout=60)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            return result.stdout
+        with self.connect() as db:
+            db.execute('UPDATE ecommerce SET site_key=%s WHERE nocopk=%s', (site, self.ecommerce))
+        try:
+            with make_server('127.0.0.1', 8100, app) as server:
+                worker = Thread(target=server.serve_forever, daemon=True)
+                worker.start()
+                try:
+                    fixture_path = str(Path(__file__).with_name('test_native_woo.php').resolve())
+                    wp('eval-file', fixture_path, 'prepare')
+                    fixture_order = json.loads(wp('eval-file', fixture_path, 'create', 'cash' if cash else 'unpaid'))
+                    created = json.loads(wp('eval-file', fixture_path, 'deliver'))
+                    self.assertIn({'topic': 'order.created', 'status': 202, 'error': None}, created)
+                    self.assertTrue(all(entry['status'] == 202 for entry in created), created)
+                    order_id = str(fixture_order['id'])
+                    key = ('woocommerce', site, order_id)
+                    erp_calls, references = [], []
+                    native = os.environ.get('COMMERCE_NATIVE_ERP_HTTP') == '1'
+                    def request(url, auth, method, body):
+                        erp_calls.append(json.loads(body['payload']))
+                        if not native:
+                            return {'message': {'sales_order': 'SYNTHETIC-WOO-SO'}}
+                        from urllib.request import Request, urlopen
+                        endpoint = url.replace('https://erp-test.danks.store', 'http://127.0.0.1:8099')
+                        req = Request(endpoint, data=json.dumps(body).encode(), method=method,
+                                      headers={'Host': 'erp-test.danks.store', 'Content-Type': 'application/json',
+                                               'Authorization': 'token synthetic-native-woo-key:synthetic-native-woo-secret'})
+                        with urlopen(req, timeout=30) as response:
+                            result = json.load(response)
+                        references.append(result['message']['sales_order'])
+                        if len(erp_calls) == 1:
+                            raise TimeoutError('Synthetic lost response after ERP commit')
+                        return result
+                    policy = dict(company='Native Woo Fixture', currency='USD', selling_price_list='Native Woo USD',
+                                  guest_customer='Native Woo Guest', allow_zero_tax_fixture=True) if native else None
+                    target = ReviewedERP('https://erp-test.danks.store', '', {
+                        '|'.join(key): {'customer': 'SYN-GUEST'}}, request, mapping_policy=policy)
+                    config = {site: dict(self.pilot_config(fixture_order['product']), reviewed_mapping=native,
+                        cash_receipt_pilot=cash, gateways={'': 'manual_unpaid', 'cod': 'cash'})}
+                    with self.connect() as db:
+                        db.execute("UPDATE ecommerce SET external_sku='NATIVE-WOO-SYN', external_product_id=%s WHERE nocopk=%s",
+                                   (str(fixture_order['product']), self.ecommerce))
+                    while deliver_one(self.inbox, self.mp, target, site=site, pilot_configs=config):
+                        pass
+                    if native:
+                        pending, = self.inbox.order_status(key)
+                        self.assertEqual((pending['state'], pending['mushroomprocess']['status']),
+                                         ('pending', 'applied'), pending)
+                        self.assertIsNone(pending['erp'])
+                        self.assertEqual(len(references), 1, erp_calls)
+                        with self.connect() as db:
+                            db.execute("UPDATE commerce_delivery SET next_attempt_at=now()")
+                        self.assertTrue(deliver_one(self.inbox, self.mp, target, site=site, pilot_configs=config))
+                        self.assertEqual(len(set(references)), 1)
+                    accepted = self.inbox.order_status(key)
+                    self.assertEqual(len(accepted), 1, accepted)
+                    self.assertTrue(all(receipt['state'] == 'done' for receipt in accepted), accepted)
+                    self.assertEqual(erp_calls[0]['event']['status'], 'pending')
+                    with self.connect() as db:
+                        event_id = accepted[0]['event_id']
+                        raw = bytes(db.execute('SELECT raw_body FROM commerce_inbox WHERE event_id=%s',
+                                               (event_id,)).fetchone()[0])
+                        self.assertEqual(db.execute('SELECT sum(quantity) FROM mp_commerce_reservations').fetchone()[0], 1)
+                    signature = base64.b64encode(hmac.digest(secret.encode(), raw, 'sha256')).decode()
+                    from urllib.request import Request, urlopen
+                    from urllib.error import HTTPError
+                    url = 'http://127.0.0.1:8100/webhooks/woocommerce/' + site
+                    for signed, expected in ((signature, 202), ('invalid', 400)):
+                        req = Request(url, data=raw, headers={'Content-Type': 'application/json',
+                                                              'X-WC-Webhook-Signature': signed})
+                        try:
+                            with urlopen(req) as resp:
+                                self.assertEqual(resp.status, expected)
+                                self.assertEqual(json.load(resp), {'event_id': event_id, 'duplicate': True})
+                        except HTTPError as exc:
+                            self.assertEqual(exc.code, expected)
+                    self.assertEqual(self.inbox.order_status(key), accepted)
+                    time.sleep(1.05)  # Separate source revisions for the cancellation acceptance.
+                    wp('eval-file', fixture_path, 'cancel', order_id)
+                    updated = json.loads(wp('eval-file', fixture_path, 'deliver'))
+                    self.assertIn({'topic': 'order.updated', 'status': 202, 'error': None}, updated)
+                    self.assertTrue(all(entry['status'] == 202 for entry in updated), updated)
+                    while deliver_one(self.inbox, self.mp, target, site=site, pilot_configs=config):
+                        pass
+                    receipts = self.inbox.order_status(key)
+                    self.assertEqual(len(receipts), 2, receipts)
+                    self.assertTrue(all(receipt['state'] == 'done' for receipt in receipts), receipts)
+                    self.assertEqual(erp_calls[-1]['event']['status'], 'cancelled')
+                    with self.connect() as db:
+                        self.assertEqual(db.execute('SELECT count(*) FROM mp_commerce_reservations').fetchone()[0], 0)
+                        self.assertEqual(db.execute('SELECT count(*) FROM mp_commerce_orders').fetchone()[0], 1)
+                        self.assertEqual(db.execute('SELECT sales_order FROM mp_commerce_erp_links').fetchone()[0],
+                                         references[0] if native else 'SYNTHETIC-WOO-SO')
+                        self.assertEqual(db.execute('SELECT count(*) FROM mp_commerce_events').fetchone()[0], 2)
+                    print('Native Woo fixture:', order_id, 'receipts:', [row['event_id'] for row in receipts],
+                          'ERP:', receipts[-1]['erp']['sales_order'])
+                finally:
+                    server.shutdown()
+                    worker.join()
+        finally:
+            with self.connect() as db:
+                db.execute("UPDATE ecommerce SET site_key='synthetic' WHERE nocopk=%s", (self.ecommerce,))
+
     def available(self):
         with self.connect() as db:
             # The existing channel snapshot joins gross stock to reservation-adjusted
@@ -153,5 +348,17 @@ class NativeInboxTests(unittest.TestCase):
             self.assertEqual(db.execute('SELECT count(*) FROM mp_commerce_reservations').fetchone()[0],0)
             self.assertEqual(db.execute('SELECT count(*) FROM mp_commerce_orders').fetchone()[0],1)
             self.assertEqual(db.execute('SELECT count(*) FROM mp_commerce_erp_links').fetchone()[0],1)
+
+        from shipment_reconciliation import reconcile_shipment
+        from types import SimpleNamespace
+        from unittest.mock import Mock, patch
+        target = SimpleNamespace(base='https://erp-test.danks.store', authorization='fixture', request=Mock())
+        target.request.return_value = {'message': {'status': 'partial'}}
+        with patch('shipment_reconciliation.staging_pair'):
+            self.assertEqual(reconcile_shipment(self.mp, target, ('woocommerce', 'synthetic', '10'),
+                             'fixture-movement', 'fixture-key-' * 3), {'status': 'partial'})
+        packet = json.loads(target.request.call_args.args[-1]['payload'])
+        self.assertEqual(packet['sales_order'], 'SYNTHETIC-SO')
+        self.assertEqual(packet['lines'], [{'line_id': '1', 'item_code': 'ERP-SYN-1', 'quantity': 1}])
 
 if __name__=='__main__':unittest.main()

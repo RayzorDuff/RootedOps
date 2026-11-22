@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.5.34] - 2026-11-22
+
+- Integrate the existing Woo signed intake, reviewed order cycle, verified Clover capture, MP fulfillment/stock projection, hostname and optional cash stacks with deployed customer sync.
+- Preserve the Cloudflare user agent correction, customer identities, HTTPS transport and disabled activation gates. Historical Ecwid orders remain excluded by owner decision.
+- Consolidate launch preparation into one source promotion; hosted schema/config/image/workflow activation and the restricted purchase remain separate.
+- Commerce app 0.3.9; patch phase only, no tag. Settlement/fee PR #114 remains outside this batch.
+
 ## [1.5.33] - 2026-11-22
 
 ### Dank hostname API transport
@@ -17,6 +24,26 @@
 - Add backed-up transport configuration, transport-only rollback, a scoped content helper and an independent production runbook.
 - Keep the Woo order stack and Ecwid cutover separate. Require customer/order delta review after the hostname change.
 - RootedOps patch phase only; no tag. Commerce app advances to 0.3.7. Hosted deployment remains an operator step.
+
+## [1.5.31] - 2026-11-21
+
+- Separate the canonical dankmushrooms.net Woo connection URL from existing customer/order store identities. Preserve link keys, inbox receipts and reservations.
+- Add guarded private configuration updates and a content-only, serialization-safe WordPress URL migration with a private compare-before-restore journal.
+- Document dual-host signed webhook routing, backups, third-party connection checks, staged acceptance and rollback. Keep Ecwid routing unchanged until its later cutover.
+
+## [1.5.30] - 2026-11-21
+
+- Add an opt-in timer cycle for reviewed Woo orders, reusing their approved quote and exact ERP scope for later webhook updates and cancellations.
+- Reuse verified capture reconciliation with explicitly approved posting dates that stay stable across retries. Keep tax, Sales Order and capture approval visible in the operator procedure.
+- Combine reviewed order processing, MP dispatch delivery and published stock in the existing supervised service.
+
+## [1.5.29] - 2026-11-21
+
+- Add disabled-by-default MP dispatch publication to Woo and ERP, with independent destination retry, canonical Woo order IDs and generated administrative order links.
+- Publish reservation-aware MP stock to reviewed published Woo products while accounting for native Woo deductions, webhook lag, cancellations and physical shipments.
+- Keep packing, label preparation and dispatch separate and include tracking in completed-order notifications.
+- Retain existing customer links while shop-test orders use the final logical store identity, then preserve those links through the hostname switch.
+- Add native disposable Woo regressions and an operator runbook for shop-test with production ERP on the existing Linode. Hosted acceptance and live payment/postage remain owner steps.
 
 ## [1.5.28] - 2026-11-03
 
