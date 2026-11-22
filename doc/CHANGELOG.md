@@ -1,5 +1,14 @@
 # Changelog
 
+## [1.5.33] - 2026-11-22
+
+### Dank hostname API transport
+
+- Identify ERP customer reads/projections and shared commerce API requests with an explicit RootedOps user agent; the net hostname's Cloudflare ingress rejected the default Python agent with error 1010.
+- Preserve authorization, HTTPS and redirect safeguards, customer identities and activation settings.
+- Document the authenticated hostname readback and transport switch. Historical order import is deferred by the owner; no history replay is part of cutover.
+- Patch phase only; no tag. Commerce app advances to 0.3.8. Production deployment and bidirectional acceptance remain operator steps.
+
 ## [1.5.32] - 2026-11-21
 
 ### Standalone Dank hostname preparation

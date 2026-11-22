@@ -150,6 +150,8 @@ class ProfileSync(unittest.TestCase):
                     request = opener.return_value.open.call_args.args[0]
                     self.assertEqual(request.full_url, 'https://dankmushrooms.net/wp-json/wc/v3/customers/12' + suffix)
                     self.assertEqual(request.get_method(), 'GET' if body is None else 'PUT')
+                    self.assertEqual(request.get_header('User-agent'), 'RootedOps-Commerce/1.0')
+                    self.assertEqual(request.get_header('Authorization'), conf['woo_authorization'])
                 self.assertEqual(self.sync.link_key(conf['woo_site'], 12), key)
             for origin in ('https://evil.invalid', 'http://dankmushrooms.net', 'https://dankmushrooms.net@evil.invalid'):
                 with patch.dict(conf, woo_origin=origin), self.assertRaises(ValueError):
@@ -158,6 +160,19 @@ class ProfileSync(unittest.TestCase):
                 self.sync.woo_request('shop-test.danks.store', '12', conf)
             with self.assertRaises(ValueError):
                 self.sync.woo_request('shop-test2.danks.store', '12', conf)
+
+    def test_shared_api_identifies_reads_and_writes_to_cloudflare(self):
+        from ecwid_migrate import api
+        for method, payload in (('GET', None), ('PUT', {'synthetic': True})):
+            with self.subTest(method=method), patch('urllib.request.build_opener') as opener:
+                response = opener.return_value.open.return_value
+                response.__enter__.return_value = io.StringIO('{"id":12}')
+                self.assertEqual(api('https://dankmushrooms.net/wp-json/wc/v3/customers/12',
+                                     'Basic synthetic', method, payload), {'id': 12})
+                request = opener.return_value.open.call_args.args[0]
+                self.assertEqual(request.get_header('User-agent'), 'RootedOps-Commerce/1.0')
+                self.assertEqual(request.get_header('Authorization'), 'Basic synthetic')
+                self.assertEqual(request.get_method(), method)
 
     @classmethod
     def setUpClass(cls):
