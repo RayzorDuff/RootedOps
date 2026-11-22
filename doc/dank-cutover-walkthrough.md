@@ -68,3 +68,66 @@ Use [the cutover/rollback Linode runbook](dank-woocommerce-linode.md) for the fi
 Repeat saved sitemap checks against net, avoiding shop-test hops. Retain 302 redirects through verification; generic dollar-amount paths are retired and Miscellaneous remains a replacement decision. Verify a separate qr.danks.store label sample. Preserve saved exports/historical references. Record Google/Ads source/offer IDs and Meta business/catalog/Pixel/shop ownership before switch, prove a small post-switch feed sample, then retire Ecwid feeds in the documented owner sequence.
 
 To stop: restrict new Woo checkout, pause its order/payment/publication cycle, preserve signed intake and all accepted Woo orders/payments/stock receipts, reconcile outstanding orders and committed physical movement. Use recorded pool-owner restoration only after writes stop and recompute present Ecwid availability before reopening it. Preserve both signed webhook hosts during recovery. Roll back transport/content from compare-before-restore journals rather than restoring an old live DB. Cash, card refund and physical return are separate reviewed operations. Keep first-payout/fees reconciliation and Clover website-checkout entitlement after Ecwid cancellation on the **Ecwid retirement** checklist; Clover Flex is not a storefront cutover dependency.
+
+## Schema helper — one approved migration per paste
+
+After Block A, backups, source review and confirmation that the named migration is actually missing, define this helper in the **same Linode Bash shell**. Definition itself changes nothing:
+
+```bash
+mp_apply_reviewed_sql() {
+  test "$#" -eq 1 || return 1
+  sudo docker exec -i mushroomprocess-bridge-postgres sh -ec \
+    'exec psql -X -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d "$POSTGRES_DB"' \
+    < "$HOME/mushroomprocess/$1"
+}
+```
+
+Each line below is its own subsequent block, not a batch to paste together. Run only when that specific footprint is missing and its prerequisite was verified. Expected COMMIT; **stop immediately on any error**, record the last committed migration and inspect before proceeding. 058 is already installed and is not repeated.
+
+```bash
+mp_apply_reviewed_sql schema/pgsql/062_product_id_collision.sql
+```
+
+Independent Product-ID correction; no workflow reimport. Then, when deploying the reviewed UI:
+
+```bash
+mp_apply_reviewed_sql schema/pgsql/060_fulfillment_allocation.sql
+```
+
+Then, for separately authorized cash receipt entry:
+
+```bash
+mp_apply_reviewed_sql schema/pgsql/061_commerce_cash_receipts.sql
+```
+
+For the later Woo deployment only, after actual prerequisite inspection and the earlier blocks:
+
+```bash
+mp_apply_reviewed_sql schema/pgsql/054_commerce_operational_bridge.sql
+```
+
+Stop/verify COMMIT and installed ERP-link/payment functions before the next paste.
+
+```bash
+mp_apply_reviewed_sql schema/pgsql/055_commerce_atomic_shipment.sql
+```
+
+Stop/verify atomic Product shipment function before the next paste.
+
+```bash
+mp_apply_reviewed_sql schema/pgsql/056_commerce_pack_dispatch.sql
+```
+
+Stop/verify package tables and movement guards before the next paste.
+
+```bash
+mp_apply_reviewed_sql schema/pgsql/057_commerce_lot_dispatch.sql
+```
+
+Stop/verify Lot pick/dispatch and shared unit views before the next paste.
+
+```bash
+mp_apply_reviewed_sql schema/pgsql/059_commerce_shared_pool_fulfillment.sql
+```
+
+Stop/verify shared eligibility. Then use MP 061's separate checked cash-packing preparation, not a rerun of 058. No schema command enables public checkout or takes a payment. Existing installed/partially installed migrations must be reviewed rather than rerun by number.

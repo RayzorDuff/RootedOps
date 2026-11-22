@@ -69,6 +69,8 @@ Set `CASH_PRIVATE_DIR` to the private backup/config directory. `erp-cash.json` i
 
 Success: existing ERP settings/credentials are preserved; only the cash configuration is merged into a new mode-600 file. Stop if inputs are not private, the output already exists or required account/key fields are missing when enabling. Review locally; do not paste site_config.json.
 
+Cash posting also requires the existing `commerce_order_integration_enabled=true` ERP flag. Verify it through the existing order preflight; when the reviewed deployment authorizes enabling it, the exact command is `sudo docker exec erpnext-backend bench --site erp.danks.store set-config --parse commerce_order_integration_enabled True`. This does not replace the cash source/account/receipt approvals.
+
 The next block **changes production ERP configuration**. Only run it after owner approval of the candidate/app version, backups and exact account/mappings:
 
 ```bash
@@ -103,3 +105,30 @@ For Woo, enable `cash_orders_enabled` explicitly in the existing production orde
 After hosted acceptance, the existing multiorder worker can use `cash_accounting_config` pointing to the private cash JSON. Its cycle retries enabled, individually reviewed cash UUIDs and retains review outcomes. Alternatively run `cash_reconciliation.py cycle --config "$CASH_ACCOUNTING_CONFIG"` through the reviewed scheduler. Recording cash is always an explicit authenticated operator action. Customer/item/tax/account approvals are reviews, not automated guesses. A single approved UUID is a pilot; add each subsequent reviewed receipt to the ongoing queue. Disable/omit the cash gateway until that operator routine is accepted.
 
 To pause cash posting, merge a private patch `{"enabled":false}` with `scripts/commerce_cash_config.py` and disable the worker cash config `enabled` flag; this preserves secrets, approvals and receipts. Disable `cash_orders_enabled` and `ROOTEDOPS_MP_CASH_ENABLED` if pausing new Woo cash orders/projection. Existing Clover web checkout and Ecwid rollback availability are separate. Reconcile accepted money/orders before changing checkouts or stock ownership. Never restore a pre-sale DB or delete cash receipts. Manual refunds/physical returns remain reviewed reversals in the established native interfaces; automation does not issue them.
+
+## WordPress cash flag — coordinated storefront change
+
+The Git Compose file maps `DANK_MP_CASH_ENABLED=0` by default to `ROOTEDOPS_MP_CASH_ENABLED`. Keep it 0 until approved hosted COD acceptance. To prepare an enabling copy without printing/changing other private settings:
+
+```bash
+cd ~/RootedOps
+: "${CASH_PRIVATE_DIR:?Set the reviewed private config directory}"
+python3 scripts/commerce_cash_config.py --wordpress-env .env --cash-enabled 1 \
+  --output "$CASH_PRIVATE_DIR/wordpress.env.cash"
+```
+
+Success: a new mode-600 file; no live change. Stop for duplicate flag lines, nonprivate input or an existing output. Inspect locally. At the approved store window, with checkout restricted and the current .env backed up:
+
+```bash
+(
+  set -eu
+  cd ~/RootedOps
+  : "${CASH_PRIVATE_DIR:?Set the reviewed private config directory}"
+  cp -p .env "$CASH_PRIVATE_DIR/wordpress.env.before"
+  install -m 600 "$CASH_PRIVATE_DIR/wordpress.env.cash" .env
+  sudo docker compose --env-file .env -f docker/docker-compose.dank-wordpress.yml \
+    -p dank-store-test up -d --no-deps dank-wordpress
+)
+```
+
+This recreates **only** the existing WordPress service to read its environment; coordinate it with the storefront work. No database/ERP/global restart. Verify WordPress and customer hooks immediately using the existing My Account checks. Stop if the service/hostname/volumes differ or health fails. Pause uses the same preparation with `--cash-enabled 0`, preserving other settings and the same service scope. Built-in Woo COD must separately be enabled/restricted to the owner's approved shipping methods in Payments; do not silently enable cash for every delivery method. Existing Clover checkout remains available.

@@ -69,3 +69,6 @@ class CashConfigTests(unittest.TestCase):
   self.assertEqual(result['db_password'],'synthetic');self.assertIn('source',result['commerce_cash_accounting']['approved_orders'])
   self.assertTrue(original['commerce_cash_accounting']['enabled'])
   with self.assertRaises(ValueError):module.merge(original,{'enabled':True})
+  env='OTHER_SETTING=preserved\nDANK_MP_CASH_ENABLED=0\n'
+  self.assertEqual(module.wordpress_env(env,'1'),'OTHER_SETTING=preserved\nDANK_MP_CASH_ENABLED=1\n')
+  with self.assertRaises(ValueError):module.wordpress_env(env+env,'1')

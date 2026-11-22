@@ -46,7 +46,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: RayzorDuff/MushroomProcess
-          ref: 35557d226401ba6fe0fd02f0f525136266efe49e
+          ref: bfd7f04f186412e5472bd4d9eef0616647857e20
           path: .ci/cash
       - uses: actions/checkout@v4
         with:

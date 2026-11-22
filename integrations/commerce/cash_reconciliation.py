@@ -59,13 +59,15 @@ def check_current_source(connect, receipt):
         if receipt['provider'] == 'ecwid':
             rows = db.execute("""SELECT status,payment_status,jsonb_build_object(
                 'items',coalesce(nullif(items_json,''),'[]')::jsonb,'subtotal',subtotal,
-                'tax',tax_total,'total',order_total,'currency',currency)
+                'tax',tax_total,'total',order_total,'currency',currency),payment_processor,processor_payment_id,clover_payment_id
                 FROM public.ecommerce_orders WHERE coalesce(nullif(provider,''),'ecwid')=%s
                 AND coalesce(nullif(site_key,''),'dank_mushrooms')=%s
                 AND coalesce(nullif(external_order_id,''),ecwid_order_id)=%s""",
                 tuple(receipt[k] for k in ('provider','site_key','external_order_id'))).fetchall()
             if len(rows) != 1 or str(rows[0][0]).upper() in ('WILL_NOT_DELIVER','CANCELLED','RETURNED') or str(rows[0][1]).upper() in ('CANCELLED','CANCELED','REFUNDED','FAILED'):
                 raise ValueError('Cash source missing, ambiguous, cancelled or refunded: review')
+            if rows[0][3] != 'cash' or rows[0][4] or rows[0][5]:
+                raise ValueError('Cash tender was replaced or processor evidence appeared: review')
             current = rows[0][2]
         else:
             rows = db.execute("""SELECT status,snapshot FROM public.mp_commerce_orders
