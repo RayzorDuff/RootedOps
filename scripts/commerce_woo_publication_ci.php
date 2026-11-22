@@ -123,6 +123,28 @@ try {
 }
 $link = rootedops_mp_identity(array('id' => $order->get_id()));
 mp_expect($link['edit_url'] === wc_get_order($order->get_id())->get_edit_order_url(), 'Generated admin URL differs');
+$cash_order = wc_create_order();
+$cash_order->add_product(wc_get_product($id), 1);
+$cash_order->set_payment_method('cod');
+$cash_order->calculate_totals();
+$cash_order->save();
+$cash_packet = array('receipt_id' => 'f9c89b0a-5389-4487-98da-789e1e722f74',
+    'amount' => wc_format_decimal($cash_order->get_total(), 2), 'currency' => $cash_order->get_currency());
+$cash_emails = 0;
+add_action('woocommerce_order_status_processing', function ($oid) use ($cash_order, &$cash_emails) {
+    if ($oid === $cash_order->get_id()) $cash_emails++;
+});
+rootedops_mp_cash_receipt(mp_request($cash_packet, $cash_order->get_id()));
+mp_expect(wc_get_order($cash_order->get_id())->has_status('processing'), 'Cash receipt completed an undispatched order');
+$cash_stock = wc_get_product($id)->get_stock_quantity();
+rootedops_mp_cash_receipt(mp_request($cash_packet, $cash_order->get_id()));
+mp_expect(wc_get_product($id)->get_stock_quantity() === $cash_stock, 'Cash receipt replay reduced stock again');
+mp_expect($cash_emails === 1, 'Cash receipt replay emitted another processing event');
+try {
+    rootedops_mp_cash_receipt(mp_request(array_merge($cash_packet, array('amount' => '999.00')), $cash_order->get_id()));
+    throw new RuntimeException('Mismatched cash amount accepted');
+} catch (InvalidArgumentException $expected) {}
+$cash_order->delete(true);
 $order->delete(true);
 $late->delete(true);
 wc_get_product($id)->delete(true);

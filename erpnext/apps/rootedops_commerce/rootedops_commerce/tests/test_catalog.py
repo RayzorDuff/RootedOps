@@ -209,6 +209,7 @@ class TestCatalog(IntegrationTestCase):
                     self.assertFalse(result['accounting_posted'])
 
                 self._assert_native_capture_recovery(company, event, draft)
+                self._assert_native_cash_recovery(company, draft)
         finally:frappe.conf.commerce_order_integration_enabled=old
 
     def _assert_native_capture_recovery(self, company, event, draft):
@@ -279,3 +280,47 @@ class TestCatalog(IntegrationTestCase):
                 stage_order({'event': cancelled, 'reviewed_draft': reviewed})
                 self.assertEqual(projected, acknowledge_shipment(shipment, proof))
                 self.assertEqual(frappe.db.count('Delivery Note'), deliveries)
+
+    def _assert_native_cash_recovery(self, company, draft):
+        import hmac
+        from unittest.mock import patch
+        from rootedops_commerce.cash_payment import reconcile_receipt
+        from rootedops_commerce.external_receipt import canonical
+        parent = frappe.db.get_value('Account', {'company': company, 'root_type': 'Asset', 'is_group': 1})
+        cash = frappe.get_doc(dict(doctype='Account', account_name='Fixture Cash On Hand',
+            parent_account=parent, company=company, account_type='Cash', account_currency='USD')).insert()
+        data = dict(provider='ecwid', site_key='cash-native', external_order_id='cash-order-1',
+            receipt_id='cb745708-5f2b-4099-b220-bbe3196493f7', amount='10.00', currency='USD',
+            received_at=draft['transaction_date']+'T12:00:00+00:00', operator='synthetic@example.invalid',
+            processor='cash', state='received', verification='mp_operator_receipt', refunded_amount='0.00',
+            source_fingerprint='a'*64, lines=[dict(line_id='1',erp_item_code=draft['items'][0]['item_code'],quantity=1)])
+        secret='synthetic-cash-receipt-evidence-key-only'
+        approval=dict(enabled=True,source_fingerprint='a'*64,reviewed_draft=draft,posting_date=draft['transaction_date'])
+        config=dict(enabled=True,evidence_hmac=secret,company=company,cash_account=cash.name,
+            approved_orders={'ecwid|cash-native|cash-order-1':approval})
+        proof=hmac.digest(secret.encode(),canonical(data),'sha256').hex()
+        with patch.dict(frappe.conf, {'commerce_cash_accounting':config}):
+            with self.assertRaisesRegex(ValueError,'not authenticated'):
+                reconcile_receipt(data,'invalid')
+            invoices=frappe.db.count('Sales Invoice');payments=frappe.db.count('Payment Entry')
+            stock_entries=frappe.db.count('Stock Ledger Entry');deliveries=frappe.db.count('Delivery Note')
+            frappe.db.savepoint('cash_receipt_fixture')
+            with patch('erpnext.accounts.doctype.payment_entry.payment_entry.get_payment_entry',side_effect=RuntimeError('Cash payment write failure')):
+                with self.assertRaisesRegex(RuntimeError,'Cash payment write failure'):
+                    reconcile_receipt(data,proof)
+            frappe.db.rollback(save_point='cash_receipt_fixture')
+            self.assertEqual(frappe.db.count('Sales Invoice'),invoices)
+            first=reconcile_receipt(data,proof)
+            self.assertEqual(first,reconcile_receipt(data,proof))
+            self.assertEqual(frappe.db.count('Sales Invoice'),invoices+1)
+            self.assertEqual(frappe.db.count('Payment Entry'),payments+1)
+            invoice=frappe.get_doc('Sales Invoice',first['sales_invoice'])
+            payment=frappe.get_doc('Payment Entry',first['payment_entry'])
+            self.assertEqual((invoice.docstatus,invoice.update_stock,payment.docstatus),(1,0,1))
+            self.assertEqual(payment.paid_to,cash.name)
+            self.assertEqual(payment.reference_no,'mp-cash:'+data['receipt_id'])
+            self.assertEqual(frappe.db.count('Stock Ledger Entry'),stock_entries)
+            self.assertEqual(frappe.db.count('Delivery Note'),deliveries)
+            changed=dict(data,amount='11.00')
+            badproof=hmac.digest(secret.encode(),canonical(changed),'sha256').hex()
+            with self.assertRaises(ValueError):reconcile_receipt(changed,badproof)

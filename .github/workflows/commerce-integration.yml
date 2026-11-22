@@ -43,6 +43,16 @@ jobs:
           repository: RayzorDuff/MushroomProcess
           ref: 48af372bc55d7de2927f59deefbd2f4f9ad2a699
           path: .ci/mushroomprocess
+      - uses: actions/checkout@v4
+        with:
+          repository: RayzorDuff/MushroomProcess
+          ref: 35557d226401ba6fe0fd02f0f525136266efe49e
+          path: .ci/cash
+      - uses: actions/checkout@v4
+        with:
+          repository: RayzorDuff/MushroomProcess
+          ref: cb5f4e7530d7948c5ba42da4e32d158370b5ee76
+          path: .ci/ids
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
@@ -50,6 +60,10 @@ jobs:
       - run: |
           set -euo pipefail
           for file in .ci/mushroomprocess/schema/pgsql/0*.sql; do psql -v ON_ERROR_STOP=1 -f "$file"; done
+          psql -X -v ON_ERROR_STOP=1 -f .ci/cash/schema/pgsql/060_fulfillment_allocation.sql
+          psql -X -v ON_ERROR_STOP=1 -f .ci/cash/schema/pgsql/061_commerce_cash_receipts.sql
+          psql -X -v ON_ERROR_STOP=1 -c 'SELECT public.mp_commerce_prepare_cash_packing()'
+          psql -X -v ON_ERROR_STOP=1 -f .ci/ids/schema/pgsql/062_product_id_collision.sql
       - name: Start native staging ERP for the Woo webhook test
         run: |
           set -euo pipefail
