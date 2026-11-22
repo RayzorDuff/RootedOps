@@ -11,7 +11,9 @@ case "${1:-}" in
   "") ;;
   --enable-projection) mode=enable ;;
   --disable-projection) mode=disable ;;
-  *) printf 'Usage: %s [--enable-projection|--disable-projection]\n' "$0" >&2; exit 2 ;;
+  --storefront-domain) mode=hostname ;;
+  --restore-storefront-domain) mode=restore_hostname ;;
+  *) printf 'Usage: %s [--enable-projection|--disable-projection|--storefront-domain|--restore-storefront-domain]\n' "$0" >&2; exit 2 ;;
 esac
 sudo -v
 
@@ -50,6 +52,22 @@ if mode == "setup":
         woo_site="shop-test.danks.store",
         woo_authorization="Basic " + base64.b64encode(f"{key}:{secret}".encode()).decode(),
     )
+elif mode in ("hostname", "restore_hostname"):
+    if (settings.get("production_erp_pilot") is not True
+            or settings.get("woo_site") != "shop-test.danks.store"
+            or not settings.get("enabled") or not settings.get("woo_authorization")):
+        raise SystemExit("Expected the existing enabled shop-test customer integration. No changes made.")
+    if settings.get("woo_origin") not in (None, "https://shop-test.danks.store", "https://dankmushrooms.net"):
+        raise SystemExit("Unexpected existing Woo origin. No changes made.")
+    backup = path.with_name("site_config.json.before-standalone-hostname")
+    if not backup.exists():
+        descriptor = os.open(backup, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+        with os.fdopen(descriptor, "w") as handle:
+            handle.write(path.read_text())
+            handle.flush()
+            os.fsync(handle.fileno())
+    settings.update(same_woo_installation=True, woo_origin=(
+        "https://dankmushrooms.net" if mode == "hostname" else "https://shop-test.danks.store"))
 else:
     if (settings.get("production_erp_pilot") is not True
             or settings.get("woo_site") != "shop-test.danks.store"):
@@ -69,7 +87,9 @@ with tempfile.NamedTemporaryFile(mode="w", dir=path.parent, delete=False) as str
     finally:
         temporary.unlink(missing_ok=True)
 
-if mode == "setup":
+if mode in ("hostname", "restore_hostname"):
+    print("Customer transport set to " + settings["woo_origin"] + "; existing identities and flags retained")
+elif mode == "setup":
     print("Woo signup provisioning configured on " + sys.argv[1])
 else:
     print("Scheduled ERP-to-Woo projection " + ("enabled" if settings["project_enabled"] else "disabled"))
