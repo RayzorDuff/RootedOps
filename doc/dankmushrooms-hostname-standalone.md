@@ -120,23 +120,61 @@ sudo install -d -m 700 -o 33 -g 33 "$DOMAIN_BACKUP/content-private"
 
 Never overwrite the journal. Return only changed-row counts and non-secret status output.
 
-## 5. Customer and order deltas after the rename
+## 5. Customer completion and deferred order history
 
-Ecwid is still accepting orders, so take a fresh export after this step and a final catch-up
-immediately after pausing Ecwid checkout at cutover. Compare stable Ecwid customer/order IDs
-against prior imports; match existing ERP customers and Woo accounts without creating duplicates.
-Use dankmushrooms.net as the Woo transport, retaining the existing logical store identities.
+Owner decision on 2026-11-22: do not import historical Ecwid orders for this cutover.
+The production audit found one refunded Woo test order and no ERP Sales Orders, Sales Invoices,
+historical order migration identities or commerce order crosswalks. Keep Ecwid exports privately
+for reference. Do not replay order `2XCJD` or any delivered Ecwid order through live Woo intake.
+Any missing cash accounting remains a separate reviewed accounting task.
 
-Include the newest Coco purchaser and the cash-on-delivery web order. Preserve its actual payment
-state, Delivered status, MP-assigned products and physical movements. Delivered alone is not proof
-of cash receipt. Historical order import must not charge a card, send customer mail, reserve or
-deduct inventory again, create a second shipment, or duplicate financial documents. Keep any ERP
-cash invoice/receipt that has not yet been posted explicitly pending review. Never clear the
-other open order's hold merely because this order was delivered.
+Eight real purchasing customers have ERP records. Seven have linked Woo customer accounts;
+the existing administrator account remains unchanged and unlinked because the current profile
+sync supports customer-role accounts only. No welcome/reset emails were requested during import.
 
-This hostname release does not implement historical Woo order import or the unfinished live
-order stack. Review a customer/order delta preview before writing it, and document which system
-needs each historical record. Do not replay delivered Ecwid orders through live Woo intake.
+### Cloudflare 403 / error 1010 after the hostname change
+
+The production ERP container resolved the net hostname through Cloudflare. Its default Python
+user agent received HTTP 403 / error 1010, while the same authenticated customer GET with an
+explicit RootedOps agent returned HTTP 200. The old hostname was direct and returned 200.
+Commerce 0.3.8 identifies customer GET/PUT and shared API requests as `RootedOps-Commerce/1.0`.
+Deploy the committed sources; do not patch the running container or disable Cloudflare protection.
+
+If the transport was temporarily restored to the old host, deploy first, then run:
+
+```bash
+bash erpnext/deploy.sh erp.danks.store commerce
+bash scripts/commerce-configure-woo-signup.sh --storefront-domain
+sudo docker exec -i -w /home/frappe/frappe-bench/sites erpnext-backend \
+  /home/frappe/frappe-bench/env/bin/python - <<'PY'
+import frappe
+from rootedops_commerce import customer_sync as sync
+frappe.init(site="erp.danks.store", sites_path=".")
+frappe.connect()
+frappe.set_user("Administrator")
+try:
+    site = "shop-test.danks.store"
+    conf = sync.settings(site)
+    if conf.get("woo_origin") != "https://dankmushrooms.net":
+        raise RuntimeError("Expected the reviewed net transport")
+    for customer_id in ("5", "6", "7", "8", "9", "10", "11"):
+        customer = sync.woo_request(site, customer_id, conf)
+        print("Woo", customer_id, "authenticated read: OK")
+finally:
+    frappe.db.rollback()
+    frappe.destroy()
+PY
+```
+
+These are authenticated reads only. If any fails, restore only customer transport using
+`bash scripts/commerce-configure-woo-signup.sh --restore-storefront-domain` and diagnose the
+response before resuming. Keep WordPress home/siteurl on the net hostname. Keep the logical
+store identity `shop-test.danks.store`, customer webhook route and links unchanged.
+
+After successful reads, test an account name edit in an existing owner-controlled linked
+customer from Woo to ERP, then its Contact from ERP to Woo after the scheduler runs. Restore
+the test values. The API reads do not by themselves prove projection writes. Keep the old
+hostname until these pass and remaining cutover integrations have been checked.
 
 ## Roll back this hostname only
 

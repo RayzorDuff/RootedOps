@@ -85,7 +85,8 @@ def woo_request(site, customer_id, conf, body=None):
     path += '?context=edit' if body is None else '/rootedops-projection'
     req = Request(path, data=None if body is None else json.dumps(body).encode(),
                   method='GET' if body is None else 'PUT',
-                  headers={'Authorization': conf['woo_authorization'], 'Content-Type': 'application/json'})
+                  headers={'Authorization': conf['woo_authorization'], 'Content-Type': 'application/json',
+                           'User-Agent': 'RootedOps-Commerce/1.0'})
     try:
         with build_opener(NoRedirect).open(req, timeout=12) as response:
             account = json.load(response)

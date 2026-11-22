@@ -31,7 +31,8 @@ def api(url, token, method='GET', payload=None):
         def redirect_request(self, req, fp, code, msg, headers, newurl):
             raise ValueError('API redirect rejected')
     req = Request(url, data=None if payload is None else canonical(payload).encode(),
-                  headers={'Authorization': token, 'Content-Type': 'application/json'}, method=method)
+                  headers={'Authorization': token, 'Content-Type': 'application/json',
+                           'User-Agent': 'RootedOps-Commerce/1.0'}, method=method)
     with build_opener(NoRedirect).open(req, timeout=60) as response:
         return json.load(response)
 
