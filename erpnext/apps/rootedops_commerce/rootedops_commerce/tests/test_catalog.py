@@ -324,3 +324,30 @@ class TestCatalog(IntegrationTestCase):
             changed=dict(data,amount='11.00')
             badproof=hmac.digest(secret.encode(),canonical(changed),'sha256').hex()
             with self.assertRaises(ValueError):reconcile_receipt(changed,badproof)
+            # Woo cash must reuse its admitted sale, including a native shipping
+            # Item, rather than create a parallel order from the receipt.
+            shipping=frappe.get_doc(dict(doctype='Item',item_code='_Test Cash Shipping',
+                item_name='Synthetic cash shipping',item_group='_Test Commerce Group',
+                stock_uom='Nos',is_stock_item=0)).insert()
+            woo_draft=dict(draft,items=list(draft['items'])+[dict(item_code=shipping.name,qty=1,rate='3.00',delivery_date=draft['delivery_date'])])
+            commercial=dict(line_totals={'1':'10.00'},shipping='3.00',tax='0.00',destination='native-cash-fixture')
+            woo_data=dict(data,provider='woocommerce',site_key='shop-test.danks.store',external_order_id='cash-woo-1',
+                receipt_id='00a690c5-616c-4fb0-8050-ea286ad8e217',amount='13.00',commercial=commercial)
+            woo_event=dict(schema_version=1,provider='woocommerce',site_key=woo_data['site_key'],
+                external_order_id=woo_data['external_order_id'],external_customer_id=None,revision=1,
+                status='pending',currency='USD',total='13.00',lines=woo_data['lines'],refunds=[],
+                payment_processor='cash',processor_payment_id=None,order_intake_mode='reviewed_mapping',commercial=commercial)
+            config['approved_orders']['woocommerce|shop-test.danks.store|cash-woo-1']=dict(approval,reviewed_draft=woo_draft)
+            from rootedops_commerce.order_service import stage_order
+            with patch.dict(frappe.conf, {'commerce_mapped_zero_tax_fixture':True,'commerce_order_shipping_item':shipping.name}):
+                existing=stage_order({'event':woo_event,'reviewed_draft':woo_draft})['sales_order']
+                frappe.get_doc('Sales Order',existing).submit()
+                count=frappe.db.count('Sales Order')
+                proof=hmac.digest(secret.encode(),canonical(woo_data),'sha256').hex()
+                posted=reconcile_receipt(woo_data,proof)
+                self.assertEqual(posted,reconcile_receipt(woo_data,proof))
+                self.assertEqual(posted['sales_order'],existing)
+                self.assertEqual(frappe.db.count('Sales Order'),count)
+                self.assertEqual(frappe.db.count('Sales Invoice'),invoices+2)
+                self.assertEqual(frappe.db.count('Payment Entry'),payments+2)
+                self.assertEqual(frappe.db.count('Stock Ledger Entry'),stock_entries)
