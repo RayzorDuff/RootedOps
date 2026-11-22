@@ -74,7 +74,14 @@ def woo_profile(doc, scope):
 
 
 def woo_request(site, customer_id, conf, body=None):
-    path = f'https://{site}/wp-json/wc/v3/customers/{customer_id}'
+    origin = conf.get('woo_origin', 'https://' + site)
+    if origin != 'https://' + site:
+        if (frappe.local.site != 'erp.danks.store' or site != 'shop-test.danks.store'
+                or conf.get('production_erp_pilot') is not True
+                or conf.get('same_woo_installation') is not True
+                or origin != 'https://dankmushrooms.net'):
+            raise ValueError('Reviewed same-installation Woo origin required')
+    path = f'{origin}/wp-json/wc/v3/customers/{customer_id}'
     path += '?context=edit' if body is None else '/rootedops-projection'
     req = Request(path, data=None if body is None else json.dumps(body).encode(),
                   method='GET' if body is None else 'PUT',

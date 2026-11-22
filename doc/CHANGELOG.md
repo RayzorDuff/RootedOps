@@ -1,5 +1,14 @@
 # Changelog
 
+## [1.5.32] - 2026-11-21
+
+### Standalone Dank hostname preparation
+
+- Allow the existing customer integration to use dankmushrooms.net without changing store identity, customer links or activation flags.
+- Add backed-up transport configuration, transport-only rollback, a scoped content helper and an independent production runbook.
+- Keep the Woo order stack and Ecwid cutover separate. Require customer/order delta review after the hostname change.
+- RootedOps patch phase only; no tag. Commerce app advances to 0.3.7. Hosted deployment remains an operator step.
+
 ## [1.5.28] - 2026-11-03
 
 ### Commerce staging inventory

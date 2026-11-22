@@ -132,6 +132,33 @@ class Link:
 
 
 class ProfileSync(unittest.TestCase):
+    def test_hostname_transport_preserves_existing_identity(self):
+        conf = dict(woo_site='shop-test.danks.store', same_woo_installation=True,
+                    production_erp_pilot=True, woo_origin='https://dankmushrooms.net',
+                    woo_authorization='Basic synthetic')
+        reply = Mock()
+        reply.__enter__ = Mock()
+        reply.__exit__ = Mock(return_value=False)
+        with patch.multiple(self.sync.frappe, create=True,
+                            local=SimpleNamespace(site='erp.danks.store')):
+            key = self.sync.link_key('shop-test.danks.store', 12)
+            for body, suffix in ((None, '?context=edit'), ({'synthetic': True}, '/rootedops-projection')):
+                reply.__enter__.return_value = io.StringIO('{"id":12,"role":"customer"}')
+                with patch.object(self.sync, 'build_opener') as opener:
+                    opener.return_value.open.return_value = reply
+                    self.sync.woo_request('shop-test.danks.store', '12', conf, body)
+                    request = opener.return_value.open.call_args.args[0]
+                    self.assertEqual(request.full_url, 'https://dankmushrooms.net/wp-json/wc/v3/customers/12' + suffix)
+                    self.assertEqual(request.get_method(), 'GET' if body is None else 'PUT')
+                self.assertEqual(self.sync.link_key(conf['woo_site'], 12), key)
+            for origin in ('https://evil.invalid', 'http://dankmushrooms.net', 'https://dankmushrooms.net@evil.invalid'):
+                with patch.dict(conf, woo_origin=origin), self.assertRaises(ValueError):
+                    self.sync.woo_request('shop-test.danks.store', '12', conf)
+            with patch.dict(conf, same_woo_installation=False), self.assertRaises(ValueError):
+                self.sync.woo_request('shop-test.danks.store', '12', conf)
+            with self.assertRaises(ValueError):
+                self.sync.woo_request('shop-test2.danks.store', '12', conf)
+
     @classmethod
     def setUpClass(cls):
         fake = SimpleNamespace(whitelist=lambda **kw: lambda f: f, parse_json=json.loads)
