@@ -54,8 +54,8 @@ def pilot_config(config):
     items = config['approved_item_codes']
     if not isinstance(items, list) or not items:
         raise ValueError('Explicit approved production Items required')
-    return dict(mappings=config['mappings'], gateways={'clover_payments': 'clover', '': 'manual_unpaid'},
-                pilot_items=frozenset(items), reviewed_mapping=True, clover_capture_pilot=True, production=True)
+    return dict(mappings=config['mappings'], gateways={'clover_payments': 'clover', '': 'manual_unpaid', 'cod': 'cash'},
+                pilot_items=frozenset(items), reviewed_mapping=True, clover_capture_pilot=True, production=True, cash_receipt_pilot=config.get('cash_orders_enabled') is True)
 
 
 def review_order(inbox, key, config, cutoff):
@@ -138,7 +138,9 @@ def cycle(inbox, mp, config):
             try:
                 key = ('woocommerce', SITE, order_id)
                 event, _ = inbox.completed_woo_payment_source(key)
-                if event.get('refunds'):
+                if event.get('payment_processor') == 'cash':
+                    outcome['capture'] = 'separate_cash_receipt_required'
+                elif event.get('refunds'):
                     outcome['capture'] = 'refund_review'
                 elif event['status'] in ('processing', 'completed') and not order_ledger(mp, key).get('reservation_confirmed'):
                     posting_date = config.get('capture_posting_dates', {}).get(order_id)
@@ -151,6 +153,9 @@ def cycle(inbox, mp, config):
             except Exception:
                 outcome['capture'] = 'capture_review'
         outcomes.append(outcome)
+    if config.get('cash_accounting_config'):
+        from cash_reconciliation import cycle as cash_cycle
+        outcomes.append({'cash_receipts': cash_cycle(config['cash_accounting_config'])})
     return outcomes
 
 

@@ -253,10 +253,48 @@ function rootedops_mp_stock($request) {
     return array('status' => 'published', 'count' => count($products), 'revision' => $p['revision']);
 }
 
+// A cash receipt is independent of physical dispatch and processor captures.
+function rootedops_mp_cash_receipt($request) {
+    if (!defined('ROOTEDOPS_MP_CASH_ENABLED') || ROOTEDOPS_MP_CASH_ENABLED !== true) {
+        throw new InvalidArgumentException('Cash receipt projection disabled');
+    }
+    rootedops_mp_lock();
+    $p = $request->get_json_params();
+    $order = rootedops_mp_order((int) $request['id']);
+    if (!defined('ROOTEDOPS_MP_WOO_CUTOFF') || !$order->get_date_created()
+        || $order->get_date_created()->getTimestamp() < ROOTEDOPS_MP_WOO_CUTOFF
+        || $order->get_payment_method() !== 'cod' || $order->get_total_refunded() > 0
+        || !$order->has_status(array('pending', 'on-hold', 'processing', 'completed'))
+        || !preg_match('/^[0-9a-f-]{36}$/D', $p['receipt_id'] ?? '')
+        || $order->get_currency() !== ($p['currency'] ?? '')
+        || wc_format_decimal($order->get_total(), 2) !== wc_format_decimal($p['amount'] ?? '-1', 2)) {
+        throw new InvalidArgumentException('Exact active COD order, receipt and amount required');
+    }
+    $stored = $order->get_meta('_rootedops_mp_cash_receipt', true);
+    if ($stored && $stored !== $p) throw new InvalidArgumentException('Cash receipt identity changed');
+    if (!$stored) {
+        $order->update_meta_data('_rootedops_mp_cash_receipt', $p);
+        $order->save();
+        $saved = new WC_Order($order->get_id());
+        if ($saved->get_meta('_rootedops_mp_cash_receipt', true) !== $p) {
+            throw new RuntimeException('Cash receipt save failed; retry same receipt');
+        }
+    }
+    // Never call payment_complete(): virtual-only orders could complete before MP dispatch.
+    if ($order->has_status(array('pending', 'on-hold'))) {
+        if (!$order->get_date_paid()) $order->set_date_paid(time());
+        if (!$order->update_status('processing', 'Cash received; ERP receipt linked by MushroomProcess')) {
+            throw new RuntimeException('Cash status projection failed; retry same receipt');
+        }
+    }
+    return array('status' => $stored ? 'duplicate' : 'recorded', 'order_status' => $order->get_status());
+}
+
 add_action('rest_api_init', function () {
     foreach (array(
         array('/orders/(?P<id>[1-9][0-9]*)/edit-link', 'GET', 'rootedops_mp_identity'),
         array('/orders/(?P<id>[1-9][0-9]*)/shipments', 'POST', 'rootedops_mp_shipment'),
+        array('/orders/(?P<id>[1-9][0-9]*)/cash-receipt', 'POST', 'rootedops_mp_cash_receipt'),
         array('/inventory', 'POST', 'rootedops_mp_stock')
     ) as $route) register_rest_route('rootedops/v1', $route[0], array(
         'methods' => $route[1], 'permission_callback' => 'rootedops_mp_permissions',

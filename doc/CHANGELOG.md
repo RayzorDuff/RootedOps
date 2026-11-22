@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.5.33] - 2026-11-21
+
+- Add separately confirmed cash receipt accounting with exact source approval, stock-neutral ERP sale/invoice/payment and recovery after destination timeouts.
+- Gate Woo COD intake and cash-status projection explicitly, preserving MP dispatch authority and native signed updates.
+- Supply private configuration merge and one cutover walkthrough covering the scoped MP UI, cash and existing hostname/order/stock runbooks.
+
 ## [1.5.32] - 2026-11-21
 
 - Require the reviewed Woo publication owner before sending stock and deduplicate by the shared MP specification pool. Keep nonowner stock in review.

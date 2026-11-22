@@ -1,5 +1,7 @@
 # Woo order, inventory and MushroomProcess dispatch acceptance
 
+Start with [the consolidated operator walkthrough](dank-cutover-walkthrough.md), including scoped Fulfillment UI deployment and separate cash receipt/accounting.
+
 Inventory compatibility update: use [the shared-pool owner handoff](commerce-inventory-owner-handoff.md) with the canonical hostname procedure. MP 058 is now deployed for Ecwid; the Woo follow-up 059 aligns picking/dispatch and the explicit cutover owner. Do not reapply 058 over newly installed Woo intake functions.
 
 Canonical hostname update: use [dankmushrooms.net preparation](dankmushrooms-canonical-domain.md) before hosted acceptance. It supersedes older deployment prose naming danks.store as the primary website. Keep danks.store as the existing logical order identity. Ecwid keeps its current public routing until the later cutover.

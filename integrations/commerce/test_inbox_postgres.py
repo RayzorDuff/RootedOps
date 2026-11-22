@@ -174,6 +174,12 @@ class NativeInboxTests(unittest.TestCase):
 
     @unittest.skipUnless(os.environ.get('COMMERCE_WP_CLI'), 'Disposable native Woo CLI not configured')
     def test_native_woo_order_created_updated_and_cancel(self):
+        self._native_woo_order_lifecycle()
+
+    def test_native_cash_woo_signed_intake_replay_and_cancel(self):
+        self._native_woo_order_lifecycle(cash=True)
+
+    def _native_woo_order_lifecycle(self, cash=False):
         site = 'shop-test.danks.store'
         secret = 'synthetic-native-woocommerce-webhook-secret'
         app = application(self.inbox, {site: dict(unpaid_pilot=True, secrets=[secret])})
@@ -191,7 +197,7 @@ class NativeInboxTests(unittest.TestCase):
                 try:
                     fixture_path = str(Path(__file__).with_name('test_native_woo.php').resolve())
                     wp('eval-file', fixture_path, 'prepare')
-                    fixture_order = json.loads(wp('eval-file', fixture_path, 'create'))
+                    fixture_order = json.loads(wp('eval-file', fixture_path, 'create', 'cash' if cash else 'unpaid'))
                     created = json.loads(wp('eval-file', fixture_path, 'deliver'))
                     self.assertIn({'topic': 'order.created', 'status': 202, 'error': None}, created)
                     self.assertTrue(all(entry['status'] == 202 for entry in created), created)
@@ -218,7 +224,8 @@ class NativeInboxTests(unittest.TestCase):
                                   guest_customer='Native Woo Guest', allow_zero_tax_fixture=True) if native else None
                     target = ReviewedERP('https://erp-test.danks.store', '', {
                         '|'.join(key): {'customer': 'SYN-GUEST'}}, request, mapping_policy=policy)
-                    config = {site: dict(self.pilot_config(fixture_order['product']), reviewed_mapping=native)}
+                    config = {site: dict(self.pilot_config(fixture_order['product']), reviewed_mapping=native,
+                        cash_receipt_pilot=cash, gateways={'': 'manual_unpaid', 'cod': 'cash'})}
                     with self.connect() as db:
                         db.execute("UPDATE ecommerce SET external_sku='NATIVE-WOO-SYN', external_product_id=%s WHERE nocopk=%s",
                                    (str(fixture_order['product']), self.ecommerce))

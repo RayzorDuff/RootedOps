@@ -93,7 +93,12 @@ def _pilot_customer(event, values):
     capture_enabled = live or (frappe.conf.get('commerce_clover_capture_pilot') or {}).get('enabled') is True
     clover = (event.get('order_intake_mode') == 'reviewed_mapping'
               and event.get('payment_processor') == 'clover' and capture_enabled)
-    if not clover and (event['status'] not in ('pending', 'on-hold', 'cancelled')
+    cash = (event.get('order_intake_mode') == 'reviewed_mapping'
+            and event.get('payment_processor') == 'cash'
+            and (frappe.conf.get('commerce_cash_accounting') or {}).get('enabled') is True
+            and event['status'] in ('pending', 'on-hold', 'processing', 'completed', 'cancelled')
+            and not event.get('processor_payment_id') and not event.get('refunds'))
+    if not clover and not cash and (event['status'] not in ('pending', 'on-hold', 'cancelled')
                        or event.get('payment_processor') != 'manual_unpaid'
                        or event.get('processor_payment_id') or event.get('refunds')):
         raise ValueError('Only approved unpaid or Clover sandbox fixture orders can use the staging pilot')
@@ -261,6 +266,12 @@ def attach_financial_documents(payload):
     """Accounts Manager links already submitted ERP documents; creates none."""
     _authorized(financial=True);data=frappe.parse_json(payload)
     live_order.authorize(data)
+    return _attach_financial_documents(data)
+
+
+def _attach_financial_documents(data):
+    """Shared financial validation; caller must perform its source-specific admission."""
+    _authorized(financial=True)
     key=mapping_key(data['provider'],data['site_key'],data['external_order_id'])
     frappe.db.sql('SELECT name FROM `tabCommerce Order State` WHERE name=%s FOR UPDATE',(key,))
     state=frappe.get_doc('Commerce Order State',key);state.check_permission('write')

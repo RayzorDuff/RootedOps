@@ -39,6 +39,7 @@ printf '<?php add_filter("pre_wp_mail", "__return_true");\n' > \
 "$COMMERCE_WP_CLI" plugin install /fixture/woo.zip --activate
 cp wordpress/dank-mu-plugins/rootedops-fulfillment.php "$fixture/wordpress/wp-content/mu-plugins/"
 "$COMMERCE_WP_CLI" config set ROOTEDOPS_MP_WOO_ENABLED true --raw
+"$COMMERCE_WP_CLI" config set ROOTEDOPS_MP_CASH_ENABLED true --raw
 "$COMMERCE_WP_CLI" config set ROOTEDOPS_MP_WOO_CUTOFF 0 --raw
 "$COMMERCE_WP_CLI" eval-file "$GITHUB_WORKSPACE/scripts/commerce_woo_publication_ci.php"
 "$COMMERCE_WP_CLI" eval-file "$GITHUB_WORKSPACE/scripts/commerce_wordpress_hostname_ci.php" seed

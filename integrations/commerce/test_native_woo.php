@@ -8,6 +8,12 @@ if ( ! defined( 'WP_CLI' ) || ! WP_CLI
 wp_set_current_user( 1 );
 
 if ( 'prepare' === $args[0] ) {
+    foreach ( (array) get_option( '_rootedops_native_fixture_webhooks', array() ) as $old_id ) {
+        (new WC_Webhook( (int) $old_id ))->delete( true );
+    }
+    $old_product = wc_get_product_id_by_sku( 'NATIVE-WOO-SYN' );
+    if ( $old_product ) wc_get_product( $old_product )->delete( true );
+    $fixture_webhooks = array();
 	foreach ( array( 'order.created', 'order.updated' ) as $topic ) {
 		$webhook = new WC_Webhook();
 		$webhook->set_name( 'Synthetic ' . $topic );
@@ -17,8 +23,9 @@ if ( 'prepare' === $args[0] ) {
 		$webhook->set_secret( 'synthetic-native-woocommerce-webhook-secret' );
 		$webhook->set_delivery_url( 'http://127.0.0.1:8100/webhooks/woocommerce/shop-test.danks.store' );
 		$webhook->set_status( 'active' );
-		$webhook->save();
+		$fixture_webhooks[] = $webhook->save();
 	}
+    update_option( '_rootedops_native_fixture_webhooks', $fixture_webhooks, false );
 	exit;
 }
 
@@ -32,6 +39,7 @@ if ( 'create' === $args[0] ) {
 
 	$order = new WC_Order();
 	$order->set_status( 'pending' );
+    $order->set_payment_method( ($args[1] ?? '') === 'cash' ? 'cod' : '' );
 	$order->set_currency( 'USD' );
 	$order->add_product( $product, 1 );
 	$order->set_billing_email( 'native-woo@example.invalid' );
