@@ -18,242 +18,185 @@ Both WordPress settings will become **https://dankmushrooms.net**.
 The only ERP configuration additions are `commerce_customer_sync.woo_origin` and the explicit
 same-installation approval. Never search-replace customer identities, history, webhook options,
 order records, GUIDs or private configuration. Do not redirect the old vhost wholesale.
-There is no requirement for an order listener on port 8102 for this customer-only hostname mo…4935 tokens truncated…    set_primary(contact, 'phone_nos', 'phone', 'is_primary_phone', values['phone'])
-        contact.save()
+There is no requirement for an order listener on port 8102 for this customer-only hostname move.
+Any already-installed Woo order adapters need their transport URL reviewed separately before use.
 
+## 1. Merge the standalone change, back up, and deploy support
 
-def status(link, scope, result, digest=None):
-    if link:
-        status_field = scope + '_status'
-        digest_field = scope + '_digest'
-        if link.get(status_field) != result or (digest is not None and link.get(digest_field) != digest):
-            link.set(status_field, result)
-            if digest is not None:
-                link.set(digest_field, digest)
-            link.save()
-    return {'status': result}
+On the Linode, use main with no modified tracked files. These commands update code and restart
+the existing ERP application services and Dank WordPress; they do not switch the WordPress URL.
+Keep the shell open for later blocks. Do not paste backup files or credentials into chat.
 
+```bash
+set -euo pipefail
+cd ~/RootedOps
+test "$(git branch --show-current)" = main
+test -z "$(git status --porcelain --untracked-files=no)"
+git pull --ff-only origin main
+sudo -v
+umask 077
+DOMAIN_BACKUP="$HOME/commerce-migration/hostname-$(date -u +%Y%m%dT%H%M%SZ)"
+mkdir -m 700 -p "$DOMAIN_BACKUP"
+dc=(sudo docker compose --env-file .env \
+  -f docker/docker-compose.dank-wordpress.yml -p dank-store-test)
+wp() { "${dc[@]}" run --rm --no-deps -T dank-wordpress-cli "$@"; }
+"${dc[@]}" exec -T dank-wordpress-db sh -ec \
+  'exec mariadb-dump -u root -p"$MARIADB_ROOT_PASSWORD" --single-transaction --routines --triggers "$MARIADB_DATABASE"' \
+  > "$DOMAIN_BACKUP/wordpress.sql"
+test -s "$DOMAIN_BACKUP/wordpress.sql"
+wp option get home > "$DOMAIN_BACKUP/home.txt"
+wp option get siteurl > "$DOMAIN_BACKUP/siteurl.txt"
+sudo docker exec erpnext-backend cat \
+  /home/frappe/frappe-bench/sites/erp.danks.store/site_config.json \
+  > "$DOMAIN_BACKUP/erp-site-config.json"
+sudo docker exec erpnext-backend bench --site erp.danks.store backup
+bash erpnext/deploy.sh erp.danks.store commerce
+"${dc[@]}" up -d --no-deps --force-recreate dank-wordpress
+printf 'Private backup: %s\n' "$DOMAIN_BACKUP"
+```
 
-def create_customer(link, profile, conf):
-    validate_inbound(link, 'account', profile)
-    name = ' '.join(profile[key] for key in ('first_name', 'last_name') if profile[key]) or profile['email']
-    customer = frappe.get_doc(dict(doctype='Customer', customer_name=name, customer_type='Individual',
-                                  customer_group=conf['customer_group'], territory=conf['territory'])).insert()
-    contact = frappe.get_doc(dict(doctype='Contact',
-                                  email_ids=[dict(email_id=profile['email'], is_primary=1)],
-                                  links=[dict(link_doctype='Customer', link_name=customer.name)]))
-    apply_contact_name(link, contact, profile)
-    contact.insert()
-    link.customer, link.contact = customer.name, contact.name
-    link.save()
+Expect successful ERP deployment and the same WordPress container running. The bind-mounted
+customer plugin now supports net. Configuration and URL changes have not happened yet.
+Use the existing off-host backup process to retain the private backup.
 
+## 2. Check external connections
 
-@frappe.whitelist(methods=['POST'])
-def consume_signal(payload):
-    signal = frappe.parse_json(payload)
-    site, customer_id = signal['site_key'], str(signal['id'])
-    conf = settings(site)
-    registered = signal['scope'] == 'registered'
-    scope = 'account' if registered else signal['scope']
-    if scope not in SCOPES:
-        raise ValueError('Unknown profile scope')
-    approved = pilot_customer_allowed(conf, customer_id)
-    provision = signup_provisioning(conf)
-    pilot = conf.get('production_erp_pilot') is True
-    signup = provision and registered
-    link = lock_link(site, customer_id, create=signup or (not pilot and scope == 'account'))
-    new_signup = signup and not link.customer
-    reviewed = link and link.get('woo_review_approved')
-    if not approved and not provision and not reviewed:
-        return {'status': 'ignored_unapproved_customer'}
-    managed = reviewed or (provision and link and link.woo_signup_provisioned)
-    if pilot and not new_signup and (not (approved or managed) or not link or not link.customer):
-        return {'status': 'review_link_required'}
-    if signup and link.customer:
-        return {'status': 'already_linked'}
-    if not link or (not link.customer and scope != 'account'):
-        return {'status': 'awaiting_registration'}
-    try:
-        values = woo_profile(woo_request(site, customer_id, conf), scope)
-        digest = profile_digest(values)
-        # A signup authorizes provisioning this Woo ID. Use its verified current
-        # profile if the account was edited before the worker received the signup.
-        if not new_signup and digest != signal['digest']:
-            # The saved fields have changed since the signed account action.
-            # Preserve the last actionable status on the crosswalk.
-            return {'status': 'stale'}
-        if not link.customer:
-            create_customer(link, values, conf)
-            if new_signup:
-                link.woo_signup_provisioned = 1
-            blank = {key: '' for key in SCOPES['shipping']}
-            link.shipping_digest = profile_digest(blank)
-            link.billing_digest = profile_digest(dict(blank, phone=''))
-        else:
-            erp_digest = profile_digest(erp_profile(link, scope))
-            if digest != erp_digest:
-                if erp_digest != link.get(scope + '_digest'):
-                    return status(link, scope, 'review_both_changed')
-                write_erp(link, scope, values)
-                if profile_digest(erp_profile(link, scope)) != digest:
-                    raise ValueError('ERP did not retain the approved profile')
-        return status(link, scope, 'synced', digest)
-    except Review as exc:
-        return status(link, scope, 'review_' + str(exc))
+Add `https://dankmushrooms.net/*` to the Google Maps browser key's permitted websites, retaining
+the old host temporarily. Keep the separate server key's restrictions intact.
+Review the installed Clover gateway and Woo Shipping connection for hostname-specific settings;
+keep merchant credentials and environment unchanged. No live charge or postage purchase is
+part of this hostname procedure. Keep the existing checkout access restriction on the net host.
 
+## 3. Change the URL and customer API transport
 
-@frappe.whitelist(methods=['POST'])
-def link_existing(payload):
-    """Bind explicitly reviewed ERP records to a stable, existing Woo account."""
-    data = frappe.parse_json(payload)
-    site, customer_id = data['site_key'], str(data['id'])
-    conf = settings(site)
-    if not pilot_customer_allowed(conf, customer_id):
-        raise ValueError('Woo customer has not been approved for the production ERP pilot')
-    link = lock_link(site, customer_id, create=True)
-    return bind_existing(link, data, conf)
+Use the same shell and verified existing net HTTPS vhost. The configuration helper validates
+the enabled production pairing, makes a private first-use backup and preserves credentials,
+logical site, signup/projection flags and approved customer IDs.
 
+```bash
+bash scripts/commerce-configure-woo-signup.sh --storefront-domain
+wp option update home https://dankmushrooms.net
+wp option update siteurl https://dankmushrooms.net
+wp cache flush
+wp option get home
+wp option get siteurl
+for host in shop-test.danks.store dankmushrooms.net; do
+  curl --silent --show-error --max-time 10 --output /dev/null \
+    --write-out '%{http_code} %{url_effective} redirect=%{redirect_url}\n' \
+    "https://$host/my-account/"
+done
+```
 
-def signup_review(name, for_update=False):
-    if 'System Manager' not in frappe.get_roles():
-        frappe.throw('System Manager role required to approve a Woo signup', frappe.PermissionError)
-    link = frappe.get_doc(LINK, name, for_update=for_update)
-    link.check_permission('write')
-    conf = settings(link.site_key)
-    if link.name != link_key(link.site_key, link.woo_customer_id):
-        frappe.throw('Invalid Woo customer review identity')
-    if link.customer or link.account_status != 'review_erp_email_match':
-        frappe.throw('This Woo signup is no longer waiting for email-match review')
-    return link, conf
+Both options must be HTTPS net. Sign in again at https://dankmushrooms.net/wp-admin/.
+Keep the old customer webhook URL and direct NGINX location intact. No new receiver is needed.
+Check My Account, media, shipping rates/pickup/local delivery and owner-address SMTP delivery.
+Use an existing linked owner-controlled account for one name edit in Woo and one in its ERP
+Contact. Verify the same Customer/link updates in both directions, then restore the test edit.
+Keep deployment verification separate from an actual live checkout test.
 
+## 4. Preview embedded storefront links, then apply
 
-@frappe.whitelist(methods=['GET'])
-def get_signup_review(name):
-    link, conf = signup_review(name)
-    return woo_profile(woo_request(link.site_key, str(link.woo_customer_id), conf), 'account')
+The existing old host remains available for assets. This scoped helper changes post content and
+excerpts only. It excludes orders, options, metadata and GUIDs, handles serialized arrays, and
+stops on serialized objects. It replaces exact HTTPS shop-test URLs only; inspect HTTP links,
+menus, widgets, theme settings and custom fields individually in WordPress.
 
+```bash
+"${dc[@]}" run --rm --no-deps -T \
+  -v "$PWD/scripts/commerce_wordpress_hostname.php:/tmp/commerce_wordpress_hostname.php:ro" \
+  dank-wordpress-cli eval-file /tmp/commerce_wordpress_hostname.php preview
+```
 
-@frappe.whitelist(methods=['POST'])
-def approve_signup_review(name, customer, contact, billing_address=None, shipping_address=None):
-    link, conf = signup_review(name, for_update=True)
-    data = dict(customer=customer, contact=contact, billing_address=billing_address,
-                shipping_address=shipping_address, ecwid_identity=link.ecwid_identity)
-    return bind_existing(link, data, conf, reviewed=True)
+Review `preview changed_content_rows=N`. To apply with a private compare-before-restore journal:
 
+```bash
+sudo install -d -m 700 -o 33 -g 33 "$DOMAIN_BACKUP/content-private"
+"${dc[@]}" run --rm --no-deps -T \
+  -v "$PWD/scripts/commerce_wordpress_hostname.php:/tmp/commerce_wordpress_hostname.php:ro" \
+  -v "$DOMAIN_BACKUP/content-private:/hostname-private" \
+  dank-wordpress-cli eval-file /tmp/commerce_wordpress_hostname.php \
+  apply /hostname-private/content.json
+```
 
-def bind_existing(link, data, conf, reviewed=False):
-    site, customer_id = link.site_key, str(link.woo_customer_id)
-    fields = ('customer', 'contact', 'billing_address', 'shipping_address', 'ecwid_identity')
-    if link.customer:
-        if any((link.get(field) or '') != (data.get(field) or '') for field in fields):
-            raise ValueError('Existing link differs from reviewed mapping')
-        return {'status': 'linked'}
-    for field in fields:
-        link.set(field, data.get(field))
-    customer = frappe.get_doc('Customer', link.customer, for_update=True)
-    customer.check_permission('read')
-    # One account per ERP customer and store. Serialize review by Customer.
-    if frappe.db.exists(LINK, {'site_key': site, 'customer': customer.name, 'name': ['!=', link.name]}):
-        raise ValueError('ERP Customer already linked to another account in this store')
-    if link.ecwid_identity:
-        previous = frappe.get_doc('Commerce Migration Identity', link.ecwid_identity)
-        previous.check_permission('read')
-        if previous.target_doctype != 'Customer' or previous.target_name != customer.name:
-            raise ValueError('Ecwid migration identity targets a different Customer')
-    if link.billing_address and link.billing_address == link.shipping_address:
-        raise ValueError('Use distinct account address records for billing and shipping')
-    woo = woo_request(site, customer_id, conf)
-    for scope in SCOPES:
-        try:
-            erp = erp_profile(link, scope)
-        except Review as error:
-            if reviewed:
-                frappe.throw(f'Cannot link {scope}: {str(error).replace("_", " ")}')
-            raise
-        remote = woo_profile(woo, scope)
-        if erp != remote:
-            if reviewed:
-                frappe.throw(f'The Woo and ERP {scope} fields must agree before linking')
-            raise ValueError('Reconcile the reviewed ERP and Woo profiles before linking')
-        link.set(scope + '_digest', profile_digest(erp))
-        link.set(scope + '_status', 'synced')
-    if reviewed:
-        link.flags.approving_signup_review = True
-        link.woo_review_approved = 1
-    link.save()
-    return {'status': 'linked'}
+Never overwrite the journal. Return only changed-row counts and non-secret status output.
 
+## 5. Customer completion and deferred order history
 
-def registered_customer(site, customer_id):
-    link = frappe.get_doc(LINK, link_key(site, customer_id))
-    link.check_permission('read')
-    if not link.customer:
-        raise ValueError('Registered Woo order needs a resolved customer link')
-    return link.customer
+Owner decision on 2026-11-22: do not import historical Ecwid orders for this cutover.
+The production audit found one refunded Woo test order and no ERP Sales Orders, Sales Invoices,
+historical order migration identities or commerce order crosswalks. Keep Ecwid exports privately
+for reference. Do not replay order `2XCJD` or any delivered Ecwid order through live Woo intake.
+Any missing cash accounting remains a separate reviewed accounting task.
 
+Eight real purchasing customers have ERP records. Seven have linked Woo customer accounts;
+the existing administrator account remains unchanged and unlinked because the current profile
+sync supports customer-role accounts only. No welcome/reset emails were requested during import.
 
-def projection_allowed(conf, link, customer_id):
-    return (pilot_customer_allowed(conf, customer_id)
-            or bool(link and (link.get('woo_review_approved')
-                             or (signup_provisioning(conf) and link.woo_signup_provisioned))))
+### Cloudflare 403 / error 1010 after the hostname change
 
+The production ERP container resolved the net hostname through Cloudflare. Its default Python
+user agent received HTTP 403 / error 1010, while the same authenticated customer GET with an
+explicit RootedOps agent returned HTTP 200. The old hostname was direct and returned 200.
+Commerce 0.3.8 identifies customer GET/PUT and shared API requests as `RootedOps-Commerce/1.0`.
+Deploy the committed sources; do not patch the running container or disable Cloudflare protection.
 
-@frappe.whitelist(methods=['POST'])
-def project_profile(site, customer_id, scope):
-    return project_scope(site, customer_id, scope)
+If the transport was temporarily restored to the old host, deploy first, then run:
 
+```bash
+bash erpnext/deploy.sh erp.danks.store commerce
+bash scripts/commerce-configure-woo-signup.sh --storefront-domain
+sudo docker exec -i -w /home/frappe/frappe-bench/sites erpnext-backend \
+  /home/frappe/frappe-bench/env/bin/python - <<'PY'
+import frappe
+from rootedops_commerce import customer_sync as sync
+frappe.init(site="erp.danks.store", sites_path=".")
+frappe.connect()
+frappe.set_user("Administrator")
+try:
+    site = "shop-test.danks.store"
+    conf = sync.settings(site)
+    if conf.get("woo_origin") != "https://dankmushrooms.net":
+        raise RuntimeError("Expected the reviewed net transport")
+    for customer_id in ("5", "6", "7", "8", "9", "10", "11"):
+        customer = sync.woo_request(site, customer_id, conf)
+        print("Woo", customer_id, "authenticated read: OK")
+finally:
+    frappe.db.rollback()
+    frappe.destroy()
+PY
+```
 
-def project_changed_profile(site, customer_id, scope):
-    return project_scope(site, customer_id, scope, automatic=True)
+These are authenticated reads only. If any fails, restore only customer transport using
+`bash scripts/commerce-configure-woo-signup.sh --restore-storefront-domain` and diagnose the
+response before resuming. Keep WordPress home/siteurl on the net hostname. Keep the logical
+store identity `shop-test.danks.store`, customer webhook route and links unchanged.
 
+After successful reads, test an account name edit in an existing owner-controlled linked
+customer from Woo to ERP, then its Contact from ERP to Woo after the scheduler runs. Restore
+the test values. The API reads do not by themselves prove projection writes. Keep the old
+hostname until these pass and remaining cutover integrations have been checked.
 
-def project_scope(site, customer_id, scope, automatic=False):
-    conf = settings(site)
-    if automatic and not conf.get('project_enabled'):
-        return {'status': 'disabled'}
-    if scope not in SCOPES:
-        raise ValueError('Unknown profile scope')
-    link = lock_link(site, customer_id)
-    if not projection_allowed(conf, link, customer_id):
-        return {'status': 'ignored_unapproved_customer'}
-    if not link or not link.customer:
-        return {'status': 'unlinked'}
-    try:
-        values = erp_profile(link, scope)
-        digest = profile_digest(values)
-        baseline = link.get(scope + '_digest')
-        if automatic and digest == baseline:
-            return {'status': 'unchanged'}
-        remote = woo_profile(woo_request(site, str(customer_id), conf), scope)
-        remote_digest = profile_digest(remote)
-        if digest == remote_digest:
-            status(link, scope, 'synced', digest)
-            return {'status': 'unchanged' if digest == baseline else 'synced'}
-        if digest == baseline:
-            return status(link, scope, 'review_woo_changed')
-        if remote_digest != baseline:
-            return status(link, scope, 'review_both_changed')
-        if scope == 'account' and (not values['email'] or matching_contacts(values['email']) - {link.contact}):
-            return status(link, scope, 'review_erp_email_match')
-        body = {'scope': scope, 'expected_digest': remote_digest, 'values': values}
-        if woo_profile(woo_request(site, str(customer_id), conf, body), scope) != values:
-            raise ValueError('Woo did not retain the projected profile')
-        return status(link, scope, 'synced', digest)
-    except Review as exc:
-        return status(link, scope, 'review_' + str(exc))
+## Roll back this hostname only
 
+Use the same shell and DOMAIN_BACKUP directory. Restore the two saved WordPress options and
+only the ERP transport setting; preserve newer database records and configuration changes.
 
-def queue_projections():
-    conf = frappe.conf.get('commerce_customer_sync') or {}
-    if not conf.get('enabled') or not conf.get('project_enabled'):
-        return
-    site = conf.get('woo_site')
-    conf = settings(site)
-    links = frappe.get_all(LINK, filters={'site_key': site, 'customer': ['is', 'set']},
-                           fields=['name', 'woo_customer_id', 'woo_review_approved', 'woo_signup_provisioned'])
-    for link in links:
-        if not projection_allowed(conf, link, link.woo_customer_id):
-            continue
-        for scope in SCOPES:
-            frappe.enqueue(project_changed_profile, site=site, customer_id=link.woo_customer_id, scope=scope,
-                           job_id=f'commerce-customer-{link.name}-{scope}', deduplicate=True, timeout=90)
+```bash
+wp option update home "$(cat "$DOMAIN_BACKUP/home.txt")"
+wp option update siteurl "$(cat "$DOMAIN_BACKUP/siteurl.txt")"
+wp cache flush
+bash scripts/commerce-configure-woo-signup.sh --restore-storefront-domain
+```
+
+If content was applied, restore only journaled fields. The helper refuses rows changed since apply:
+
+```bash
+"${dc[@]}" run --rm --no-deps -T \
+  -v "$PWD/scripts/commerce_wordpress_hostname.php:/tmp/commerce_wordpress_hostname.php:ro" \
+  -v "$DOMAIN_BACKUP/content-private:/hostname-private" \
+  dank-wordpress-cli eval-file /tmp/commerce_wordpress_hostname.php \
+  restore /hostname-private/content.json
+```
+
+Do not restore the entire WordPress database or site_config over new orders or edits. Leave both
+existing HTTPS vhosts serving the same installation, and verify customer synchronization again.
