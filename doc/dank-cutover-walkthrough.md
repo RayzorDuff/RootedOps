@@ -19,7 +19,10 @@ separate [historical backfill #131](https://github.com/RayzorDuff/RootedOps/issu
 in parallel. Preserve the completed cash order as paid/delivered history with its
 source identity and customer link, without repeating payment collection, stock
 movements, fulfillment or mail. A new owner Woo order exercises live acceptance;
-it does not replace the historical import. Reconcile open source orders against
+it does not replace the historical import. The owner confirmed these orders have
+not reached ERP, so the backfill must also create corresponding ERP sales and
+status-appropriate invoices/payment receipts or balances due after document/account
+review, using original dates and tender with stock posting off. Reconcile open source orders against
 existing MP holds before any operational handover.
 The older per-PR merge list below is architectural history, superseded by the two
 combined integration candidates. Their activation and hosted acceptance remain separate.

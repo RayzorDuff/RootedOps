@@ -80,7 +80,12 @@ Continue the redirect/QR, feed ownership and rollback sections of the walkthroug
 Keep Ecwid available until the new storefront is accepted. Do not restart migration
 with broad catalog/customer reimports or overwrite the installed baseline.
 Historical orders are separately previewed/imported using stable source identities,
-existing customer/product links and preserved source dates/statuses/totals. Keep
+existing customer/product links and preserved source dates/statuses/totals. The
+owner confirmed these orders have not reached ERP: create corresponding ERP sales
+records as well as Woo history, not an archive-only result. Preview the appropriate
+Sales Orders, invoices and actual-payment receipts by source status, with original
+dates/tender and no invoice stock posting. Review accounts, closed posting periods
+and bank/clearing entries before submitting historical financial documents. Keep
 history imports outside live intake and suppress payment collection, stock/hold
 changes, notifications, fulfillment replay and duplicate ERP accounting. Open source
 orders require review against existing MP commitments before operational handover.
