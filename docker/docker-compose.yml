@@ -331,6 +331,17 @@ services:
       - ../minecraft/bedrock:/data
     restart: unless-stopped
 
+  # --- Optional SnappyMail webmail client (no mail server) ---
+  snappymail:
+    profiles: ["mail"]
+    image: djmaze/snappymail:${SNAPPYMAIL_IMAGE_TAG:-v3.0.1.2}
+    container_name: snappymail
+    ports:
+      - "127.0.0.1:${SNAPPYMAIL_HTTP_PORT:-8888}:8888"
+    volumes:
+      - snappymail_data:/var/lib/snappymail
+    restart: unless-stopped
+
   # --- LibreChat MongoDB ---
   librechat-mongodb:
     image: mongo:8.0.20
@@ -659,6 +670,7 @@ services:
     restart: "no"
 
 volumes:
+  snappymail_data:
   librechat_mongodb_data:
   librechat_kids_mongodb_data:
   librechat_kids_data:

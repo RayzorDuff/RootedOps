@@ -19,6 +19,7 @@ RootedOps currently manages:
 - Appsmith for internal operational interfaces
 - Documenso for self-hosted document signing
 - Listmonk for self-hosted newsletters and mailing-list management
+- Optional SnappyMail webmail client for multi-provider IMAP/SMTP access (see `doc/SNAPPYMAIL.md`)
 - ERPNext + HRMS for accounting, payroll, purchasing, sales, and HR operations
 - WordPress for Rooted Psyche public website hosting
 - Tymeslot for Rooted Psyche appointment booking and Google Calendar integration
