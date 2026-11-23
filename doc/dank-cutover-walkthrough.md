@@ -13,8 +13,14 @@ disabled; Ecwid stock is active and its Coco quantity matches MP net 2.
 
 Use [the batched launch promotion](commerce-launch-batch.md) for the next merges.
 Do not reapply the completed hostname/customer import or installed 058/060/062.
-Historical Ecwid order import is excluded by explicit owner decision; no replay of
-2XCJD or the completed cash sale is needed for cutover. New owner Woo order only.
+Historical Ecwid orders remain in scope. The owner deferred them so they would
+not hold up the hostname/storefront move; they were not cancelled. Continue the
+separate [historical backfill #131](https://github.com/RayzorDuff/RootedOps/issues/131)
+in parallel. Preserve the completed cash order as paid/delivered history with its
+source identity and customer link, without repeating payment collection, stock
+movements, fulfillment or mail. A new owner Woo order exercises live acceptance;
+it does not replace the historical import. Reconcile open source orders against
+existing MP holds before any operational handover.
 The older per-PR merge list below is architectural history, superseded by the two
 combined integration candidates. Their activation and hosted acceptance remain separate.
 
