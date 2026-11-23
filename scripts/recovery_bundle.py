@@ -36,6 +36,7 @@ GROUPS = {
     'dank': [('dank', s, None) for s in ('dank-wordpress-db', 'dank-wordpress')],
     'librechat': [('core', s, s) for s in ('librechat-mongodb', 'librechat')],
     'librechat-kids': [('core', s, s) for s in ('librechat-kids-mongodb', 'librechat-kids')],
+    'snappymail': [('core', 'snappymail', 'snappymail')],
     'scheduling': [('tymeslot', 'tymeslot', 'rootedops-tymeslot'),
                    ('rallly', 'web', 'rallly-selfhosted-web-1'),
                    ('rallly', 'db', 'rallly-selfhosted-db-1'),
@@ -47,6 +48,7 @@ VOLUME_SPECS = [
     ('core', 'nocodb', '/usr/app/data', 'nocodb_data.tgz'),
     ('core', 'n8n', '/home/node/.n8n', 'n8n_data.tgz'),
     ('core', 'appsmith', '/appsmith-stacks', 'appsmith_stacks.tgz'),
+    ('core', 'snappymail', '/var/lib/snappymail', 'snappymail_data.tgz'),
     *[('core', 'erpnext-backend', '/home/frappe/frappe-bench/' + k,
        'erpnext_' + k + '.tgz') for k in ('sites', 'apps', 'logs')],
     ('core', 'erpnext-redis-cache', '/data', 'erpnext_redis_cache_data.tgz'),
@@ -392,7 +394,8 @@ def make_inventory(containers, volume_names):
             # absent only if neither its containers nor its persistent volumes exist.
             prefixes = {'dank': ('dank_wordpress',), 'librechat': ('librechat_',),
                         'librechat-kids': ('librechat_kids_',),
-                        'scheduling': ('tymeslot_', 'rallly-selfhosted_')}.get(group, ())
+                        'scheduling': ('tymeslot_', 'rallly-selfhosted_'),
+                        'snappymail': ('snappymail_data',)}.get(group, ())
             orphaned = any(any(p in v for p in prefixes) and not (group == 'librechat' and 'librechat_kids_' in v) for v in volume_names)
             if group in ('core', 'rootedpsyche') or orphaned:
                 raise ValueError('Missing source containers for installed group: ' + group)

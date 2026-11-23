@@ -99,6 +99,18 @@ for archive in "$BACKUP_DIR"/volumes/*.tgz; do
 done
 
 log "Restoring non-database volumes"
+# Optional SnappyMail webmail state belongs to a profile-gated container.
+# Create its target mount only when a source archive exists. Refuse an
+# existing target container; this legacy restore path is destructive.
+if [[ -f "$BACKUP_DIR/volumes/snappymail_data.tgz" ]]; then
+  if $DOCKER_BIN inspect snappymail >/dev/null 2>&1; then
+    echo "Refusing SnappyMail restore over an existing container; use a fresh restore host" >&2
+    exit 1
+  fi
+  "${COMPOSE_SH[@]}" --profile mail up --no-start --no-deps snappymail
+  restore_mounted_volume snappymail /var/lib/snappymail snappymail_data.tgz
+fi
+
 restore_mounted_volume nocodb /usr/app/data nocodb_data.tgz
 restore_mounted_volume n8n /home/node/.n8n n8n_data.tgz
 restore_mounted_volume appsmith /appsmith-stacks appsmith_stacks.tgz

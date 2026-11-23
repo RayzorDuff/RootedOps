@@ -70,6 +70,30 @@ def write_fixture(root, manifest=None):
 
 
 class InventoryTests(unittest.TestCase):
+    def test_snappymail_optional_inventory_and_archive_contract(self):
+        # An absent optional webmail installation must not block backups.
+        absent = bundle.make_inventory(containers(set(bundle.GROUPS) - {'snappymail'}), [])
+        self.assertEqual(absent['groups']['snappymail'], 'not-installed')
+        self.assertFalse(any(r['service'] == 'snappymail' for r in absent['services']))
+        self.assertNotIn('volumes/snappymail_data.tgz', absent['required_payloads'])
+
+        # Once installed, the exact persisted data mount is a required payload.
+        installed = bundle.make_inventory(containers(), ['actual_snappymail_data'])
+        self.assertEqual(installed['groups']['snappymail'], 'installed')
+        archive = next(r for r in installed['volumes'] if r['service'] == 'snappymail')
+        self.assertEqual(archive['destination'], '/var/lib/snappymail')
+        self.assertEqual(archive['archive'], 'volumes/snappymail_data.tgz')
+        self.assertIn('volumes/snappymail_data.tgz', installed['required_payloads'])
+
+        # An orphaned volume or an unexpectedly missing mount must fail closed.
+        with self.assertRaisesRegex(ValueError, 'Missing source containers'):
+            bundle.make_inventory(containers(set(bundle.GROUPS) - {'snappymail'}),
+                                  ['docker_snappymail_data'])
+        missing = containers()
+        next(r for r in missing if r['Name'] == '/snappymail')['Mounts'] = []
+        with self.assertRaisesRegex(ValueError, 'Missing/ambiguous persistent volume'):
+            bundle.make_inventory(missing, [])
+
     def test_rallly_null_ca_is_recorded_as_non_data_and_never_archived(self):
         inventory = bundle.make_inventory(containers(), [])
         self.assertEqual(bundle.validate_non_data_mounts(inventory), [bundle.RALLLY_NULL_CA])
