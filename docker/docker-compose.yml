@@ -21,6 +21,7 @@ services:
     ports:
       - "5433:5432"
     volumes:
+  snappymail_data:
       - signaturegate_pgdata:/var/lib/postgresql/data
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${SIG_DB_USER} -d ${SIG_DB_NAME}"]
@@ -329,6 +330,17 @@ services:
       - "19140-19147:19140-19147/udp"
     volumes:
       - ../minecraft/bedrock:/data
+    restart: unless-stopped
+
+  # --- Optional SnappyMail webmail client (no mail server) ---
+  snappymail:
+    profiles: ["mail"]
+    image: djmaze/snappymail:${SNAPPYMAIL_IMAGE_TAG:-3.1.4}
+    container_name: snappymail
+    ports:
+      - "127.0.0.1:${SNAPPYMAIL_HTTP_PORT:-8888}:8888"
+    volumes:
+      - snappymail_data:/var/lib/snappymail
     restart: unless-stopped
 
   # --- LibreChat MongoDB ---
