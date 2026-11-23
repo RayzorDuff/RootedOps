@@ -5,7 +5,7 @@ SnappyMail is a **webmail client**, not an SMTP server or mailbox host. It uses 
 ## Scope and prerequisites
 
 * Existing private RootedOps `.env` file. Add the `SNAPPYMAIL_*` keys from `.env.example`, without replacing other secrets.
-* DNS A/AAAA for `mail.danks.store` pointing at the RootedOps host; choose a different hostname if appropriate and update the Nginx file before installing it.
+* DNS A/AAAA for `mail.danks.store`, `mail.rootedpsyche.org`, `mail.dankmushrooms.net`, and `mail.danks.net` pointing at the same RootedOps host. These are access URLs to one instance, not mail server MX hosts. Nginx must serve all four names and HTTPS certificates must cover all four.
 * Host Nginx and Certbot. Deploy only over valid HTTPS before entering any mail credentials.
 * An operational mailbox provider for each address. Gmail accounts remain with Google; `@rootedpsyche.org` remains on Workspace; `@dankmushrooms.net` requires separate mailbox hosting such as Purelymail or Zoho. SnappyMail itself creates **no** mailboxes.
 * Review the pinned SnappyMail image tag against the available `djmaze/snappymail` Docker Hub tags before deployment; do not silently upgrade to latest.
@@ -21,7 +21,7 @@ SnappyMail is a **webmail client**, not an SMTP server or mailbox host. It uses 
    curl -I http://127.0.0.1:8888
    ```
 3. Review `nginx/snappymail.conf`, copy/symlink it into the host's Nginx sites configuration according to existing RootedOps practice, and enable HTTPS with the host's existing Certbot procedure. Test `sudo nginx -t` before reloading.
-4. Confirm `https://mail.danks.store` serves the login screen. Do **not** enter a mailbox password before HTTPS is working.
+4. Confirm `https://mail.danks.store`, `https://mail.rootedpsyche.org`, `https://mail.dankmushrooms.net`, and `https://mail.danks.net` each serve the same instance over valid HTTPS. Browser sessions may remain separate across hostnames: test login and logout independently on each host. Do **not** enter a mailbox password before HTTPS is working.
 5. From the host, locate SnappyMail's generated initial admin password within the **persistent Docker volume**, following the installed version's admin documentation. Open `https://mail.danks.store/?admin`, rotate the admin password immediately, and secure access to the admin interface. Never commit credentials, tokens, or generated data.
 6. Configure only approved IMAP/SMTP domains, with TLS certificate validation enabled and secure IMAP (usually port 993) and SMTP submission (usually port 465 or 587). Avoid allowing arbitrary domains or server overrides. Restrict use to approved staff accounts (an allowlist/authentication control in front of the site is recommended); a list of supported mail domains is **not** a staff-user allowlist.
 
@@ -37,7 +37,7 @@ For Gmail, prefer the upstream **Login GMail OAuth2** extension and follow its d
 
 For the Dank Mushrooms mailbox provider, verify the actual IMAP/SMTP hostname, ports, encryption, authentication, sending identity and deliverability *with the chosen provider*, not by guessing from the email domain. SnappyMail does not confer permission to impersonate alternate From addresses.
 
-Acceptance: send and receive a message from each of the three provider categories; test reply, attachments, Sent folders, account switching, logout, mobile client access, and session isolation between two different people. Treat unified Gmail login/switching as unproven until tested.
+Acceptance: all four HTTPS hostnames resolve to the same instance, with no cross-user account leakage; send and receive a message from each of the three provider categories; test reply, attachments, Sent folders, account switching, logout, mobile client access, and session isolation between two different people. Treat unified Gmail login/switching as unproven until tested.
 
 ## Persistence, backups and operational care
 
