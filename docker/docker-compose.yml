@@ -21,7 +21,6 @@ services:
     ports:
       - "5433:5432"
     volumes:
-  snappymail_data:
       - signaturegate_pgdata:/var/lib/postgresql/data
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${SIG_DB_USER} -d ${SIG_DB_NAME}"]
@@ -671,6 +670,7 @@ services:
     restart: "no"
 
 volumes:
+  snappymail_data:
   librechat_mongodb_data:
   librechat_kids_mongodb_data:
   librechat_kids_data:
