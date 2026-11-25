@@ -7,7 +7,7 @@ The source file and private receipts stay on the production host, outside Git.
 import argparse
 from collections import Counter
 from datetime import datetime
-from decimal import Decimal, ROUND_FLOOR
+from decimal import Decimal, ROUND_FLOOR, ROUND_HALF_UP
 import hashlib
 import json
 import os
@@ -22,11 +22,17 @@ def digest(value):
     return hashlib.sha256(json.dumps(value, sort_keys=True, separators=(',', ':')).encode()).hexdigest()
 
 
-def money(value):
+def money(value, label='source monetary amount'):
     number = Decimal(str(value))
-    if not number.is_finite() or number < 0 or number != number.quantize(CENT):
-        raise ValueError('Invalid source monetary amount')
-    return number
+    if not number.is_finite():
+        raise ValueError('Invalid ' + label)
+    rounded = number.quantize(CENT, rounding=ROUND_HALF_UP)
+    # Ecwid JSON numbers can carry binary arithmetic residue, including a tiny
+    # negative zero. This tolerance is one millionth of a cent, not permission
+    # to round a genuine fractional-cent price/discount into a different amount.
+    if rounded < 0 or abs(number - rounded) > Decimal('0.00000001'):
+        raise ValueError('Invalid ' + label + ': ' + str(value))
+    return rounded if rounded else Decimal('0.00')
 
 
 def allocate(amount, weights):
@@ -92,9 +98,9 @@ def compile_orders(source, woo, erp):
         # and original billing identity without creating a duplicate login.
         if raw.get('pricesIncludeTax'):
             raise ValueError('Tax-inclusive source order requires explicit mapping: ' + oid)
-        total, tax, subtotal = [money(raw[key]) for key in ('total', 'tax', 'subtotal')]
+        total, tax, subtotal = [money(raw[key], oid + ' ' + key) for key in ('total', 'tax', 'subtotal')]
         shipping = money((raw.get('shippingOption') or {}).get('shippingRate', 0))
-        discount = money(raw.get('discount', 0)) + money(raw.get('couponDiscount', 0))
+        discount = money(raw.get('discount', 0), oid + ' discount') + money(raw.get('couponDiscount', 0), oid + ' couponDiscount')
         if total != subtotal + shipping + tax - discount or discount > subtotal:
             raise ValueError('Source order components do not balance: ' + oid)
         if raw.get('usdTotal') is not None and money(raw['usdTotal']) != total:

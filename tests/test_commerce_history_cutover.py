@@ -62,7 +62,7 @@ class HistoryCutoverTests(unittest.TestCase):
         self.source['orders'][0].update(paymentStatus='REFUNDED', refundedAmount=0)
         plan = self.compile()[0]
         self.assertEqual(plan['status'], 'refunded')
-        self.assertEqual(plan['reported_refund'], '0')
+        self.assertEqual(plan['reported_refund'], '0.00')
 
     def test_discount_keeps_tax_and_total_exact(self):
         self.source['orders'][0].update(total='30.91', discount='0.90')
@@ -106,6 +106,18 @@ class HistoryCutoverTests(unittest.TestCase):
         self.assertEqual(module.allocate('0', ['0', '0']), ['0.00', '0.00'])
         with self.assertRaises(ValueError):
             module.allocate('1', ['0'])
+
+    def test_float_residue_and_negative_zero_do_not_block_money(self):
+        self.assertEqual(module.money('0.8999999999999999'), module.Decimal('0.90'))
+        self.assertEqual(module.money('3.9000000000000004'), module.Decimal('3.90'))
+        self.assertEqual(str(module.money('-0.000000000000003')), '0.00')
+        self.source['orders'][0].update(total='30.91', discount='0.8999999999999999')
+        self.assertEqual(self.compile()[0]['discount'], '0.90')
+
+    def test_real_fractional_cents_and_negative_amounts_still_stop(self):
+        for value in ('0.905', '-0.01', 'Infinity', 'NaN'):
+            with self.subTest(value=value), self.assertRaises(ValueError):
+                module.money(value)
 
 
 if __name__ == '__main__':

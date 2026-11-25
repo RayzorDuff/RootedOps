@@ -28,6 +28,9 @@ tax/discount over historical lines, without calculating a new rate. Original lin
 tax is retained as metadata. Source dates are preserved; no payment timestamp is
 invented. All supported source amounts are USD; a differing reported USD total or
 tax-inclusive source requires review rather than an inferred conversion.
+JSON arithmetic residue within USD 0.00000001 of an exact cent is normalized,
+including negative zero. Meaningful fractional-cent or negative amounts still
+stop with the source order/field identified; totals must still balance exactly.
 
 Install the tracked `rootedops-ecwid-history.php` MU plugin before applying. It
 prevents subsequent historical orders from becoming payable, changing stock,
