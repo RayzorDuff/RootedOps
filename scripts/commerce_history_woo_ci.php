@@ -33,6 +33,7 @@ $unpaid = $plan;
 $unpaid['id'] .= '-unpaid';
 $unpaid['source_key'] .= '-unpaid';
 $unpaid['source_payment'] = 'AWAITING_PAYMENT';
+$unpaid['woo_customer_id'] = 0;
 $unpaid['status'] = 'on-hold';
 $unpaid['total'] = '30.91';
 $unpaid['discount'] = '0.90';
@@ -45,6 +46,7 @@ $open = wc_get_order($first[1]['woo_id']);
 history_ci_require(wc_format_decimal($paid->get_total(), 2) === '31.81' && wc_format_decimal($paid->get_total_tax(), 2) === '1.91', 'Historical total/tax changed');
 history_ci_require(!$paid->get_date_paid(), 'Invented paid timestamp');
 history_ci_require($open->get_status() === 'on-hold' && !$open->is_paid(), 'Unpaid source became paid');
+history_ci_require($open->get_customer_id() === 0 && $open->get_billing_email() === 'synthetic@example.invalid', 'Named guest identity changed');
 history_ci_require(wc_format_decimal($open->get_discount_total(), 2) === '0.90', 'Discount changed');
 history_ci_require((int)wc_get_product($product->get_id())->get_stock_quantity() === 7, 'Import changed stock');
 // Remove the request-wide suppression to check the permanent history guards.

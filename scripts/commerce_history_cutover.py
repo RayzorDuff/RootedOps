@@ -68,6 +68,11 @@ def compile_orders(source, woo, erp):
         if oid in seen:
             raise ValueError('Duplicate Ecwid order')
         seen.add(oid)
+        # Import recorded sales, not unpaid/unfulfilled checkout attempts. An
+        # unpaid delivered order is retained: fulfillment is independent proof.
+        if (raw.get('paymentStatus') not in ('PAID', 'REFUNDED')
+                and raw.get('fulfillmentStatus') not in ('SHIPPED', 'DELIVERED')):
+            continue
         email = str(raw.get('email') or '').strip().lower()
         woo_id = users.get(email, 0)
         customers = set(erp['email_customers'].get(email, [])) if email else set()
@@ -83,8 +88,8 @@ def compile_orders(source, woo, erp):
             if candidate not in users_by_id:
                 raise ValueError('ERP points to missing Woo account')
             woo_id = int(candidate)
-        if email and not woo_id:
-            raise ValueError('Purchaser needs a Woo account before history import: ' + oid)
+        # Woo supports named guest orders. Keep the exact existing ERP Customer
+        # and original billing identity without creating a duplicate login.
         if raw.get('pricesIncludeTax'):
             raise ValueError('Tax-inclusive source order requires explicit mapping: ' + oid)
         total, tax, subtotal = [money(raw[key]) for key in ('total', 'tax', 'subtotal')]
@@ -189,6 +194,9 @@ def main():
     packet = dict(schema_version=1, source_sha=digest(source), orders=plans)
     review_sha = digest(packet)
     summary = dict(orders=len(plans), total=str(sum(money(p['total']) for p in plans)),
+                   excluded_unpaid_unfulfilled_orders=sorted(str(row['id']) for row in source['orders']
+                       if str(row['id']) not in {plan['id'] for plan in plans}),
+                   woo_guest_order_ids=[plan['id'] for plan in plans if not plan['woo_customer_id']],
                    source_statuses=dict(Counter(p['source_payment'] + '/' + p['source_fulfillment'] for p in plans)),
                    historical_item_codes=sorted({line['erp_item'] for p in plans for line in p['lines'] if line['create_item']}),
                    review_sha=review_sha, erp_documents='draft Sales Orders; no submitted invoices or payments')

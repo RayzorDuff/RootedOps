@@ -41,6 +41,23 @@ class HistoryCutoverTests(unittest.TestCase):
         self.source['orders'][0]['fulfillmentStatus'] = 'AWAITING_PROCESSING'
         self.assertEqual(self.compile()[0]['status'], 'processing')
 
+    def test_paid_sale_without_woo_login_keeps_erp_customer_and_guest_identity(self):
+        self.woo['users'] = []
+        self.erp['customer_woo'] = {}
+        plan = self.compile()[0]
+        self.assertEqual(plan['woo_customer_id'], 0)
+        self.assertEqual(plan['erp_customer'], 'Existing Buyer')
+        self.assertEqual(plan['email'], 'buyer@example.invalid')
+
+    def test_unpaid_unfulfilled_checkout_is_excluded(self):
+        self.source['orders'][0].update(paymentStatus='AWAITING_PAYMENT', fulfillmentStatus='AWAITING_PROCESSING')
+        self.assertEqual(self.compile(), [])
+
+    def test_missing_linked_woo_account_still_stops(self):
+        self.woo['users'] = []
+        with self.assertRaisesRegex(ValueError, 'missing Woo account'):
+            self.compile()
+
     def test_refund_status_does_not_invent_refund_amount(self):
         self.source['orders'][0].update(paymentStatus='REFUNDED', refundedAmount=0)
         plan = self.compile()[0]

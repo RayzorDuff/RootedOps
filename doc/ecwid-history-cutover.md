@@ -12,8 +12,10 @@ directory 0700). Preview reads native Woo/ERP customers and products and writes 
 private review plus digest. It makes no application writes. No customer lists,
 credentials or exported orders belong in Git.
 
-Existing Woo accounts and ERP Customers are reused; unresolved/ambiguous named
-purchasers stop the preview. Anonymous orders use Woo guest / the reviewed ERP
+Existing Woo accounts and ERP Customers are reused; unresolved/ambiguous ERP
+purchasers stop the preview. A recorded sale with an existing ERP Customer but no
+Woo login imports as a named Woo guest, retaining its billing identity and email.
+No login or duplicate ERP Customer is created. Anonymous orders use Woo guest / the reviewed ERP
 `Dank Mushrooms Web Guest`. Source product identity resolves renamed SKUs before
 SKU fallback. Retired/unmapped merchandise retains original name/SKU on Woo lines;
 ERP uses explicit nonstock `ECWID-HIST-<source-product-id>` Items when no enabled
@@ -59,6 +61,11 @@ to completed; paid awaiting-processing maps to processing. Refunded status is
 retained without inventing a refund amount or issuing a new refund. The open
 source order stays outside live Woo intake and retains its existing Ecwid/MP hold;
 operational handover must reuse that commitment rather than reserve twice.
+
+Unpaid/unfulfilled checkout attempts are excluded from this sales-history import;
+the preview lists their IDs. They are not declared sales or payment receipts.
+Delivered/shipped records are retained even if their source payment is awaiting,
+and paid/refunded records are retained independently of fulfillment state.
 
 Tests cover exact money, changed SKUs, retired Items, customer ambiguity, source
 drift and duplicate identities. Disposable native Woo acceptance covers import,
