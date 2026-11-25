@@ -42,10 +42,10 @@ $second = history_ci_import(array($plan, $unpaid));
 history_ci_require(count($first) === 2 && array_column($first, 'woo_id') === array_column($second, 'woo_id'), 'Retry duplicated orders');
 $paid = wc_get_order($first[0]['woo_id']);
 $open = wc_get_order($first[1]['woo_id']);
-history_ci_require($paid->get_total() === '31.81' && $paid->get_total_tax() === '1.91', 'Historical total/tax changed');
+history_ci_require(wc_format_decimal($paid->get_total(), 2) === '31.81' && wc_format_decimal($paid->get_total_tax(), 2) === '1.91', 'Historical total/tax changed');
 history_ci_require(!$paid->get_date_paid(), 'Invented paid timestamp');
 history_ci_require($open->get_status() === 'on-hold' && !$open->is_paid(), 'Unpaid source became paid');
-history_ci_require($open->get_discount_total() === '0.90', 'Discount changed');
+history_ci_require(wc_format_decimal($open->get_discount_total(), 2) === '0.90', 'Discount changed');
 history_ci_require((int)wc_get_product($product->get_id())->get_stock_quantity() === 7, 'Import changed stock');
 // Remove the request-wide suppression to check the permanent history guards.
 foreach (array('woocommerce_can_reduce_order_stock', 'woocommerce_can_restore_order_stock',
