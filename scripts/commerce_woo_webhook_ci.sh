@@ -37,6 +37,8 @@ printf '<?php add_filter("pre_wp_mail", "__return_true");\n' > \
 "$COMMERCE_WP_CLI" option update home http://127.0.0.1:8100
 "$COMMERCE_WP_CLI" option update siteurl http://127.0.0.1:8100
 "$COMMERCE_WP_CLI" plugin install /fixture/woo.zip --activate
+cp wordpress/dank-mu-plugins/rootedops-ecwid-history.php "$fixture/wordpress/wp-content/mu-plugins/"
+"$COMMERCE_WP_CLI" eval-file "$GITHUB_WORKSPACE/scripts/commerce_history_woo_ci.php"
 cp wordpress/dank-mu-plugins/rootedops-fulfillment.php "$fixture/wordpress/wp-content/mu-plugins/"
 "$COMMERCE_WP_CLI" config set ROOTEDOPS_MP_WOO_ENABLED true --raw
 "$COMMERCE_WP_CLI" config set ROOTEDOPS_MP_CASH_ENABLED true --raw
