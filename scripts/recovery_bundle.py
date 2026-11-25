@@ -36,7 +36,7 @@ GROUPS = {
     'dank': [('dank', s, None) for s in ('dank-wordpress-db', 'dank-wordpress')],
     'librechat': [('core', s, s) for s in ('librechat-mongodb', 'librechat')],
     'librechat-kids': [('core', s, s) for s in ('librechat-kids-mongodb', 'librechat-kids')],
-    'snappymail': [('core', 'snappymail', 'snappymail')],
+    'mailflow': [('core', s, s) for s in ('mailflow-postgres', 'mailflow-backend', 'mailflow-frontend')],
     'scheduling': [('tymeslot', 'tymeslot', 'rootedops-tymeslot'),
                    ('rallly', 'web', 'rallly-selfhosted-web-1'),
                    ('rallly', 'db', 'rallly-selfhosted-db-1'),
@@ -48,7 +48,6 @@ VOLUME_SPECS = [
     ('core', 'nocodb', '/usr/app/data', 'nocodb_data.tgz'),
     ('core', 'n8n', '/home/node/.n8n', 'n8n_data.tgz'),
     ('core', 'appsmith', '/appsmith-stacks', 'appsmith_stacks.tgz'),
-    ('core', 'snappymail', '/var/lib/snappymail', 'snappymail_data.tgz'),
     *[('core', 'erpnext-backend', '/home/frappe/frappe-bench/' + k,
        'erpnext_' + k + '.tgz') for k in ('sites', 'apps', 'logs')],
     ('core', 'erpnext-redis-cache', '/data', 'erpnext_redis_cache_data.tgz'),
@@ -71,7 +70,7 @@ for suffix in ('', '-kids'):
     ])
 PG = [('signaturegate-postgres', 'SIG'), ('mushroomprocess-bridge-postgres', 'MP_BRIDGE'),
       ('listmonk-postgres', 'LISTMONK'), ('nocodb-meta-postgres', 'NC'), ('documenso-postgres', 'DOCUMENSO')]
-LIVE_DATABASES = {s for s, _ in PG} | {'erpnext-db', 'rootedpsyche-wordpress-db', 'dank-wordpress-db'}
+LIVE_DATABASES = {s for s, _ in PG} | {'mailflow-postgres', 'erpnext-db', 'rootedpsyche-wordpress-db', 'dank-wordpress-db'}
 DISPOSABLE_MOUNTS = {('documenso', '/home/nodejs/.cache/ms-playwright')}
 HEX_ID = re.compile(r'sha256:[0-9a-f]{64}')
 REGISTRY_REF = re.compile(r'[a-zA-Z0-9][a-zA-Z0-9._:/-]*@sha256:[0-9a-f]{64}')
@@ -395,7 +394,7 @@ def make_inventory(containers, volume_names):
             prefixes = {'dank': ('dank_wordpress',), 'librechat': ('librechat_',),
                         'librechat-kids': ('librechat_kids_',),
                         'scheduling': ('tymeslot_', 'rallly-selfhosted_'),
-                        'snappymail': ('snappymail_data',)}.get(group, ())
+                        'mailflow': ('mailflow_postgres_data',)}.get(group, ())
             orphaned = any(any(p in v for p in prefixes) and not (group == 'librechat' and 'librechat_kids_' in v) for v in volume_names)
             if group in ('core', 'rootedpsyche') or orphaned:
                 raise ValueError('Missing source containers for installed group: ' + group)
@@ -486,6 +485,8 @@ def make_inventory(containers, volume_names):
     payloads += ['db/erpnext-all-databases.sql.gz', 'db/rootedpsyche-wordpress-all-databases.sql.gz']
     if groups['dank'] == 'installed':
         payloads.append('db/dank-wordpress-all-databases.sql.gz')
+    if groups['mailflow'] == 'installed':
+        payloads.append('db/mailflow-postgres.sql.gz')
     if groups['scheduling'] == 'installed':
         payloads += ['bind_mounts/rallly-selfhosted-env.tgz', 'meta/tymeslot.compose.yml']
     payloads += [r['archive'] for r in volumes + binds]
@@ -594,6 +595,8 @@ def validate_bundle(backup):
         raise ValueError('Unnecessary image archive for registry-only recovery')
     if manifest['groups']['dank'] == 'installed':
         needed.add('db/dank-wordpress-all-databases.sql.gz')
+    if manifest['groups']['mailflow'] == 'installed':
+        needed.add('db/mailflow-postgres.sql.gz')
     if manifest['groups']['scheduling'] == 'installed':
         needed |= {'bind_mounts/rallly-selfhosted-env.tgz', 'meta/tymeslot.compose.yml'}
     for index, record in enumerate(manifest['binds']):

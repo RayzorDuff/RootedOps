@@ -241,6 +241,15 @@ pg_dump_container nocodb-meta-postgres "$NC_DB_USER" "$NC_DB_NAME" "$NC_DB_PASSW
   "$BACKUP_DIR/db/nocodb-meta-postgres.sql.gz"
 pg_dump_container documenso-postgres "$DOCUMENSO_DB_USER" "$DOCUMENSO_DB_NAME" "$DOCUMENSO_DB_PASSWORD" \
   "$BACKUP_DIR/db/documenso-postgres.sql.gz"
+# MailFlow credentials and tokens are encrypted with MAILFLOW_ENCRYPTION_KEY in the private meta/.env.
+# Its frontend/backend are paused above; PostgreSQL stays running for a consistent logical dump.
+if python3 "$REPO_ROOT/scripts/recovery_bundle.py" records "$BACKUP_DIR" --kind groups | grep -q '"mailflow": "installed"'; then
+  : "${MAILFLOW_ENCRYPTION_KEY:?MailFlow encryption key required for recoverable backup}"
+  : "${MAILFLOW_SESSION_SECRET:?MailFlow session secret required for recoverable backup}"
+  : "${MAILFLOW_DB_PASSWORD:?MailFlow DB password required for recoverable backup}"
+  pg_dump_container mailflow-postgres mailflow mailflow "$MAILFLOW_DB_PASSWORD" \
+    "$BACKUP_DIR/db/mailflow-postgres.sql.gz"
+fi
 mariadb_dump_all erpnext-db "$ERPNEXT_DB_ROOT_PASSWORD" "$BACKUP_DIR/db/erpnext-all-databases.sql.gz"
 # WordPress is deployed with a separate Compose file but shares the default docker project.
 rootedpsyche_db="$(python3 "$REPO_ROOT/scripts/recovery_bundle.py" records "$BACKUP_DIR" --kind rootedpsyche)"
