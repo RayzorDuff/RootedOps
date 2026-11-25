@@ -353,7 +353,7 @@ services:
 
   mailflow-backend:
     profiles: ["mail"]
-    image: ghcr.io/maathimself/mailflow-backend:${MAILFLOW_VERSION:-4.4.0}
+    image: ghcr.io/maathimself/mailflow-backend:${MAILFLOW_VERSION:-4.5.1}
     container_name: mailflow-backend
     environment:
       NODE_ENV: production
@@ -386,7 +386,7 @@ services:
 
   mailflow-frontend:
     profiles: ["mail"]
-    image: ghcr.io/maathimself/mailflow-frontend:${MAILFLOW_VERSION:-4.4.0}
+    image: ghcr.io/maathimself/mailflow-frontend:${MAILFLOW_VERSION:-4.5.1}
     container_name: mailflow-frontend
     ports:
       - "127.0.0.1:${MAILFLOW_HTTP_PORT:-8888}:80"

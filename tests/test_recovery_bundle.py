@@ -581,6 +581,8 @@ class NightlyScriptTests(unittest.TestCase):
                 values[prefix + '_' + key] = 'fixture'
         for key in ('ERPNEXT_DB_ROOT_PASSWORD', 'ROOTEDPSYCHE_WP_DB_ROOT_PASSWORD', 'DANK_WP_DB_ROOT_PASSWORD'):
             values[key] = 'fixture'
+        for key in ('MAILFLOW_ENCRYPTION_KEY', 'MAILFLOW_SESSION_SECRET', 'MAILFLOW_DB_PASSWORD'):
+            values[key] = 'fixture'
         (checkout / '.env').write_text(''.join(k + '=' + v + '\n' for k, v in values.items()))
         state = containers()
         # Preserve a deliberately stopped app; the backup must not start it.
