@@ -99,6 +99,23 @@ for archive in "$BACKUP_DIR"/volumes/*.tgz; do
 done
 
 log "Restoring non-database volumes"
+# Optional authentik volumes must be mounted before restoring the database.
+# Refuse existing containers: volume restore is destructive, even if stopped.
+if [[ -f "$BACKUP_DIR/volumes/authentik_data.tgz" || -f "$BACKUP_DIR/volumes/authentik_certs.tgz" ]]; then
+  if [[ ! -f "$BACKUP_DIR/volumes/authentik_data.tgz" || ! -f "$BACKUP_DIR/volumes/authentik_certs.tgz" ]]; then
+    echo "Incomplete authentik state archive; refusing partial restore" >&2
+    exit 1
+  fi
+  for container in authentik-server authentik-worker authentik-postgres; do
+    if $DOCKER_BIN inspect "$container" >/dev/null 2>&1; then
+      echo "Refusing authentik restore over an existing container: $container" >&2
+      exit 1
+    fi
+  done
+  "${COMPOSE_SH[@]}" --profile identity up --no-start --no-deps authentik-server authentik-worker
+  restore_mounted_volume authentik-server /data authentik_data.tgz
+  restore_mounted_volume authentik-worker /certs authentik_certs.tgz
+fi
 restore_mounted_volume nocodb /usr/app/data nocodb_data.tgz
 restore_mounted_volume n8n /home/node/.n8n n8n_data.tgz
 restore_mounted_volume appsmith /appsmith-stacks appsmith_stacks.tgz
