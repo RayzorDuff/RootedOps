@@ -1,6 +1,22 @@
 # MailFlow passwordless activation with authentik application access controls
 
-**Status:** Group binding for Ray/Cormac verified and MailFlow Open mode enabled by operator on 2026-11-26. Domain-wide application policy remains to be applied and tested. RootedOps #139 and #144. Verified 2026-11-26: `ray@edanks.com` and `cormac@edanks.com` authenticate through authentik and have separate MailFlow accounts; Cormac's `email_verified_address` was automatically propagated on first Google enrollment. This runbook moves *admission decisions* into authentik and makes MailFlow's own account creation fully SSO-driven.
+**Status (2026-11-26):** Production pilot passed. Authentik MailFlow application's policy engine is **Any**, with a `mailflow-users` group binding and an enabled expression policy for verified `google-edanks` Workspace identities. MailFlow OIDC Open provisioning is enabled; `ethan@edanks.com` authenticated and was created as a **non-admin without a local password**. Negative testing of a separate personal Google identity is deferred until the `rootedpsyche.org` and external personal Google sources are configured. No application changes are needed to repeat the successful Workspace flow. RootedOps #139 and #144. Verified 2026-11-26: `ray@edanks.com` and `cormac@edanks.com` authenticate through authentik and have separate MailFlow accounts; Cormac's `email_verified_address` was automatically propagated on first Google enrollment. This runbook moves *admission decisions* into authentik and makes MailFlow's own account creation fully SSO-driven.
+
+## Acceptance evidence — edanks.com Workspace (2026-11-26)
+
+The operator verified the following directly in production, without changing the original Ray/Cormac accounts:
+
+| User | is_admin | password_hash IS NULL | Sign-in / origin |
+|---|---|---|---|
+| `ray@edanks.com` | `t` | `f` | Existing administrator, linked authentik SSO |
+| `cormac@edanks.com` | `f` | `f` | Existing invitation-created user, later linked via verified Google SSO |
+| `ethan@edanks.com` | `f` | `t` | **Newly auto-created from Google Workspace → authentik → MailFlow** |
+
+The prior **pre-policy** test denied Ethan as an unapproved/non-group user. After the verified Workspace expression policy was created and bound, the authentik Application screen showed both bindings enabled — **group `mailflow-users` (order 0)** and **expression `MailFlow - Verified edanks Workspace` (order 1)** — with policy engine **Any**. Ethan then authenticated and MailFlow auto-provisioned him without a local password. This establishes a successful *positive* Workspace path, **not** a cross-provider negative test. Once an External personal Google source exists, test that a nonmember personal Gmail identity remains denied. Do not claim that test passed already.
+
+The Workspace expression currently checks a verified-email marker and authentik enrollment source path `goauthentik.io/sources/google-edanks`. Its trust depends on the Google Cloud OAuth client remaining **Internal** to the specified Workspace, as well as protection against user-modified source paths and verification attributes. This source-specific policy must not be replaced by a generic email-domain suffix test.
+
+**Future provider test:** Add a separately restricted `rootedpsyche.org` Workspace identity source, verify its own top-level verified-email mapping, configure a separate source-aware MailFlow application policy under **Any**, and test both allowed Workspace SSO provisioning and denial of an unapproved personal Google identity. WordPress board authorization remains separate.
 
 ## The model
 
