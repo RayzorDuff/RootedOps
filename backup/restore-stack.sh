@@ -99,18 +99,6 @@ for archive in "$BACKUP_DIR"/volumes/*.tgz; do
 done
 
 log "Restoring non-database volumes"
-# Optional SnappyMail webmail state belongs to a profile-gated container.
-# Create its target mount only when a source archive exists. Refuse an
-# existing target container; this legacy restore path is destructive.
-if [[ -f "$BACKUP_DIR/volumes/snappymail_data.tgz" ]]; then
-  if $DOCKER_BIN inspect snappymail >/dev/null 2>&1; then
-    echo "Refusing SnappyMail restore over an existing container; use a fresh restore host" >&2
-    exit 1
-  fi
-  "${COMPOSE_SH[@]}" --profile mail up --no-start --no-deps snappymail
-  restore_mounted_volume snappymail /var/lib/snappymail snappymail_data.tgz
-fi
-
 restore_mounted_volume nocodb /usr/app/data nocodb_data.tgz
 restore_mounted_volume n8n /home/node/.n8n n8n_data.tgz
 restore_mounted_volume appsmith /appsmith-stacks appsmith_stacks.tgz
@@ -186,6 +174,27 @@ restore_postgres_dump mushroomprocess-bridge-postgres.sql.gz mushroomprocess-bri
 restore_postgres_dump listmonk-postgres.sql.gz listmonk-postgres "$LISTMONK_DB_USER" "$LISTMONK_DB_NAME" "$LISTMONK_DB_PASSWORD"
 restore_postgres_dump nocodb-meta-postgres.sql.gz nocodb-meta-postgres "$NC_DB_USER" "$NC_DB_NAME" "$NC_DB_PASSWORD"
 restore_postgres_dump documenso-postgres.sql.gz documenso-postgres "$DOCUMENSO_DB_USER" "$DOCUMENSO_DB_NAME" "$DOCUMENSO_DB_PASSWORD"
+
+# Restore MailFlow only on a new host; this dump contains user accounts,
+# OAuth tokens, email credentials and rules. Never import over live mailflow.
+if [[ -f "$BACKUP_DIR/db/mailflow-postgres.sql.gz" ]]; then
+  : "${MAILFLOW_ENCRYPTION_KEY:?MailFlow encryption key needed for restored credentials}"
+  : "${MAILFLOW_DB_PASSWORD:?MailFlow DB password required}"
+  if $DOCKER_BIN inspect mailflow-postgres >/dev/null 2>&1; then
+    echo "Refusing MailFlow database restore onto an existing container; use a fresh restore host" >&2
+    exit 1
+  fi
+  "${COMPOSE_SH[@]}" --profile mail up -d --no-deps mailflow-postgres
+  for i in $(seq 1 60); do
+    if $DOCKER_BIN exec -e PGPASSWORD="$MAILFLOW_DB_PASSWORD" mailflow-postgres pg_isready -U mailflow -d mailflow >/dev/null 2>&1; then
+      break
+    fi
+    if [[ "$i" == 60 ]]; then echo "MailFlow PostgreSQL did not become ready" >&2; exit 1; fi
+    sleep 2
+  done
+  restore_postgres_dump mailflow-postgres.sql.gz mailflow-postgres mailflow mailflow "$MAILFLOW_DB_PASSWORD"
+  log "MailFlow database restored; start with --profile mail after verifying secrets"
+fi
 
 if [[ -f "$BACKUP_DIR/db/erpnext-all-databases.sql.gz" ]]; then
   log "Restoring MariaDB dump into erpnext-db"

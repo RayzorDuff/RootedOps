@@ -70,29 +70,23 @@ def write_fixture(root, manifest=None):
 
 
 class InventoryTests(unittest.TestCase):
-    def test_snappymail_optional_inventory_and_archive_contract(self):
-        # An absent optional webmail installation must not block backups.
-        absent = bundle.make_inventory(containers(set(bundle.GROUPS) - {'snappymail'}), [])
-        self.assertEqual(absent['groups']['snappymail'], 'not-installed')
-        self.assertFalse(any(r['service'] == 'snappymail' for r in absent['services']))
-        self.assertNotIn('volumes/snappymail_data.tgz', absent['required_payloads'])
-
-        # Once installed, the exact persisted data mount is a required payload.
-        installed = bundle.make_inventory(containers(), ['actual_snappymail_data'])
-        self.assertEqual(installed['groups']['snappymail'], 'installed')
-        archive = next(r for r in installed['volumes'] if r['service'] == 'snappymail')
-        self.assertEqual(archive['destination'], '/var/lib/snappymail')
-        self.assertEqual(archive['archive'], 'volumes/snappymail_data.tgz')
-        self.assertIn('volumes/snappymail_data.tgz', installed['required_payloads'])
-
-        # An orphaned volume or an unexpectedly missing mount must fail closed.
+    def test_mailflow_optional_group_and_database_dump_contract(self):
+        absent = bundle.make_inventory(containers(set(bundle.GROUPS) - {'mailflow'}), [])
+        self.assertEqual(absent['groups']['mailflow'], 'not-installed')
+        self.assertNotIn('db/mailflow-postgres.sql.gz', absent['required_payloads'])
+        installed = bundle.make_inventory(containers(), ['actual_mailflow_postgres_data'])
+        self.assertEqual(installed['groups']['mailflow'], 'installed')
+        self.assertEqual(len([s for s in installed['services'] if s['service'].startswith('mailflow-')]), 3)
+        self.assertIn('db/mailflow-postgres.sql.gz', installed['required_payloads'])
+        self.assertFalse(any('mailflow' in r['archive'] for r in installed['volumes']))
         with self.assertRaisesRegex(ValueError, 'Missing source containers'):
-            bundle.make_inventory(containers(set(bundle.GROUPS) - {'snappymail'}),
-                                  ['docker_snappymail_data'])
-        missing = containers()
-        next(r for r in missing if r['Name'] == '/snappymail')['Mounts'] = []
-        with self.assertRaisesRegex(ValueError, 'Missing/ambiguous persistent volume'):
-            bundle.make_inventory(missing, [])
+            bundle.make_inventory(containers(set(bundle.GROUPS) - {'mailflow'}),
+                                  ['docker_mailflow_postgres_data'])
+        partial = containers()
+        partial = [c for c in partial if c['Name'] != '/mailflow-backend']
+        with self.assertRaisesRegex(ValueError, 'Partially installed'):
+            bundle.make_inventory(partial, [])
+        self.assertIn('mailflow-postgres', bundle.LIVE_DATABASES)
 
     def test_rallly_null_ca_is_recorded_as_non_data_and_never_archived(self):
         inventory = bundle.make_inventory(containers(), [])
@@ -586,6 +580,8 @@ class NightlyScriptTests(unittest.TestCase):
             for key in ('DB_NAME', 'DB_USER', 'DB_PASSWORD'):
                 values[prefix + '_' + key] = 'fixture'
         for key in ('ERPNEXT_DB_ROOT_PASSWORD', 'ROOTEDPSYCHE_WP_DB_ROOT_PASSWORD', 'DANK_WP_DB_ROOT_PASSWORD'):
+            values[key] = 'fixture'
+        for key in ('MAILFLOW_ENCRYPTION_KEY', 'MAILFLOW_SESSION_SECRET', 'MAILFLOW_DB_PASSWORD'):
             values[key] = 'fixture'
         (checkout / '.env').write_text(''.join(k + '=' + v + '\n' for k, v in values.items()))
         state = containers()

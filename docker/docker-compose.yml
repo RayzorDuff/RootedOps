@@ -331,16 +331,78 @@ services:
       - ../minecraft/bedrock:/data
     restart: unless-stopped
 
-  # --- Optional SnappyMail webmail client (no mail server) ---
-  snappymail:
+  # --- Optional MailFlow unified webmail (not a mail server) ---
+  mailflow-postgres:
     profiles: ["mail"]
-    image: djmaze/snappymail:${SNAPPYMAIL_IMAGE_TAG:-v3.0.1.2}
-    container_name: snappymail
-    ports:
-      - "127.0.0.1:${SNAPPYMAIL_HTTP_PORT:-8888}:8888"
+    image: postgres:16-alpine
+    container_name: mailflow-postgres
+    environment:
+      POSTGRES_DB: mailflow
+      POSTGRES_USER: mailflow
+      POSTGRES_PASSWORD: ${MAILFLOW_DB_PASSWORD:-}
     volumes:
-      - snappymail_data:/var/lib/snappymail
+      - mailflow_postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U mailflow -d mailflow"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
     restart: unless-stopped
+    networks: [mailflow]
+
+  mailflow-backend:
+    profiles: ["mail"]
+    image: ghcr.io/maathimself/mailflow-backend:${MAILFLOW_VERSION:-4.5.1}
+    container_name: mailflow-backend
+    environment:
+      NODE_ENV: production
+      PORT: 3000
+      SESSION_SECRET: ${MAILFLOW_SESSION_SECRET:-}
+      ENCRYPTION_KEY: ${MAILFLOW_ENCRYPTION_KEY:-}
+      APP_URL: ${MAILFLOW_APP_URL:-https://mail.danks.store}
+      FRONTEND_URL: ${MAILFLOW_APP_URL:-https://mail.danks.store}
+      DB_HOST: mailflow-postgres
+      DB_PORT: 5432
+      DB_NAME: mailflow
+      DB_USER: mailflow
+      DB_PASSWORD: ${MAILFLOW_DB_PASSWORD:-}
+      TRUST_PROXY_HOPS: "2"
+      GOOGLE_CLIENT_ID: ${MAILFLOW_GOOGLE_CLIENT_ID:-}
+      GOOGLE_CLIENT_SECRET: ${MAILFLOW_GOOGLE_CLIENT_SECRET:-}
+      GOOGLE_REDIRECT_URI: ${MAILFLOW_GOOGLE_REDIRECT_URI:-}
+    depends_on:
+      mailflow-postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:3000/api/health || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+    stop_grace_period: 30s
+    restart: unless-stopped
+    networks: [mailflow]
+
+  mailflow-frontend:
+    profiles: ["mail"]
+    image: ghcr.io/maathimself/mailflow-frontend:${MAILFLOW_VERSION:-4.5.1}
+    container_name: mailflow-frontend
+    ports:
+      - "127.0.0.1:${MAILFLOW_HTTP_PORT:-8888}:80"
+    environment:
+      TLS_MODE: "off"
+    depends_on:
+      mailflow-backend:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO/dev/null http://127.0.0.1:2080/healthz || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+    restart: unless-stopped
+    networks: [mailflow]
 
   # --- LibreChat MongoDB ---
   librechat-mongodb:
@@ -670,7 +732,7 @@ services:
     restart: "no"
 
 volumes:
-  snappymail_data:
+  mailflow_postgres_data:
   librechat_mongodb_data:
   librechat_kids_mongodb_data:
   librechat_kids_data:
@@ -694,3 +756,7 @@ volumes:
   erpnext_sites:
   erpnext_logs:
   erpnext_apps:
+
+networks:
+  mailflow:
+    driver: bridge
