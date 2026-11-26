@@ -23,6 +23,9 @@ import urllib.request
 SOURCE_SLUG = "google-edanks"
 MAPPING_NAME = "RootedOps - Google Workspace edanks.com verified email"
 BASE_URL = "https://auth.danks.store"
+# Cloudflare currently rejects Python-urllib's default User-Agent with HTTP 403.
+# The same endpoint accepts curl/8.0.1; use the tested header for this client.
+API_USER_AGENT = "curl/8.0.1"
 EXPRESSION_PATH = pathlib.Path(__file__).resolve().parents[1] / "config" / "authentik" / "google_edanks_verified_email.py"
 
 
@@ -59,6 +62,7 @@ class AuthentikApi:
             headers={
                 "Authorization": "Bearer " + self.token,
                 "Accept": "application/json",
+                "User-Agent": API_USER_AGENT,
                 **({"Content-Type": "application/json"} if payload is not None else {}),
             },
         )
@@ -69,7 +73,10 @@ class AuthentikApi:
                 return json.load(res)
         except urllib.error.HTTPError as err:
             # Do not leak API responses; errors can include sensitive config.
-            raise ApiError(f"HTTP {err.code} on {method} {path}") from None
+            raise ApiError(
+                f"HTTP {err.code} on {method} {path}"
+                + (" (check Cloudflare User-Agent filtering and authentik permissions)" if err.code == 403 else "")
+            ) from None
         except urllib.error.URLError as err:
             raise ApiError(f"Network/TLS failure on {method} {path}: {err.reason}") from None
 

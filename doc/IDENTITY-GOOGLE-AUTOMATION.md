@@ -56,3 +56,7 @@ This is **automated email-claim propagation**, not end-to-end SSO invitation acc
 For this initial pilot, the restricted edanks.com Google OAuth source, completed MailFlow invitation, and equality of canonical username with verified email are the safeguards. Investigate first-link replay/other-email behavior before using this mechanism for board/staff onboarding. Preserve local MailFlow admin login and authentik break-glass recovery throughout.
 
 Upstream documentation: [OAuth Source property mappings](https://docs.goauthentik.io/users-sources/sources/protocols/oauth/), [Source mapping merge behavior](https://docs.goauthentik.io/users-sources/sources/property-mappings/), [Verified email OIDC](https://version-2026-8.goauthentik.io/add-secure-apps/providers/oauth2/verify-email-address/).
+
+## Cloudflare API client compatibility
+
+On 2026-11-26 the public authentik API and direct Nginx origin each returned HTTP 200 with a valid `akadmin` bearer token when using `curl`. Python `urllib` default User-Agent returned Cloudflare HTTP 403; the same Python request using `User-Agent: curl/8.0.1` returned 200. The installer explicitly supplies that tested User-Agent (no certificate bypass, no proxy bypass, and no authentik permission elevation). If another 403 occurs, distinguish a Cloudflare-generated response from authentik authorization before changing privileges.

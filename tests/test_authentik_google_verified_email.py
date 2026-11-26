@@ -2,6 +2,7 @@
 import importlib.util
 import pathlib
 import unittest
+from unittest.mock import patch
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 SPEC = importlib.util.spec_from_file_location("authentik_google_verified_email", ROOT / "scripts" / "authentik_google_verified_email.py")
@@ -23,6 +24,27 @@ def evaluate_expression(info):
     ns = {}
     exec(compiled, ns)
     return ns["mapping"](info)
+
+
+class ClientHeaderTests(unittest.TestCase):
+    def test_api_uses_cloudflare_accepted_user_agent_without_exposing_token(self):
+        class FakeResponse:
+            status = 200
+            def __enter__(self):
+                return self
+            def __exit__(self, *args):
+                return False
+            def read(self):
+                return b'{"ok": true}'
+
+        api = mod.AuthentikApi(mod.BASE_URL, "test-private-token")
+        with patch.object(api.opener, "open", return_value=FakeResponse()) as opener:
+            # The fake response only validates request construction, no network.
+            result = api.request("GET", "/sources/oauth/google-edanks/")
+            self.assertEqual(result["ok"], True)
+            sent = opener.call_args.args[0]
+            self.assertEqual(sent.get_header("User-agent"), "curl/8.0.1")
+            self.assertEqual(sent.get_header("Authorization"), "Bearer test-private-token")
 
 
 class VerifiedEmailTests(unittest.TestCase):
