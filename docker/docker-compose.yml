@@ -339,7 +339,7 @@ services:
     environment:
       POSTGRES_DB: authentik
       POSTGRES_USER: authentik
-      POSTGRES_PASSWORD: ${ROOTEDOPS_AUTHENTIK_DB_PASSWORD:?authentik database password required}
+      POSTGRES_PASSWORD: ${ROOTEDOPS_AUTHENTIK_DB_PASSWORD:-}
     volumes:
       - authentik_pgdata:/var/lib/postgresql/data
     healthcheck:
@@ -362,8 +362,8 @@ services:
       AUTHENTIK_POSTGRESQL__HOST: authentik-postgres
       AUTHENTIK_POSTGRESQL__NAME: authentik
       AUTHENTIK_POSTGRESQL__USER: authentik
-      AUTHENTIK_POSTGRESQL__PASSWORD: ${ROOTEDOPS_AUTHENTIK_DB_PASSWORD:?authentik database password required}
-      AUTHENTIK_SECRET_KEY: ${ROOTEDOPS_AUTHENTIK_SECRET_KEY:?authentik secret key required}
+      AUTHENTIK_POSTGRESQL__PASSWORD: ${ROOTEDOPS_AUTHENTIK_DB_PASSWORD:-}
+      AUTHENTIK_SECRET_KEY: ${ROOTEDOPS_AUTHENTIK_SECRET_KEY:-}
       AUTHENTIK_ERROR_REPORTING__ENABLED: "false"
     volumes:
       - authentik_data:/data
