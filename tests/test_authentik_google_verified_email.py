@@ -30,6 +30,12 @@ class VerifiedEmailTests(unittest.TestCase):
         self.assertEqual(evaluate_expression({"email": "  CORMAC@EDANKS.COM  ", "email_verified": True}),
                          {"attributes": {"email_verified_address": "cormac@edanks.com"}})
 
+    def test_google_v1_verified_email_claim(self):
+        self.assertEqual(evaluate_expression({"email": "cormac@edanks.com", "verified_email": True}),
+                         {"attributes": {"email_verified_address": "cormac@edanks.com"}})
+        self.assertEqual(evaluate_expression({"email": "cormac@edanks.com", "verified_email": False}),
+                         {"attributes": {"email_verified_address": ""}})
+
     def test_negative_cases_fail_closed(self):
         for value in (False, None, "true", 1):
             with self.subTest(value=value):
