@@ -51,3 +51,19 @@ Verify TLS and complete authentik's initial admin setup at `https://auth.danks.s
 RootedOps nightly recovery inventory includes the **complete three-container identity group**: `authentik-postgres`, `authentik-server`, `authentik-worker`. Backups pause server+worker, logically dump PostgreSQL to `db/authentik-postgres.sql.gz`, and archive shared `/data` and worker `/certs` named volumes. PostgreSQL's live raw volume is **not** tarred. Private `meta/.env` includes the signing secret. A partial group or orphan identity volume fails closed. Restores reject an existing authentik database container and require a clean host.
 
 After first production deployment, take a **full RootedOps backup and test an isolated restore** before moving any other service's login to authentik. Validate user identities and signing keys after recovery; do not use `docker compose down -v` or `--remove-orphans` on the shared host.
+
+## Verified production milestone — 2026-11-26
+
+**Validated:** `ray@edanks.com` authenticates through the `google-edanks` Google Workspace source into authentik's `RayDanks` internal user; MailFlow 4.5.1 accepts an OIDC login from authentik and returns the *existing* MailFlow user `ray@edanks.com`. Existing MailFlow identities and connected mailboxes were retained. The tested configuration was completed through the administration UIs; it is **not yet managed by a reproducible provisioning job**.
+
+- Authentik: `https://auth.danks.store` (self-hosted OSS 2026.8.7), local break-glass `akadmin`, personal federated user `RayDanks`.
+- OAuth source: Google Workspace — edanks.com, slug `google-edanks`, callback `https://auth.danks.store/source/oauth/callback/google-edanks/`, identity-only Google scopes.
+- Authentik application slug `mailflow`, confidential OIDC provider, exact redirect `https://mail.danks.store/auth/oidc/rootedops/callback`, standard scopes `openid email profile`. Discovery: `https://auth.danks.store/application/o/mailflow/.well-known/openid-configuration` (issuer must match discovery).
+- MailFlow Settings → Administration → Single Sign-On: provider `RootedOps Identity`, slug `rootedops`, verified email required, insecure connections disabled, **Match existing / login_existing_only** provisioning; preserve local password. MailFlow Settings → Security → Linked SSO accounts links `ray@edanks.com` to this provider.
+- Authentik default email claim returned `email_verified: false`, leading MailFlow to reject login **even though linking succeeded**. A custom scope mapping `RootedOps - Verified Email` with scope `email` resolved this once the verified address was stored as a **top-level** authentik user attribute. Do not set `email_verified: True` globally or disable MailFlow's verified-email requirement.
+
+For detailed first-user/next-user procedures, see [IDENTITY-ONBOARDING.md](IDENTITY-ONBOARDING.md). For Gmail mailbox OAuth vs identity scopes, see the MailFlow runbook.
+
+### Operations and unresolved acceptance
+
+This initial login **does not** establish general purpose account provisioning, SSO authorization policies for board/staff, a verified email address for every future user, Wordpress migration, or automatic mailbox attachment. Future user onboarding must be invitation-only and organization-approved; email address similarity or Google source selection alone cannot grant another organization's privileges. See [#139](https://github.com/RayzorDuff/RootedOps/issues/139).
