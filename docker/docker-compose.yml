@@ -382,7 +382,10 @@ services:
       start_period: 30s
     stop_grace_period: 30s
     restart: unless-stopped
-    networks: [mailflow]
+    networks:
+      mailflow:
+        aliases:
+          - backend
 
   mailflow-frontend:
     profiles: ["mail"]
