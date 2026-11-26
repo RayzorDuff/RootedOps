@@ -2,7 +2,7 @@
 
 **Status:** Source-mapping installer committed, not applied to the live authentik server. First acceptance user: `cormac@edanks.com`; the successful prior manual example was `ray@edanks.com`.
 
-This implements **one step of #139**: on first and subsequent Google sign-in through the **existing** `google-edanks` authentik source, record a **top-level** `email_verified_address` from Google's **Boolean** `email_verified` claim. It is not per-user configuration. It does not create app users, change flow policies, grant MailFlow/WordPress permissions, configure Gmail mailbox OAuth, or turn on open SSO provisioning.
+This implements **one step of #139**: on first and subsequent Google sign-in through the **existing** `google-edanks` authentik source, record a **top-level** `email_verified_address` from Google's **Boolean** `verified_email` (v1 userinfo) or `email_verified` (OIDC) claim. It is not per-user configuration. It does not create app users, change flow policies, grant MailFlow/WordPress permissions, configure Gmail mailbox OAuth, or turn on open SSO provisioning.
 
 ## Before inviting Cormac
 
@@ -47,7 +47,7 @@ WHERE u.username IN ('ray@edanks.com','cormac@edanks.com')
 ORDER BY u.username;"
 ```
 
-**Do not** open MailFlow registration, set its OIDC provisioning mode to `open`, disable verified-email enforcement, manually UPDATE its DB identity table, or preauthenticate Cormac in authentik. If the claims lack a verified email, source mapping returns an empty marker, MailFlow rejects login, and the operator should verify Google's upstream claims / source configuration instead of bypassing checks.
+**Do not** open MailFlow registration, set its OIDC provisioning mode to `open`, disable verified-email enforcement, manually UPDATE its DB identity table, or preauthenticate Cormac in authentik. If both verification claim variants are absent or false, source mapping returns an empty marker, MailFlow rejects login, and the operator should verify Google's upstream claims / source configuration instead of bypassing checks.
 
 ### Limitation and next phase
 
