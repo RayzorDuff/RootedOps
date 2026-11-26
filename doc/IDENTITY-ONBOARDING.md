@@ -145,3 +145,7 @@ The goal is one controlled **admin invitation** + one verified **user acceptance
 - [authentik: OAuth source property mappings](https://docs.goauthentik.io/users-sources/sources/protocols/oauth/)
 - [authentik: Source property mapping merge semantics](https://docs.goauthentik.io/users-sources/sources/property-mappings/)
 - [MailFlow: upstream source repository](https://github.com/maathimself/mailflow)
+
+## Current rollout: SSO-only MailFlow accounts
+
+For the approved group-gated Open provisioning path and domain-wide trusted-Workspace admission policy, see [IDENTITY-MAILFLOW-SSO-PROVISIONING.md](IDENTITY-MAILFLOW-SSO-PROVISIONING.md). The earlier password-based MailFlow invitation steps above are historical/manual fallback, **not the desired production path**. Existing Cormac account was invited as username `cormac`, renamed safely to `cormac@edanks.com`, then SSO linked and accepted with verified-email attribute automatically populated. New Open-provisioned MailFlow users should have no local password.

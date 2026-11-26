@@ -67,3 +67,7 @@ For detailed first-user/next-user procedures, see [IDENTITY-ONBOARDING.md](IDENT
 ### Operations and unresolved acceptance
 
 This initial login **does not** establish general purpose account provisioning, SSO authorization policies for board/staff, a verified email address for every future user, Wordpress migration, or automatic mailbox attachment. Future user onboarding must be invitation-only and organization-approved; email address similarity or Google source selection alone cannot grant another organization's privileges. See [#139](https://github.com/RayzorDuff/RootedOps/issues/139).
+
+## MailFlow SSO admission and passwordless provisioning
+
+See [IDENTITY-MAILFLOW-SSO-PROVISIONING.md](IDENTITY-MAILFLOW-SSO-PROVISIONING.md) for the operator-tested group gate and pending trusted-Workspace domain-wide auto-access policy. MailFlow Open SSO provisioning is appropriate **only** behind a restrictive authentik application binding; public password registration must remain closed.
