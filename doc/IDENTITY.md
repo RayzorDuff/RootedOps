@@ -14,6 +14,12 @@
 
 ```bash
 cd ~/RootedOps
+# Fail closed if identity-only secrets were not configured; never print them.
+set -a
+source .env
+set +a
+: "${ROOTEDOPS_AUTHENTIK_DB_PASSWORD:?Set identity DB password in .env}"
+: "${ROOTEDOPS_AUTHENTIK_SECRET_KEY:?Set identity signing key in .env}"
 sudo docker compose --env-file .env -f docker/docker-compose.yml --profile identity config --quiet
 sudo docker compose --env-file .env -f docker/docker-compose.yml --profile identity pull authentik-postgres authentik-server authentik-worker
 sudo docker compose --env-file .env -f docker/docker-compose.yml --profile identity up -d authentik-postgres authentik-server authentik-worker
