@@ -20,6 +20,7 @@ RootedOps currently manages:
 - Documenso for self-hosted document signing
 - Listmonk for self-hosted newsletters and mailing-list management
 - Optional MailFlow unified webmail client for multi-provider IMAP/SMTP access (see `doc/MAILFLOW.md`)
+- Optional authentik open-source identity broker for cross-provider OIDC sign-in (see `doc/IDENTITY.md`)
 - ERPNext + HRMS for accounting, payroll, purchasing, sales, and HR operations
 - WordPress for Rooted Psyche public website hosting
 - Tymeslot for Rooted Psyche appointment booking and Google Calendar integration

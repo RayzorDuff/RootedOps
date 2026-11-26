@@ -70,6 +70,24 @@ def write_fixture(root, manifest=None):
 
 
 class InventoryTests(unittest.TestCase):
+    def test_authentik_optional_inventory_and_secret_contract(self):
+        absent = bundle.make_inventory(containers(set(bundle.GROUPS) - {'authentik'}), [])
+        self.assertEqual(absent['groups']['authentik'], 'not-installed')
+        self.assertNotIn('db/authentik-postgres.sql.gz', absent['required_payloads'])
+        present = bundle.make_inventory(containers(), [])
+        self.assertEqual(present['groups']['authentik'], 'installed')
+        self.assertIn('db/authentik-postgres.sql.gz', present['required_payloads'])
+        archives = {r['archive'] for r in present['volumes']}
+        self.assertIn('volumes/authentik_data.tgz', archives)
+        self.assertIn('volumes/authentik_certs.tgz', archives)
+        self.assertFalse(any('authentik_pgdata' in a for a in archives))
+        partial = [c for c in containers() if c['Name'] != '/authentik-worker']
+        with self.assertRaisesRegex(ValueError, 'Partially installed'):
+            bundle.make_inventory(partial, [])
+        with self.assertRaisesRegex(ValueError, 'Missing source containers'):
+            bundle.make_inventory(containers(set(bundle.GROUPS) - {'authentik'}), ['docker_authentik_pgdata'])
+        self.assertIn('authentik-postgres', bundle.LIVE_DATABASES)
+
     def test_mailflow_optional_group_and_database_dump_contract(self):
         absent = bundle.make_inventory(containers(set(bundle.GROUPS) - {'mailflow'}), [])
         self.assertEqual(absent['groups']['mailflow'], 'not-installed')
@@ -581,7 +599,8 @@ class NightlyScriptTests(unittest.TestCase):
                 values[prefix + '_' + key] = 'fixture'
         for key in ('ERPNEXT_DB_ROOT_PASSWORD', 'ROOTEDPSYCHE_WP_DB_ROOT_PASSWORD', 'DANK_WP_DB_ROOT_PASSWORD'):
             values[key] = 'fixture'
-        for key in ('MAILFLOW_ENCRYPTION_KEY', 'MAILFLOW_SESSION_SECRET', 'MAILFLOW_DB_PASSWORD'):
+        for key in ('MAILFLOW_ENCRYPTION_KEY', 'MAILFLOW_SESSION_SECRET', 'MAILFLOW_DB_PASSWORD',
+                    'ROOTEDOPS_AUTHENTIK_DB_PASSWORD', 'ROOTEDOPS_AUTHENTIK_SECRET_KEY'):
             values[key] = 'fixture'
         (checkout / '.env').write_text(''.join(k + '=' + v + '\n' for k, v in values.items()))
         state = containers()

@@ -331,6 +331,65 @@ services:
       - ../minecraft/bedrock:/data
     restart: unless-stopped
 
+  # --- Optional authentik identity broker (open-source, no Docker socket mount) ---
+  authentik-postgres:
+    profiles: ["identity"]
+    image: postgres:16-alpine
+    container_name: authentik-postgres
+    environment:
+      POSTGRES_DB: authentik
+      POSTGRES_USER: authentik
+      POSTGRES_PASSWORD: ${ROOTEDOPS_AUTHENTIK_DB_PASSWORD:-}
+    volumes:
+      - authentik_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -d authentik -U authentik"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    restart: unless-stopped
+    networks: [identity]
+
+  authentik-server:
+    profiles: ["identity"]
+    image: ghcr.io/goauthentik/server:${ROOTEDOPS_AUTHENTIK_VERSION:-2026.8.7}
+    container_name: authentik-server
+    command: server
+    ports:
+      - "127.0.0.1:${ROOTEDOPS_AUTHENTIK_HTTP_PORT:-9092}:9000"
+    environment: &authentik-env
+      AUTHENTIK_POSTGRESQL__HOST: authentik-postgres
+      AUTHENTIK_POSTGRESQL__NAME: authentik
+      AUTHENTIK_POSTGRESQL__USER: authentik
+      AUTHENTIK_POSTGRESQL__PASSWORD: ${ROOTEDOPS_AUTHENTIK_DB_PASSWORD:-}
+      AUTHENTIK_SECRET_KEY: ${ROOTEDOPS_AUTHENTIK_SECRET_KEY:-}
+      AUTHENTIK_ERROR_REPORTING__ENABLED: "false"
+    volumes:
+      - authentik_data:/data
+    shm_size: 512mb
+    depends_on:
+      authentik-postgres:
+        condition: service_healthy
+    restart: unless-stopped
+    networks: [identity]
+
+  authentik-worker:
+    profiles: ["identity"]
+    image: ghcr.io/goauthentik/server:${ROOTEDOPS_AUTHENTIK_VERSION:-2026.8.7}
+    container_name: authentik-worker
+    command: worker
+    environment: *authentik-env
+    volumes:
+      - authentik_data:/data
+      - authentik_certs:/certs
+    shm_size: 512mb
+    depends_on:
+      authentik-postgres:
+        condition: service_healthy
+    restart: unless-stopped
+    networks: [identity]
+
   # --- Optional MailFlow unified webmail (not a mail server) ---
   mailflow-postgres:
     profiles: ["mail"]
@@ -735,6 +794,9 @@ services:
     restart: "no"
 
 volumes:
+  authentik_pgdata:
+  authentik_data:
+  authentik_certs:
   mailflow_postgres_data:
   librechat_mongodb_data:
   librechat_kids_mongodb_data:
@@ -762,4 +824,6 @@ volumes:
 
 networks:
   mailflow:
+    driver: bridge
+  identity:
     driver: bridge
