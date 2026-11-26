@@ -241,6 +241,15 @@ pg_dump_container nocodb-meta-postgres "$NC_DB_USER" "$NC_DB_NAME" "$NC_DB_PASSW
   "$BACKUP_DIR/db/nocodb-meta-postgres.sql.gz"
 pg_dump_container documenso-postgres "$DOCUMENSO_DB_USER" "$DOCUMENSO_DB_NAME" "$DOCUMENSO_DB_PASSWORD" \
   "$BACKUP_DIR/db/documenso-postgres.sql.gz"
+# authentik's login flows, users and signing keys are mission-critical.
+# The server/worker are paused above. Database stays up for a logical dump.
+if python3 "$REPO_ROOT/scripts/recovery_bundle.py" records "$BACKUP_DIR" --kind groups | grep -q '"authentik": "installed"'; then
+  : "${ROOTEDOPS_AUTHENTIK_SECRET_KEY:?authentik signing key is required for recoverable backup}"
+  : "${ROOTEDOPS_AUTHENTIK_DB_PASSWORD:?authentik DB password is required for recoverable backup}"
+  pg_dump_container authentik-postgres authentik authentik "$ROOTEDOPS_AUTHENTIK_DB_PASSWORD" \
+    "$BACKUP_DIR/db/authentik-postgres.sql.gz"
+fi
+
 # MailFlow credentials and tokens are encrypted with MAILFLOW_ENCRYPTION_KEY in the private meta/.env.
 # Its frontend/backend are paused above; PostgreSQL stays running for a consistent logical dump.
 if python3 "$REPO_ROOT/scripts/recovery_bundle.py" records "$BACKUP_DIR" --kind groups | grep -q '"mailflow": "installed"'; then

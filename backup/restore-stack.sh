@@ -175,6 +175,28 @@ restore_postgres_dump listmonk-postgres.sql.gz listmonk-postgres "$LISTMONK_DB_U
 restore_postgres_dump nocodb-meta-postgres.sql.gz nocodb-meta-postgres "$NC_DB_USER" "$NC_DB_NAME" "$NC_DB_PASSWORD"
 restore_postgres_dump documenso-postgres.sql.gz documenso-postgres "$DOCUMENSO_DB_USER" "$DOCUMENSO_DB_NAME" "$DOCUMENSO_DB_PASSWORD"
 
+# Restore authentik only on a clean identity installation; never overwrite
+# a running identity provider. Restore its SQL BEFORE starting server/worker.
+# The matching /data and /certs volumes are restored above via the manifest.
+if [[ -f "$BACKUP_DIR/db/authentik-postgres.sql.gz" ]]; then
+  : "${ROOTEDOPS_AUTHENTIK_SECRET_KEY:?authentik signing key required for restore}"
+  : "${ROOTEDOPS_AUTHENTIK_DB_PASSWORD:?authentik database password required for restore}"
+  if $DOCKER_BIN inspect authentik-postgres >/dev/null 2>&1; then
+    echo "Refusing authentik restore onto an existing container; use a clean restore host" >&2
+    exit 1
+  fi
+  "${COMPOSE_SH[@]}" --profile identity up -d --no-deps authentik-postgres
+  for i in $(seq 1 60); do
+    if $DOCKER_BIN exec -e PGPASSWORD="$ROOTEDOPS_AUTHENTIK_DB_PASSWORD" authentik-postgres pg_isready -U authentik -d authentik >/dev/null 2>&1; then
+      break
+    fi
+    if [[ "$i" == 60 ]]; then echo "authentik database did not become ready" >&2; exit 1; fi
+    sleep 2
+  done
+  restore_postgres_dump authentik-postgres.sql.gz authentik-postgres authentik authentik "$ROOTEDOPS_AUTHENTIK_DB_PASSWORD"
+  log "authentik restored; start identity profile after validating restored secret key and certificates"
+fi
+
 # Restore MailFlow only on a new host; this dump contains user accounts,
 # OAuth tokens, email credentials and rules. Never import over live mailflow.
 if [[ -f "$BACKUP_DIR/db/mailflow-postgres.sql.gz" ]]; then
