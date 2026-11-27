@@ -165,3 +165,22 @@ For the approved group-gated Open provisioning path and domain-wide trusted-Work
 **Security:** Personal Google identity login does not authorize Gmail mailbox access. Do not copy personal Gmail address into `attributes.email_verified_address` if the authentik canonical email remains `ray@edanks.com`; OIDC verified email must accurately describe the emitted email claim. If a login unexpectedly creates another authentik user or changes `RayDanks` email, stop, avoid merging or deleting records blindly, and inspect source links and mappings.
 
 **Future admission test:** After this explicit linked-user scenario is proven, use a separate *unapproved* personal Google identity to confirm MailFlow application's Workspace-source policy does not grant access by mere email/name, and that `mailflow-users` remains the explicit admission mechanism. This negative test must precede general personal-source rollout.
+
+## Validated two-upstream-identities → one authentik person → one MailFlow account (2026-11-26)
+
+**Operator-verified:** Existing authentik internal user `RayDanks` signed in through `google-edanks`, used **User interface → Settings → Connected services → Connect** to attach `google-personal` using `raymonddanks@gmail.com`, and confirmed that the authentik canonical email remained `ray@edanks.com`. Logging into MailFlow after using personal Google returned the **same existing** MailFlow account as the Workspace identity. This is successful account linking, not a second MailFlow user or permission grant.
+
+Existing `google-personal` source settings: slug `google-personal`, user/group matching **Link users on unique identifier**, no Workspace-specific user property mapping selected, standard source authentication/enrollment flows. Google Cloud project is **External**, identity-only OAuth, web callback `https://auth.danks.store/source/oauth/callback/google-personal/`. Do not confuse this with Gmail mailbox OAuth.
+
+### Login-screen usability: distinguish Google sources
+
+By default authentik's Identification stage shows OAuth sources as icons, causing two identical Google `G` icons. There is no need to create custom icons, modify CSS, or use a commercial tier just to show names:
+
+1. Authentik Admin → **Flows and Stages → Stages** → edit the **Identification stage used by** `default-authentication-flow` (typically `default-authentication-identification`).
+2. Locate **Source settings → Show source labels** and enable it. Verify it applies to all selected OAuth sources. This displays the distinct source names alongside their otherwise identical Google icons.
+3. Optionally edit each source at **Directory → Federation and Social login** and toggle **Promoted** to display each as a prominent full-width button rather than a small icon; use if login looks better with several sources. This is separate from labels and is available in authentik 2026.8.
+4. Set source **display names** (not slugs): `Google — edanks.com Workspace`, `Google — Personal Accounts`, and later `Google — rootedpsyche.org Workspace`. Preserve slugs `google-edanks` and `google-personal`, OAuth credentials, source IDs, mapping and source links.
+5. Test private-window MailFlow-initiated login. Choose each named source separately and verify both lead to the same `RayDanks` identity and `ray@edanks.com` MailFlow account. In future, confirm personal Google users without explicit group approval remain denied; the automatic edanks Workspace admission policy must not apply to personal Google source accounts.
+
+References: [authentik Identification stage — Show source labels](https://docs.goauthentik.io/add-secure-apps/flows-stages/stages/identification/), [authentik OAuth source fields and Promoted](https://api.goauthentik.io/reference/sources-oauth-retrieve/).
+
