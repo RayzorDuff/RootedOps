@@ -23,7 +23,8 @@ class WP_User {
     public function add_role($role) { if (!in_array($role, $this->roles, true)) $this->roles[] = $role; }
     public function remove_role($role) { $this->roles = array_values(array_diff($this->roles, [$role])); }
 }
-$GLOBALS['wpdb'] = new class { public function get_blog_prefix() { return 'wp_'; } };\nfunction get_users($args) {
+$GLOBALS['wpdb'] = new class { public function get_blog_prefix() { return 'wp_'; } };
+function get_users($args) {
     $matches = [];
     foreach ($GLOBALS['rootedops_users'] as $u) {
         if (get_user_meta($u->ID, $args['meta_key'], true) === $args['meta_value']) $matches[] = $u;
@@ -39,7 +40,8 @@ function get_user_by($field, $email) {
 function get_user_meta($id, $key, $single = true) {
     return $GLOBALS['rootedops_meta'][$id][$key] ?? '';
 }
-function get_user_option($key, $id) { return get_user_meta($id, 'wp_' . $key, true); }\nfunction update_user_meta($id, $key, $value) {
+function get_user_option($key, $id) { return get_user_meta($id, 'wp_' . $key, true); }
+function update_user_meta($id, $key, $value) {
     $GLOBALS['rootedops_meta'][$id][$key] = $value;
 }
 function assert_pilot($condition, string $message) {
