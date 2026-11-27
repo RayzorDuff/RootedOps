@@ -39,7 +39,7 @@ if (!$user instanceof WP_User || in_array('administrator', (array) $user->roles,
     exit(2);
 }
 $matches = get_users([
-    'meta_key' => 'rootedops_authentik_subject',
+    'meta_key' => '_rootedops_authentik_subject',
     'meta_value' => $sub,
     'number' => 2,
     'count_total' => false,
@@ -48,7 +48,7 @@ if (count($matches) > 1 || (count($matches) === 1 && (int) $matches[0]->ID !== $
     fwrite(STDERR, "Refusing: OIDC subject already linked to a different WordPress ID\n");
     exit(3);
 }
-$existing = get_user_meta($id, 'rootedops_authentik_subject', true);
+$existing = get_user_meta($id, '_rootedops_authentik_subject', true);
 if ($existing !== '' && $existing !== $sub) {
     fwrite(STDERR, "Refusing: target WordPress ID already linked to another OIDC subject\n");
     exit(3);
@@ -61,7 +61,7 @@ if ($existing === $sub) {
     echo "No change: exact subject already linked to approved WordPress ID.\n";
     exit(0);
 }
-if (!update_user_meta($id, 'rootedops_authentik_subject', $sub)) {
+if (!update_user_meta($id, '_rootedops_authentik_subject', $sub)) {
     fwrite(STDERR, "Subject metadata was not saved\n");
     exit(4);
 }
