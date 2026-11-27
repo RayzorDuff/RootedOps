@@ -98,4 +98,16 @@ update_user_meta(8, $native, 'stable-sub-001');
 assert_pilot(rootedops_oidc_linked_user($valid) === null, 'cross-account collision rejected');
 $sync($person, $valid);
 assert_pilot(get_user_meta(2, 'rootedops_board_claim_result', true) === 'subject_mismatch', 'collision reason recorded');
+// Remove the intentional collision before testing session snapshots.
+update_user_meta(8, $native, 'other-sub');
+update_user_meta(2, 'rootedops_approved_workspace_email', 'approved@rootedpsyche.org');
+$session_claim = array_merge($valid, ['email' => 'approved@rootedpsyche.org']);
+$jwt = array_merge($session_claim, ['iat' => time(), 'exp' => time() + 300]);
+$snapshot = rootedops_oidc_session_snapshot($person, $session_claim, $jwt, ['expires_in' => 300]);
+assert_pilot($snapshot['authorized'] === true && $snapshot['until'] <= time()+300, 'fresh validated claims produce bounded session snapshot');
+assert_pilot(!rootedops_oidc_session_snapshot($person, $session_claim, array_merge($jwt,['groups'=>[]]), ['expires_in'=>300])['authorized'], 'both claims must authorize');
+assert_pilot(!rootedops_oidc_session_snapshot($person, $session_claim, array_merge($jwt,['sub'=>'other-sub']), ['expires_in'=>300])['authorized'], 'mismatched session subject denied');
+assert_pilot(!rootedops_oidc_session_snapshot($person, $session_claim, array_merge($jwt,['exp'=>time()-1]), ['expires_in'=>300])['authorized'], 'expired signed claim denied');
+assert_pilot(!rootedops_oidc_session_snapshot($person, $session_claim, $jwt, ['expires_in'=>0])['authorized'], 'missing valid access lifetime denied');
+assert_pilot(!rootedops_oidc_session_renewal_enabled(), 'new session renewal remains explicitly opt-in');
 echo "WordPress authentik pilot acceptance tests passed\n";
