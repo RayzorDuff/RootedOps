@@ -74,7 +74,7 @@ if ($existing === $sub) {
     echo "No change: exact subject already linked to approved WordPress ID.\n";
     exit(0);
 }
-if (!update_user_option($id, 'openid-connect-generic-subject-identity', $sub, true)) {
+if (!update_user_option($id, 'openid-connect-generic-subject-identity', $sub, false)) {
     fwrite(STDERR, "Subject metadata was not saved\n");
     exit(4);
 }
