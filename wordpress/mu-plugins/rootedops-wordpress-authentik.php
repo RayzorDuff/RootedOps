@@ -63,6 +63,17 @@ add_filter('openid-connect-generic-user-login-test', static function ($allow, $c
         || in_array('customer', (array) $user->roles, true)) {
         return false;
     }
+    // The generic client can also select WP users using email during its
+    // existing-user lookup. Refuse this pilot unless that lookup unambiguously
+    // resolves to the exact, preapproved WP ID. A different account email is
+    // a migration/reconciliation task, NOT an automatic account merge.
+    $email = isset($claim['email']) && is_string($claim['email'])
+        ? strtolower(trim($claim['email'])) : '';
+    $found = $email !== '' ? get_user_by('email', $email) : false;
+    if (!($found instanceof WP_User) || $found->ID !== $user->ID
+        || !isset($claim['email_verified']) || $claim['email_verified'] !== true) {
+        return false;
+    }
     // Board role can be removed on next login; never reject an approved user
     // solely because their board assignment was removed.
     return true;
