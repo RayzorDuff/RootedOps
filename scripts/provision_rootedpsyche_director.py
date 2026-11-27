@@ -10,8 +10,30 @@ import shlex
 import subprocess
 from pathlib import Path
 
-def run(argv, data=None):
-    return subprocess.run(argv, input=data, text=True, capture_output=True, check=True).stdout
+def run(argv, data=None, stage="external command"):
+    result = subprocess.run(argv, input=data, text=True, capture_output=True)
+    if result.returncode:
+        # Never dump subprocess output: it may contain credentials or identifiers.
+        combined = result.stderr + "\n" + result.stdout
+        reasons = [
+            ("Refusing alias, inactive or incomplete directory record", "Directory record is an alias, inactive or incomplete"),
+            ("Existing identity: reconcile separately", "Existing authentik email has no matching source association; reconcile manually"),
+            ("Existing source identity conflicts or inactive", "Existing authentik source identity conflicts or is inactive"),
+            ("Directory/source control mismatch", "Google control identity mismatch"),
+            ("Target is not an existing approved director", "WordPress target lacks an approved director role"),
+            ("Existing approved email differs", "WordPress approved email conflicts"),
+            ("Refusing: conflicting subject metadata", "WordPress subject metadata conflicts"),
+            ("Refusing: subject linked to another account", "Subject already linked to another WordPress account"),
+            ("Refusing: WordPress ID unavailable", "WordPress user missing or excluded"),
+            ("Session enforcement is not enabled", "WordPress session enforcement disabled"),
+            ("HttpError 404", "Google Directory user not found"),
+            ("HttpError 403", "Google Directory permission denied"),
+            ("sudo: a password is required", "Remote sudo requires a password"),
+            ("Permission denied (publickey", "SSH authentication failed"),
+        ]
+        reason = next((safe for marker, safe in reasons if marker in combined), "See private component diagnostic; raw output withheld")
+        raise RuntimeError(f"{stage}: {reason} (exit {result.returncode})")
+    return result.stdout
 
 def main():
     p = argparse.ArgumentParser(description=__doc__)
@@ -35,7 +57,7 @@ def main():
             import base64
             prefix = "\n".join("putenv(base64_decode('" + base64.b64encode((k+"="+str(v)).encode()).decode() + "'));" for k,v in env.items())
             source = source.replace("<?php", "<?php\n"+prefix+"\n", 1)
-        return run(["ssh", "-T", a.ssh, shlex.join(cmd)], source)
+        return run(["ssh", "-T", a.ssh, shlex.join(cmd)], source, stage=container + (" apply" if env.get("ROOTEDOPS_APPLY") == "YES" else " preview"))
     wp = "docker-rootedpsyche-wordpress-1"
     ak = "authentik-server"
     wp_code = (scripts/"wordpress_auth_subject_link.php").read_text()
@@ -50,7 +72,7 @@ def main():
         "--credentials", str(base/"rootedpsyche-directory-client.json"),
         "--token", str(base/"rootedpsyche-directory-token.json"),
         "--domain", "rootedpsyche.org", "--control-email", "admin@rootedpsyche.org",
-        "--workspace-email", a.workspace_email])
+        "--workspace-email", a.workspace_email], stage="Google Directory lookup")
     record = json.loads(directory.splitlines()[-1])
     env = {"ROOTEDOPS_WORKSPACE_EMAIL": record["workspace_email"],
            "ROOTEDOPS_GOOGLE_IDENTIFIER": record["google_identifier"],
@@ -86,5 +108,7 @@ def main():
 if __name__ == "__main__":
     try:
         main()
-    except (subprocess.CalledProcessError, ValueError, RuntimeError, OSError, KeyError):
+    except RuntimeError as exc:
+        raise SystemExit(f"Provisioning stopped: {exc}. No automatic rollback; rerun preview after reconciliation.")
+    except (subprocess.CalledProcessError, ValueError, OSError, KeyError):
         raise SystemExit("Provisioning stopped; no automatic rollback. Inspect target privately and rerun preview. Check SSH sudo -n access and OAuth credentials.")
