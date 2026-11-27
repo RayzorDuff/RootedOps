@@ -1,5 +1,7 @@
 # RootedOps identity service — authentik 2026.8.7
 
+**Privacy note:** Any email-like address below is an illustrative, pseudonymous placeholder for a configuration or acceptance test, not an actual user's address. Keep real person-email mappings and invitation recipients in approved private operational systems; do not copy them into public repository docs or issue comments.
+
 **Scope:** First identity milestone for [#139](https://github.com/RayzorDuff/RootedOps/issues/139). Do not treat this deployment as completing MailFlow SSO, WordPress identity linking, or Workspace mailbox OAuth. This is the **open-source** authentik edition; the paid Google Workspace **provider/provisioning** feature is not needed for upstream Google **login**.
 
 ## Deployment prerequisites / safety
@@ -32,11 +34,11 @@ Verify TLS and complete authentik's initial admin setup at `https://auth.danks.s
 ## Phase 1: edanks.com Workspace identity and existing MailFlow account
 
 1. Create a **Google OAuth source** in authentik (Directory → Federation and Social login) with identity-only scopes `openid email profile`. Use a new identity-only Google Cloud OAuth client; do **not** reuse MailFlow's restricted Gmail mailbox client.
-2. Set authentik callback URL to the exact URL supplied by the Google source UI (normally `https://auth.danks.store/source/oauth/callback/<source-slug>/`). Limit logins to approved identities (initially `ray@edanks.com`), not every Google user.
+2. Set authentik callback URL to the exact URL supplied by the Google source UI (normally `https://auth.danks.store/source/oauth/callback/<source-slug>/`). Limit logins to approved identities (initially `primary-user@edanks.com`), not every Google user.
 3. Add source to authentik's default identification/login stage. Sign in and verify the existing authentik principal and externally linked Google identity. Do not auto-merge based on email alone. Validate logout, MFA, recovery and audit.
 4. In authentik Applications → Providers create an OAuth2/OpenID Connect provider for MailFlow; configure redirect URI from **MailFlow Settings → SSO** and OIDC discovery URL provided by authentik. Grant only `mailflow-users` access.
 5. MailFlow already has a local personal user. Use MailFlow's existing *authenticated* identity-linking workflow (it requires recent reauthentication) to link the authentik provider to that user **before** using the SSO button on the login screen. Verify a Google login returns to the same MailFlow user UUID and the same mailboxes. Keep password login and break-glass admin until tested.
-6. Do not confuse this identity-only OAuth permission with connecting `ray@edanks.com`'s Google mailbox (which needs Gmail scope or approved app password).
+6. Do not confuse this identity-only OAuth permission with connecting `primary-user@edanks.com`'s Google mailbox (which needs Gmail scope or approved app password).
 
 ## Phase 2: Rooted Psyche board / personal Gmail
 
@@ -54,12 +56,12 @@ After first production deployment, take a **full RootedOps backup and test an is
 
 ## Verified production milestone — 2026-11-26
 
-**Validated:** `ray@edanks.com` authenticates through the `google-edanks` Google Workspace source into authentik's `RayDanks` internal user; MailFlow 4.5.1 accepts an OIDC login from authentik and returns the *existing* MailFlow user `ray@edanks.com`. Existing MailFlow identities and connected mailboxes were retained. The tested configuration was completed through the administration UIs; it is **not yet managed by a reproducible provisioning job**.
+**Validated:** `primary-user@edanks.com` authenticates through the `google-edanks` Google Workspace source into authentik's `RayDanks` internal user; MailFlow 4.5.1 accepts an OIDC login from authentik and returns the *existing* MailFlow user `primary-user@edanks.com`. Existing MailFlow identities and connected mailboxes were retained. The tested configuration was completed through the administration UIs; it is **not yet managed by a reproducible provisioning job**.
 
 - Authentik: `https://auth.danks.store` (self-hosted OSS 2026.8.7), local break-glass `akadmin`, personal federated user `RayDanks`.
 - OAuth source: Google Workspace — edanks.com, slug `google-edanks`, callback `https://auth.danks.store/source/oauth/callback/google-edanks/`, identity-only Google scopes.
 - Authentik application slug `mailflow`, confidential OIDC provider, exact redirect `https://mail.danks.store/auth/oidc/rootedops/callback`, standard scopes `openid email profile`. Discovery: `https://auth.danks.store/application/o/mailflow/.well-known/openid-configuration` (issuer must match discovery).
-- MailFlow Settings → Administration → Single Sign-On: provider `RootedOps Identity`, slug `rootedops`, verified email required, insecure connections disabled, **Match existing / login_existing_only** provisioning; preserve local password. MailFlow Settings → Security → Linked SSO accounts links `ray@edanks.com` to this provider.
+- MailFlow Settings → Administration → Single Sign-On: provider `RootedOps Identity`, slug `rootedops`, verified email required, insecure connections disabled, **Match existing / login_existing_only** provisioning; preserve local password. MailFlow Settings → Security → Linked SSO accounts links `primary-user@edanks.com` to this provider.
 - Authentik default email claim returned `email_verified: false`, leading MailFlow to reject login **even though linking succeeded**. A custom scope mapping `RootedOps - Verified Email` with scope `email` resolved this once the verified address was stored as a **top-level** authentik user attribute. Do not set `email_verified: True` globally or disable MailFlow's verified-email requirement.
 
 For detailed first-user/next-user procedures, see [IDENTITY-ONBOARDING.md](IDENTITY-ONBOARDING.md). For Gmail mailbox OAuth vs identity scopes, see the MailFlow runbook.
@@ -78,7 +80,7 @@ See [IDENTITY-MAILFLOW-SSO-PROVISIONING.md](IDENTITY-MAILFLOW-SSO-PROVISIONING.m
 
 ### Identity, roles, access, and mailboxes are distinct
 
-- **Person / identity:** One authentik user represents a human and may link multiple sign-in methods. Existing `RayDanks` uses both `ray@edanks.com` and `raymonddanks@gmail.com` to access the **same** MailFlow account. A future `ray@rootedpsyche.org` sign-in can be linked to this person only after correcting the verified-email marker for multi-source linking; `admin@rootedpsyche.org` remains a separate pilot identity. Do not merge automatically by email.
+- **Person / identity:** One authentik user represents a human and may link multiple sign-in methods. Existing `RayDanks` uses both `primary-user@edanks.com` and `linked-personal@gmail.example` to access the **same** MailFlow account. A future `linked-new-user@rootedpsyche.org` sign-in can be linked to this person only after correcting the verified-email marker for multi-source linking; `workspace-admin@rootedpsyche.org` remains a separate pilot identity. Do not merge automatically by email.
 - **Organizational roles:** Authentik groups represent assignments such as Rooted Psyche **board director** and **Spiritual Practitioner**, and Dank Mushrooms **cultivation** or **sales**. One person may hold multiple roles across organizations. Role assignment/revocation is centrally administered in authentik rather than independently adding/removing the person inside every application.
 - **Application entitlements:** authentik applications authorize access using those organizational groups. A board director may have MailFlow and board-portal access without automatically gaining Appsmith access; a Spiritual Practitioner may receive MailFlow and scoped Appsmith access without board access. A role may grant more than one application's access. Do not confuse application sign-in with app-internal capabilities or data scope.
 - **MailFlow eligibility:** keep the **currently working** automatic verified `edanks.com`/`rootedpsyche.org` Workspace admission and passwordless OIDC user creation, with `mailflow-users` for approved exceptions. The user explicitly accepts Workspace mailbox retirement plus account/role offboarding as the first operational model. A verified organizational address is MailFlow eligibility, **not** automatic board or practitioner role membership.
