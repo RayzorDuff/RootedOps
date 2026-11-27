@@ -3,6 +3,7 @@ Requires a separately verified Google Directory ID / OAuth identifier equivalenc
 Only prepares a new identity; never merges existing identities.
 """
 import os
+import json
 from django.db import transaction
 from authentik.core.models import User, Group, Application
 from authentik.providers.oauth2.models import OAuth2Provider
@@ -22,18 +23,26 @@ provider = OAuth2Provider.objects.get(pk=Application.objects.get(slug="rootedpsy
 assert provider.sub_mode == "hashed_user_id", "Unexpected subject mode; do not change provider"
 control = UserOAuthSourceConnection.objects.get(source=source, identifier=control_id)
 assert control.user.email.lower() == control_email, "Directory/source control mismatch"
-assert not User.objects.filter(email__iexact=email).exists(), "Existing identity: reconcile separately"
-assert not User.objects.filter(username__iexact=email).exists()
-assert not UserOAuthSourceConnection.objects.filter(source=source, identifier=identifier).exists()
 group = Group.objects.get(name="rootedpsyche-board-directors")
-if not apply:
-    print("PREVIEW PASS: source control matched; target identity and source identifier unused; no writes")
-else:
-    with transaction.atomic():
-        user = User(username=email, email=email, name=os.environ["ROOTEDOPS_DISPLAY_NAME"], is_active=True)
-        user.set_unusable_password()
-        user.save()
-        UserOAuthSourceConnection.objects.create(user=user, source=source, identifier=identifier)
+with transaction.atomic():
+    connection = UserOAuthSourceConnection.objects.filter(source=source, identifier=identifier).select_related("user").first()
+    if connection:
+        user = connection.user
+        assert user.is_active and user.email.lower() == email, "Existing source identity conflicts or inactive"
+        assert not user.is_superuser, "Privileged identity excluded"
+        assert not User.objects.filter(email__iexact=email).exclude(pk=user.pk).exists()
+        assert not UserOAuthSourceConnection.objects.filter(source=source, user=user).exclude(identifier=identifier).exists()
+        state = "existing"
+    else:
+        assert not User.objects.filter(email__iexact=email).exists(), "Existing identity: reconcile separately"
+        assert not User.objects.filter(username__iexact=email).exists()
+        state = "new"
+        user = None
+        if apply:
+            user = User(username=email, email=email, name=os.environ["ROOTEDOPS_DISPLAY_NAME"], is_active=True)
+            user.set_unusable_password()
+            user.save()
+            UserOAuthSourceConnection.objects.create(user=user, source=source, identifier=identifier)
+    if apply:
         user.groups.add(group)
-    print("Prepared identity, Google source connection and board group. No verified-email marker fabricated.")
-    print("Private WordPress subject:", user.uid)
+    print("ROOTEDOPS_RESULT=" + json.dumps({"state": state, "applied": apply, "subject": user.uid if user else None}))
