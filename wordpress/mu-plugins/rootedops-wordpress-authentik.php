@@ -20,9 +20,9 @@ function rootedops_oidc_pilot_enabled(): bool {
 
 // Explicit pilot cohort; legacy directors remain unchanged until reconciled.
 function rootedops_oidc_managed_user(int $id): bool {
-    return defined('ROOTEDOPS_AUTHENTIK_WP_MANAGED_IDS')
+    return get_user_meta($id, 'rootedops_board_managed', true) === '1' || (defined('ROOTEDOPS_AUTHENTIK_WP_MANAGED_IDS')
         && is_array(ROOTEDOPS_AUTHENTIK_WP_MANAGED_IDS)
-        && in_array($id, ROOTEDOPS_AUTHENTIK_WP_MANAGED_IDS, true);
+        && in_array($id, ROOTEDOPS_AUTHENTIK_WP_MANAGED_IDS, true));
 }
 
 function rootedops_oidc_subject($claim): string {
@@ -288,6 +288,8 @@ function rootedops_oidc_session_access(int $id): bool {
     $snapshot = $session['rootedops_board_authorization'] ?? [];
     $now = time();
     return ($snapshot['authorized'] ?? false) === true
+        && !empty($snapshot['subject'])
+        && (int) (rootedops_oidc_linked_user(['sub' => $snapshot['subject']])->ID ?? 0) === $id
         && ($snapshot['checked_at'] ?? 0) <= $now
         && ($snapshot['until'] ?? 0) > $now
         && $snapshot['until'] <= $snapshot['checked_at'] + 300;
@@ -385,6 +387,7 @@ add_action('init', static function (): void {
         $session['rootedops_board_authorization'] = $next;
         $manager->update($token, $session);
         if (!$next['authorized']) {
+            $user->remove_role('board_director');
             update_user_meta($id, 'rootedops_board_claim_authorized', '0');
             update_user_meta($id, 'rootedops_board_claim_result', 'session_renewal_denied');
         }
