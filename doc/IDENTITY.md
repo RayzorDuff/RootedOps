@@ -71,3 +71,27 @@ This initial login **does not** establish general purpose account provisioning, 
 ## MailFlow SSO admission and passwordless provisioning
 
 See [IDENTITY-MAILFLOW-SSO-PROVISIONING.md](IDENTITY-MAILFLOW-SSO-PROVISIONING.md) for the operator-tested group gate and pending trusted-Workspace domain-wide auto-access policy. MailFlow Open SSO provisioning is appropriate **only** behind a restrictive authentik application binding; public password registration must remain closed.
+
+## Architecture decision — organizational role authorization (2026-11-27)
+
+**This is the current target architecture.** It supersedes the *proposed* Google source consolidation steps in [IDENTITY-ONBOARDING.md](IDENTITY-ONBOARDING.md). **Do not change the three working Google sources, clients, source-link records, or MailFlow application policies as part of this decision.** A single Google button with multiple linked Google accounts per authentik person is not supported by the tested stock authentik 2026.8.7 source-connection workflow; simplifying Google login is deferred, not a prerequisite for application integration.
+
+### Identity, roles, access, and mailboxes are distinct
+
+- **Person / identity:** One authentik user represents a human and may link multiple sign-in methods. Existing `RayDanks` uses both `ray@edanks.com` and `raymonddanks@gmail.com` to access the **same** MailFlow account. A future `ray@rootedpsyche.org` sign-in can be linked to this person only after correcting the verified-email marker for multi-source linking; `admin@rootedpsyche.org` remains a separate pilot identity. Do not merge automatically by email.
+- **Organizational roles:** Authentik groups represent assignments such as Rooted Psyche **board director** and **Spiritual Practitioner**, and Dank Mushrooms **cultivation** or **sales**. One person may hold multiple roles across organizations. Role assignment/revocation is centrally administered in authentik rather than independently adding/removing the person inside every application.
+- **Application entitlements:** authentik applications authorize access using those organizational groups. A board director may have MailFlow and board-portal access without automatically gaining Appsmith access; a Spiritual Practitioner may receive MailFlow and scoped Appsmith access without board access. A role may grant more than one application's access. Do not confuse application sign-in with app-internal capabilities or data scope.
+- **MailFlow eligibility:** keep the **currently working** automatic verified `edanks.com`/`rootedpsyche.org` Workspace admission and passwordless OIDC user creation, with `mailflow-users` for approved exceptions. The user explicitly accepts Workspace mailbox retirement plus account/role offboarding as the first operational model. A verified organizational address is MailFlow eligibility, **not** automatic board or practitioner role membership.
+- **Mailbox credentials:** independently attached IMAP/SMTP/app-password or mailbox OAuth credentials in MailFlow are *not* authentik authentication methods and do not establish organization roles.
+
+### WordPress is the next application integration
+
+For the Rooted Psyche WordPress board portal, authentik is the **source of truth** for board-director membership and thus board access. WordPress will still enforce its own roles/capabilities at request time; the SSO integration must **derive/synchronize the existing WordPress `board_director` role** from a trusted authentik group/claim (or reliable provisioning mechanism) and revoke it when removed. It must never require operators to maintain a *separate* manual board-members list in WordPress.
+
+Prior to cutover, inventory current miniOrange Google SSO, Members plugin roles, board page authorization, existing WP user IDs and current admin recovery path; verify the exact miniOrange plugin edition supports the required OIDC/SAML role/group mapping and **revocation on subsequent login**. If it does not, implement an explicitly scoped server-side mapping/provisioning method and test it; do not assert that simply configuring an OIDC provider enforces group authorization.
+
+**Acceptance:** (1) existing board director logs in through authentik and keeps the **same WP user** and board access, (2) authenticated Spiritual Practitioner without board role is denied board content, (3) removing the authentik board-director group revokes WordPress board capability on the next validated sync/login *and prevents access from existing sessions*, (4) unrelated role assignments and administrator recovery remain intact. Non-board users may still authenticate to the public site where intended, but must not acquire board privileges.
+
+**Offboarding:** disable/remove former org Workspace account, revoke relevant authentik organizational groups and application entitlements, invalidate relevant application sessions, and remove mapped WP capability; retain any other legitimately active organizational affiliations/identities. Review MailFlow accounts/mailboxes separately. Until automatic synchronization and session invalidation are verified, keep a documented manual removal step as a safety fallback.
+
+Tracked in [RootedOps #139](https://github.com/RayzorDuff/RootedOps/issues/139). Operational plan: [IDENTITY-ONBOARDING.md](IDENTITY-ONBOARDING.md).
