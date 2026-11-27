@@ -95,3 +95,31 @@ Prior to cutover, inventory current miniOrange Google SSO, Members plugin roles,
 **Offboarding:** disable/remove former org Workspace account, revoke relevant authentik organizational groups and application entitlements, invalidate relevant application sessions, and remove mapped WP capability; retain any other legitimately active organizational affiliations/identities. Review MailFlow accounts/mailboxes separately. Until automatic synchronization and session invalidation are verified, keep a documented manual removal step as a safety fallback.
 
 Tracked in [RootedOps #139](https://github.com/RayzorDuff/RootedOps/issues/139). Operational plan: [IDENTITY-ONBOARDING.md](IDENTITY-ONBOARDING.md).
+
+
+### Multi-site WordPress SSO architecture — Rooted Psyche and Dank Mushrooms (2026-11-27)
+
+**Implement the reusable integration once and configure it separately on each site.** The first acceptance site is Rooted Psyche; Dank Mushrooms must be considered in shared design/API/claim mapping and tested later before enabling SSO there. This is *not* a site network or shared WordPress database and does not imply identical WordPress login policies.
+
+| Concern | Rooted Psyche WordPress | Dank Mushrooms WordPress / WooCommerce |
+|---|---|---|
+| Site audience | Public site + protected board portal | Public storefront + native WooCommerce customers |
+| authentik population | Approved internal organizational people, including board directors | Approved staff, developers and website operators **only** |
+| Non-authentik login | Public visitors; current WP fallback during migration | **All WooCommerce shoppers**, registration, checkout, My Account, password reset and account/profile management |
+| Authorization | Authentik board-director group → existing WP `board_director` enforcement; Spiritual Practitioner alone grants no board privilege | Authentik staff/developer/website-admin organizational roles → specifically scoped WP roles/capabilities |
+| Onboarding | Explicit organizational assignment, link existing WP user where appropriate | Existing WP administrator/editor accounts matched deliberately; **never** auto-create an authentik principal for a WooCommerce customer |
+| Offboarding | Revoke board access and existing WP board sessions | Revoke staff/admin capabilities and sessions **without changing customer records or customer checkout** |
+
+#### Shared WordPress-authentik integration contract
+
+- **One reusable implementation/runbook** should support multiple independent WP deployments. If code is required, build a reusable WordPress integration component/plugin with **per-site configuration**, rather than copying Rooted Psyche-specific hooks into Dank Mushrooms. Reuse claim parsing, stable authentik subject-to-WP-user mapping, session/revocation protections, instrumentation, rollback and tests. Site policies are configuration or explicitly named adapters, not hardcoded global WordPress behavior.
+- Use **separate authentik Applications/OIDC Providers and redirect URIs per site**, with distinct client credentials, access policies and claims as necessary. A shared identity directory does **not** imply a shared OAuth client, WordPress user database, user ID, SSO callback or cookie.
+- Authentication **must not globally replace `wp-login.php` / WooCommerce authentication flows across all WP users**. Administrative SSO is explicitly routed for eligible staff users; WooCommerce native customer login, registration, account recovery, carts, guest checkout and ERPNext/Woo identity linking remain unaffected. No global login redirect applied to `/my-account`, checkout, WordPress registration or REST/API/webhook traffic.
+- A person might also be a customer. Their staff authentik identity and WooCommerce customer account should not be implicitly merged or granted capabilities because of matching email. Role elevation, even for an existing WP user, must require approved authentik organizational assignment and verified matching of a stable subject-to-WP link.
+- The shared adapter must enforce **role-to-capability mapping per site**: e.g. `rootedpsyche-board-directors` maps to Rooted Psyche `board_director`, not Dank Mushrooms `administrator`; Dank Mushrooms developer/editor privileges are granted by separate approved role policy only. Never infer WordPress admin rights from a Workspace domain, another site role or MailFlow access.
+- Verify **role revocation for already logged-in WordPress staff** and define maximum revocation latency, with emergency revocation and local admin recovery. Preserve existing local WordPress/WooCommerce accounts, order ownership, customer IDs, ERPNext links, and front-end session continuity. Restrict changes to trusted admin SSO paths.
+- Before coding, inventory BOTH installed WordPress sites and relevant plugins, current login flows and role/capability checks. Validate that the shared approach works with the actual miniOrange edition on Rooted Psyche, as well as WooCommerce login and role behavior on Dank Mushrooms. Select a shared implementation mechanism only after confirming constraints; do not presume a paid miniOrange feature exists.
+
+**Implementation sequence:** shared integration contract and dual-site regression tests → Rooted Psyche board director SSO pilot → Rooted Psyche revocation and existing-session acceptance → optional Dank Mushrooms staff/developer SSO on a non-production or controlled installation, with *negative tests proving WooCommerce customer login/checkout never touches authentik*. No live Dank Mushrooms storefront authentication change is authorized by the initial Rooted Psyche work.
+
+Track first site in [#146](https://github.com/RayzorDuff/RootedOps/issues/146) and overarching identity in [#139](https://github.com/RayzorDuff/RootedOps/issues/139). Continue changes in existing documentation PR #141.
