@@ -49,7 +49,7 @@ require __DIR__ . '/../wordpress/mu-plugins/rootedops-wordpress-authentik.php';
 assert_pilot(rootedops_oidc_pilot_enabled(), 'explicit test opt-in');
 $person = new WP_User(2, 'example-person@rootedpsyche.org');
 $GLOBALS['rootedops_users'][] = $person;
-update_user_meta(2, 'rootedops_authentik_subject', 'stable-sub-001');
+update_user_meta(2, '_rootedops_authentik_subject', 'stable-sub-001');
 $valid = ['sub' => 'stable-sub-001', 'email' => 'example-person@rootedpsyche.org',
     'email_verified' => true, 'groups' => ['rootedpsyche-board-directors']];
 $login = $GLOBALS['rootedops_hooks']['openid-connect-generic-user-login-test'][0];
@@ -71,7 +71,7 @@ assert_pilot(!in_array('board_director', $person->roles, true), 'remove board wh
 assert_pilot($gate(true, $person) === false, 'non-board denied');
 $admin = new WP_User(7, 'site-admin@example.invalid', ['administrator']);
 $GLOBALS['rootedops_users'][] = $admin;
-update_user_meta(7, 'rootedops_authentik_subject', 'admin-sub');
+update_user_meta(7, '_rootedops_authentik_subject', 'admin-sub');
 assert_pilot($login(true, ['sub' => 'admin-sub', 'email' => 'site-admin@example.invalid',
     'email_verified' => true]) === false, 'administrator cannot use pilot');
 assert_pilot($gate(true, $admin) === true, 'local admin recovery board access');
