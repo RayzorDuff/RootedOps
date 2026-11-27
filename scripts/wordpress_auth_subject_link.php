@@ -21,10 +21,16 @@ if (!is_file($bootstrap)) {
 }
 require_once $bootstrap;
 $id = filter_var(getenv('ROOTEDOPS_WP_USER_ID'), FILTER_VALIDATE_INT, ['options' => ['min_range' => 1]]);
+$username = getenv('ROOTEDOPS_WP_USERNAME');
+if (!$id && is_string($username) && $username !== '') {
+    $target = get_user_by('login', $username);
+    $id = $target ? (int) $target->ID : false;
+}
 $sub = getenv('ROOTEDOPS_OIDC_SUB');
+$preflight = getenv('ROOTEDOPS_TARGET_PREFLIGHT') === 'YES';
 $apply = getenv('ROOTEDOPS_APPLY') === 'YES';
-if (!$id || !is_string($sub) || $sub === '' || strlen($sub) > 255
-    || trim($sub) !== $sub || preg_match('/[\x00-\x1F\x7F]/', $sub)) {
+if (!$id || (!$preflight && (!is_string($sub) || $sub === '' || strlen($sub) > 255
+    || trim($sub) !== $sub || preg_match('/[\x00-\x1F\x7F]/', $sub)))) {
     fwrite(STDERR, "Provide an existing WordPress user ID and an exact validated OIDC subject via private environment\n");
     exit(2);
 }
@@ -41,6 +47,16 @@ if (!$user instanceof WP_User || in_array('administrator', (array) $user->roles,
     exit(2);
 }
 $key = 'openid-connect-generic-subject-identity';
+if ($preflight) {
+    if (!in_array('board_director', (array) $user->roles, true) &&
+        get_user_meta($id, 'rootedops_board_managed', true) !== '1') {
+        fwrite(STDERR, "Target is not an existing approved director\n"); exit(3);
+    }
+    if (!function_exists('rootedops_oidc_session_renewal_enabled') || !rootedops_oidc_session_renewal_enabled()) {
+        fwrite(STDERR, "Session enforcement is not enabled\n"); exit(3);
+    }
+    echo "TARGET_OK\n"; exit(0);
+}
 foreach (array_unique([$key, $wpdb->get_blog_prefix() . $key]) as $meta_key) {
     foreach (get_users(['meta_key' => $meta_key, 'meta_value' => $sub,
         'number' => 2, 'count_total' => false]) as $match) {
@@ -70,12 +86,15 @@ if (!$apply) {
 if ($approved !== false) {
     update_user_meta($id, 'rootedops_approved_workspace_email', strtolower($approved));
 }
-if ($existing === $sub) {
-    echo "No change: exact subject already linked to approved WordPress ID.\n";
-    exit(0);
+if ($existing !== $sub && !update_user_option($id, $key, $sub, false)) {
+    fwrite(STDERR, "Subject metadata was not saved\n"); exit(4);
 }
-if (!update_user_option($id, 'openid-connect-generic-subject-identity', $sub, false)) {
-    fwrite(STDERR, "Subject metadata was not saved\n");
-    exit(4);
+if (getenv('ROOTEDOPS_REGISTER_MANAGED') === 'YES') {
+    if (!$approved || !function_exists('rootedops_oidc_session_renewal_enabled') || !rootedops_oidc_session_renewal_enabled()) {
+        fwrite(STDERR, "Managed registration requires approved email and enabled renewal\n"); exit(4);
+    }
+    update_user_meta($id, 'rootedops_board_managed', '1');
+    if (get_user_meta($id, 'rootedops_board_managed', true) !== '1') exit(4);
 }
-echo "Linked validated OIDC subject to existing WordPress user ID; no roles changed.\n";
+echo "LINK_OK\n";
+exit(0);
