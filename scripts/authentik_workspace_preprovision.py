@@ -4,7 +4,8 @@ Only prepares a new identity; never merges existing identities.
 """
 import os
 from django.db import transaction
-from authentik.core.models import User, Group
+from authentik.core.models import User, Group, Application
+from authentik.providers.oauth2.models import OAuth2Provider
 from authentik.sources.oauth.models import OAuthSource, UserOAuthSourceConnection
 
 email = os.environ["ROOTEDOPS_WORKSPACE_EMAIL"].strip().lower()
@@ -16,7 +17,9 @@ assert email.endswith("@rootedpsyche.org") and email.count("@") == 1
 assert control_email.endswith("@rootedpsyche.org") and control_email != email
 assert identifier.isascii() and identifier.isdigit() and 10 <= len(identifier) <= 32
 assert control_id.isascii() and control_id.isdigit() and control_id != identifier
-source = OAuthSource.objects.get(slug="google-rootedpsyche", enabled=True)
+source = OAuthSource.objects.get(slug="google-rootedpsyche", enabled=True, provider_type="google")
+provider = OAuth2Provider.objects.get(pk=Application.objects.get(slug="rootedpsyche-wordpress").provider_id)
+assert provider.sub_mode == "hashed_user_id", "Unexpected subject mode; do not change provider"
 control = UserOAuthSourceConnection.objects.get(source=source, identifier=control_id)
 assert control.user.email.lower() == control_email, "Directory/source control mismatch"
 assert not User.objects.filter(email__iexact=email).exists(), "Existing identity: reconcile separately"
@@ -33,3 +36,4 @@ else:
         UserOAuthSourceConnection.objects.create(user=user, source=source, identifier=identifier)
         user.ak_groups.add(group)
     print("Prepared identity, Google source connection and board group. No verified-email marker fabricated.")
+    print("Private WordPress subject:", user.uid)
