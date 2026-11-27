@@ -81,9 +81,11 @@ add_action('openid-connect-generic-update-user-using-current-claim',
         }
         // A signed/validated Google/authentik claim must explicitly certify
         // the *canonical* email before any privileged role is projected.
+        $approved = get_user_meta($user->ID, 'rootedops_approved_workspace_email', true);
+        $expected_email = is_string($approved) && $approved !== '' ? $approved : $user->user_email;
         if (($claim['email_verified'] ?? false) !== true
             || !is_string($claim['email'] ?? null)
-            || strcasecmp($claim['email'], $user->user_email) !== 0) {
+            || strcasecmp($claim['email'], $expected_email) !== 0) {
             $user->remove_role('board_director');
             update_user_meta($user->ID, 'rootedops_board_claim_authorized', '0');
             return;
