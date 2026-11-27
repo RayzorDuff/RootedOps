@@ -1,5 +1,7 @@
 # RootedOps identity onboarding — administrator and user guides
 
+> **CURRENT DECISION (2026-11-27):** The Google OAuth consolidation discussions in this document are **historical proposals, not an approved migration**. Keep all three existing Google login choices and their verified working account links unchanged. The next project is **Rooted Psyche WordPress SSO**, with **authentik-managed organizational roles as the authority for board access**. See [IDENTITY.md — Architecture decision](IDENTITY.md#architecture-decision--organizational-role-authorization-2026-11-27). Do not change the MailFlow authentication paths while integrating WordPress.
+
 **Status:** Operationally verified for one person (`ray@edanks.com`, 2026-11-26); further onboarding is manual/controlled. Tracks [RootedOps #139](https://github.com/RayzorDuff/RootedOps/issues/139). Do not treat proposed automation below as already implemented.
 
 ## What is provisioned, and what is not
