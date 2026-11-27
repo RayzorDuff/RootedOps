@@ -34,6 +34,6 @@ else:
         user.set_unusable_password()
         user.save()
         UserOAuthSourceConnection.objects.create(user=user, source=source, identifier=identifier)
-        user.ak_groups.add(group)
+        user.groups.add(group)
     print("Prepared identity, Google source connection and board group. No verified-email marker fabricated.")
     print("Private WordPress subject:", user.uid)
