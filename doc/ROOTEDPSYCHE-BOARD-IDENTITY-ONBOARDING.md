@@ -21,7 +21,7 @@
 
 Hello [recipient],
 
-Rooted Psyche has created a Google Workspace account for you: **[your-name]@rootedpsyche.org**. Your account setup instructions were sent separately.
+Rooted Psyche has created a Google Workspace account for you: **[your-name]@rootedpsyche.org**. Your account setup instructions were sent separately. If you tried the activation link earlier and received an error, please try it again; we have adjusted the account setup requirements. Please set up two-step verification within one month of your initial sign-in.
 
 You can use your new account with Google's familiar tools, including Gmail, Calendar and Drive, if you choose.
 
@@ -29,16 +29,11 @@ For email, visit **https://mail.rootedpsyche.org**. MailFlow can display your Ro
 
 Your Rooted Psyche Workspace account is also your sign-in for Rooted Psyche services, including the **board portal** at **https://rootedpsyche.org/board/**. Choose **Sign in with RootedOps Identity**, select **Google Workspace — rootedpsyche.org**, and use your new Workspace account. Your existing board access will be preserved.
 
-**Optional: use your personal Google account to sign in as the same person**
+**Optional: use your personal Google account**
 
-1. Sign in to **https://auth.danks.store/** using your new Rooted Psyche Workspace account.
-2. Open **User interface → Settings → Connected services**.
-3. Choose **Connect** next to **Google — Personal Accounts**, select your personal Google account and approve the connection.
-4. On later sign-ins, you can choose either the Rooted Psyche Workspace or personal Google sign-in. Both should open the same Rooted Psyche identity and board access.
+Please use your new Rooted Psyche email address the first time you sign in. If you prefer to use your personal Google account in the future, you can link it to your Rooted Psyche sign-in. Please contact us if you would like help with that.
 
-To avoid creating a second account, make that connection while signed into your existing Rooted Psyche identity, rather than enrolling separately with personal Google first.
-
-If anything does not work, please reply rather than creating a second Rooted Psyche user.
+If you have any trouble signing in or accessing the board portal, please reply to this email.
 
 Thank you,
 Rooted Psyche
@@ -47,7 +42,7 @@ Rooted Psyche
 
 The email uses the **current three-source Google login UI**. Do not describe a single Google button; that simplification is deferred. Its WordPress SSO instructions are **conditional**, not yet deployed. If the final WordPress login button or callback differs, update this draft after testing. WordPress user IDs remain site-local; manage organizational board membership in authentik, and project/revoke its `board_director` privileges into WordPress.
 
-**Pilot identity path:** use an existing approved operator's `rootedpsyche.org` Workspace login linked through authentik **Connected services** to their existing principal, preserving the primary person's OIDC subject and canonical verified email. Do **not** attempt this with an already independently enrolled Google identity or before source mappings have been verified safe for multiple Workspace credentials. If the operator does not yet have a WordPress user eligible for board access, explicitly reconcile to the intended existing WP identity; do not auto-link via mutable email and do not elevate an admin account via a test.
+**Pilot identity path:** rehearse first-time enrollment with a separate organization-issued Workspace account and an existing personal-email WordPress director account. Preapprove the association privately; do not require users to change WordPress email or create a second account. Existing administrator and linked identities are excluded from this rehearsal.
 
 
 ## Board group propagation pilot (2026-11-27)
