@@ -48,3 +48,16 @@ Rooted Psyche
 The email uses the **current three-source Google login UI**. Do not describe a single Google button; that simplification is deferred. Its WordPress SSO instructions are **conditional**, not yet deployed. If the final WordPress login button or callback differs, update this draft after testing. WordPress user IDs remain site-local; manage organizational board membership in authentik, and project/revoke its `board_director` privileges into WordPress.
 
 **Pilot identity path:** use an existing approved operator's `rootedpsyche.org` Workspace login linked through authentik **Connected services** to their existing principal, preserving the primary person's OIDC subject and canonical verified email. Do **not** attempt this with an already independently enrolled Google identity or before source mappings have been verified safe for multiple Workspace credentials. If the operator does not yet have a WordPress user eligible for board access, explicitly reconcile to the intended existing WP identity; do not auto-link via mutable email and do not elevate an admin account via a test.
+
+
+## Board group propagation pilot (2026-11-27)
+
+Persistent OIDC login to existing WP ID 8 succeeded with Link Existing Users OFF. Keep account creation OFF. In authentik create an OAuth scope mapping named Rooted Psyche WordPress Board Groups, scope `rootedpsyche_groups`, expression:
+
+```python
+return {"groups": ["rootedpsyche-board-directors"] if ak_is_group_member(request.user, name="rootedpsyche-board-directors") else []}
+```
+
+Attach only to the dedicated Rooted Psyche WordPress provider, preserving verified email and other existing scopes. Request `openid email profile rootedpsyche_groups` in WP OIDC settings. Check for duplicate groups claim from profile and resolve before activation. Repeat pilot login; run `scripts/wordpress_auth_claim_check.php` from PR #147 through PHP CLI in the Rooted Psyche WP container with ROOTEDOPS_WP_USER_ID=8. Require persistent subject, matching user claim subject, verified matching email, groups array and board group. Never print token contents. Do not enable bridge yet.
+
+PR #147 now requires explicit ROOTEDOPS_AUTHENTIK_WP_MANAGED_IDS cohort (initially [8]); legacy IDs 2,4,5,6 remain unchanged until reconciled. The 300-second freshness guard is still a pilot limitation; production deployment requires tested refresh/revocation, coverage of protected resources and rollback. Keep current recovery login and miniOrange. Automatic creation remains deferred. No changes to MailFlow or Dank WooCommerce.
