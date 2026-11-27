@@ -235,3 +235,13 @@ Before RayDanks connects a third source, implement/test a **canonical-email-awar
 ### Next: WordPress
 
 Once new Rooted Psyche MailFlow accounts and RayDanks multi-source linking are separately proven, test authentik OIDC with WordPress's existing users and miniOrange configuration, preserving `board_director` Members roles. A user's Rooted Psyche Workspace identity or MailFlow access is not in itself WordPress board authorization. Personal Gmail sign-in must resolve to the same authentik person and WordPress user *only after explicit linking*.
+
+### Rooted Psyche Workspace acceptance — 2026-11-26
+
+**Production confirmed:** The separate Internal Google OAuth client for the `rootedpsyche.org` Workspace, authentik `google-rootedpsyche` source, new source property mapping `RootedOps - Google Workspace rootedpsyche.org verified email`, and authentik MailFlow expression policy were configured by the operator. Source labels appeared distinctly for all three Google options. The MailFlow application bindings shown were `mailflow-users` (order 0), verified edanks Workspace (order 10), and verified rootedpsyche Workspace (order 15), all enabled, with engine `Any`.
+
+User `admin@rootedpsyche.org` authenticated through the new Google Workspace and MailFlow automatically created a **non-admin SSO-only user**; read-only SQL confirmed `username='admin@rootedpsyche.org', is_admin=f, password_hash IS NULL`. This verifies one positive new-user case, but does **not** establish that personally linked Google identities can be merged safely or that an unapproved personal Google nonmember is denied; those tests remain pending.
+
+**Identity consolidation:** For this pilot, `admin@rootedpsyche.org` enrolled as a **separate** authentik person and acquired a separate MailFlow user. The established `RayDanks` person remains associated with `ray@edanks.com` and linked personal Google `raymonddanks@gmail.com`; eventually the Rooted Psyche Workspace Google identity must link to **that same** person, not create or retain two long-term identities. Do not delete either identity or reassign their provider-subject links without a preflight that verifies no unique app/mailbox data needs migration. Source verified-email mapping must be canonical-email aware before linking, or it could overwrite Ray's verified marker and cause MailFlow OIDC verification failure. Keep both operationally separate until a documented safe migration is tested.
+
+**Next phase:** WordPress OIDC integration is planned but not yet configured; preserve existing miniOrange login, existing WP user IDs and explicit `board_director` role entitlements. MailFlow group or Workspace domain membership is not board role authorization.
