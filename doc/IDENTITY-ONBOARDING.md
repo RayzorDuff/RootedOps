@@ -184,3 +184,54 @@ By default authentik's Identification stage shows OAuth sources as icons, causin
 
 References: [authentik Identification stage — Show source labels](https://docs.goauthentik.io/add-secure-apps/flows-stages/stages/identification/), [authentik OAuth source fields and Promoted](https://api.goauthentik.io/reference/sources-oauth-retrieve/).
 
+
+## Rooted Psyche Workspace rollout — next deployment (planned, 2026-11-26)
+
+**Goal:** Add `rootedpsyche.org` as a separate Google **Internal** OAuth source and grant all verified, source-enrolled Rooted Psyche Workspace users automatic MailFlow access. Existing authentik person `RayDanks` must later link their `rootedpsyche.org` source to the same identity as `ray@edanks.com` and personal Gmail, preserving the MailFlow subject, canonical email, mailboxes and roles. WordPress OIDC is a separate acceptance stage; do not change current WordPress miniOrange/board roles now.
+
+### Google Cloud and authentik source (admin)
+
+1. In the **rootedpsyche.org Google Workspace** Google Cloud organization/project, create a dedicated Google Auth Platform OAuth application with **Internal** audience, name `RootedOps Identity — Rooted Psyche`, identity scopes `openid email profile`; create confidential Web OAuth client with exact redirect `https://auth.danks.store/source/oauth/callback/google-rootedpsyche/`. No Gmail mailbox scopes, JS origin or paid authentik Workspace provisioning connector.
+2. In authentik Admin → Directory → Federation and Social login, create **Google OAuth Source** named `Google — rootedpsyche.org Workspace`, slug `google-rootedpsyche`, use that client ID/secret; user/group matching **Link users on unique identifier**, default source authentication and enrollment flows, no email-based automatic merge. Add source to the existing default identification stage (Show Source Labels already on).
+3. Create a new **OAuth Source User Property Mapping** named `RootedOps - Google Workspace rootedpsyche.org verified email` with:
+   ```python
+   email = info.get("email")
+   email = email.strip().lower() if isinstance(email, str) else ""
+   verified = (
+       info.get("verified_email") is True
+       or info.get("email_verified") is True
+   )
+   return {
+       "attributes": {
+           "email_verified_address": (
+               email if verified and email.endswith("@rootedpsyche.org") else ""
+           )
+       }
+   }
+   ```
+   Attach this mapping to **only** `google-rootedpsyche`; do not attach the existing `google-edanks` mapping. This is the new-user pilot mapping, not yet multi-identity-safe.
+4. In authentik Admin → Customization → Policies → Expression Policy, create `MailFlow - Verified rootedpsyche Workspace`:
+   ```python
+   user = request.user
+   email = (user.email or "").strip().lower()
+   verified = (user.attributes.get("email_verified_address") or "").strip().lower()
+   return (
+       user.is_active
+       and email.endswith("@rootedpsyche.org")
+       and email == verified
+       and (user.path or "") == "goauthentik.io/sources/google-rootedpsyche"
+   )
+   ```
+   Bind **enabled, non-negated** to **Applications → Applications → MailFlow → Policy / Group / User Bindings**. Retain `mailflow-users` and the verified edanks Workspace expression; Application **Policy engine mode = Any**. This source-specific rule is safe only so long as the Google Cloud OAuth client remains Internal to the Rooted Psyche Workspace and user paths/verified-email attributes are admin-controlled. It does not grant WordPress board access.
+5. Keep MailFlow OIDC **Open** provisioning with **Require verified email ON**, local public registration OFF, no automatic SSO-admin group claims. Test a **new, independently approved Rooted Psyche Workspace user** in a private browser; first authentik enrollment should assign source path `goauthentik.io/sources/google-rootedpsyche` and top-level verified marker, application policy allows access, MailFlow creates `username=user@rootedpsyche.org` with `is_admin=f` and `password_hash=NULL`. Confirm no mailboxes are attached automatically. Retest Ray, Cormac and Ethan; no duplicate MailFlow users.
+6. Preserve a negative test for independently enrolled `google-personal` Gmail user not in `mailflow-users` (should authenticate to authentik but be denied MailFlow). This was deferred in the previous pilot. Do not test nonmembers by removing the existing Ray/Cormac bindings.
+
+### Multi-source linking caveat: RayDanks
+
+**Do not immediately link `admin@rootedpsyche.org` (or other Rooted Psyche login) into `RayDanks` with the simple rootpsy marker mapping above.** Authentik OAuth source user mappings can update attributes on an existing linked user. The new source mapping could overwrite `RayDanks.attributes.email_verified_address` with `admin@rootedpsyche.org`, even though the OIDC provider emits the **canonical** `ray@edanks.com`. This will make the MailFlow verified-email mapping return false, breaking both login methods. Also, the source-path access expression is only meant for separately enrolled Workspace-native users; linked RayDanks retains access from `mailflow-users`.
+
+Before RayDanks connects a third source, implement/test a **canonical-email-aware** source verified marker rule or a per-source verified-email record plus OIDC mapping that verifies the *currently emitted* canonical email without clobbering another source's marker. Test with a nonproduction linked identity, retaining `RayDanks`'s existing subject, group and mailboxes, before repeating **User Settings → Connected services → Connect**. Do not merge identities by email and do not modify MailFlow user identities directly.
+
+### Next: WordPress
+
+Once new Rooted Psyche MailFlow accounts and RayDanks multi-source linking are separately proven, test authentik OIDC with WordPress's existing users and miniOrange configuration, preserving `board_director` Members roles. A user's Rooted Psyche Workspace identity or MailFlow access is not in itself WordPress board authorization. Personal Gmail sign-in must resolve to the same authentik person and WordPress user *only after explicit linking*.
