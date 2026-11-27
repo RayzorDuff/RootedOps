@@ -157,3 +157,16 @@ Inventory interpretation checklist:
 - Design a **reusable** integration with independently configured OIDC applications/clients per WordPress site. Initial code/rollout must change only Rooted Psyche; no automatic redirect of Dank customers to authentik.
 
 Implementation gate: do **not** cut over login, enable a group/role synchronizer, change `board_director` memberships, or remove miniOrange until runtime plugin inventory and a staged login + role-removal test have established continuity for existing board users, denial to non-board Spiritual Practitioners, and revocation for already-authenticated board sessions. Track in [issue #146](https://github.com/RayzorDuff/RootedOps/issues/146).
+
+
+### Actual Rooted Psyche production inventory — 2026-11-27
+
+Read-only `scripts/wordpress_auth_inventory.php` run succeeded on the real Docker Compose WordPress service (`docker-rootedpsyche-wordpress-1`; use Compose `ps -q rootedpsyche-wordpress`, **not** assumed container name `rootedpsyche-wordpress`). Results:
+- URL host `rootedpsyche.org`, WordPress **7.1.5** (runtime; base Docker image is pinned to `wordpress:6.8.3-php8.3-apache`), single site, **WooCommerce inactive**.
+- Active plugins: `members` **3.3.1**, `miniorange-login-openid` **7.9.1** (*Social Login, Social Sharing*, not miniOrange's separate generic OAuth/OIDC SSO product), `rootedpsyche-board-library` **0.3.0**, `fluent-smtp` **2.4.1**, `bookworks-original-html` **0.1.0**, `givebutter` **1.0.5**, `wp-file-manager` **8.0.6**.
+- Four existing `board_director` WordPress users, IDs **2, 4, 5, 6**; one administrator, no members of the other counted core roles. Board page `/board/` is published (ID **60**). Board library's `rp_board_library_authorized()` function present.
+- Runtime option *names* include `mo_openid_login_role_mapping` but **option existence does not prove a working authentik group-mapping function**, nor that existing users can be matched to a stable OIDC subject. No secret values were inspected.
+
+**Implementation consequence:** The current miniOrange product is social-login oriented; do not reconfigure or uninstall it as if it were the generic OIDC miniOrange plugin. Authentik's [official WordPress integration](https://integrations.goauthentik.io/platforms/wordpress/) uses the open-source [OpenID Connect Generic Client](https://wordpress.org/plugins/daggerhart-openid-connect-generic/). Evaluate adding it as an **optional parallel login** first, without automatic role elevation or new-user creation, then layer reusable, per-site-role mapping and existing-session revocation on top. Account linking to WordPress IDs 2/4/5/6 must be explicitly approved before production login. Authenticate vs authorize separately: existing WordPress role checks remain effective, and a stale WordPress role must not grant board access after authentik revocation.
+
+**No live WordPress settings or roles have been changed by the inventory.** Dank Mushrooms production plugin/user inventory is still required; keep WooCommerce authentication and ERPNext customer integration untouched. Track implementation progress in [#146](https://github.com/RayzorDuff/RootedOps/issues/146) and code pilot in draft [PR #147](https://github.com/RayzorDuff/RootedOps/pull/147).
