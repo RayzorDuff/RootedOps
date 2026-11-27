@@ -25,11 +25,16 @@ def main():
     base = Path.home() / ".config/rootedops"
     scripts = Path(__file__).resolve().parent
     def remote(container, env, argv, source):
-        # Pass variables via stdin script rather than command-line secrets in Docker.
-        cmd = ["sudo", "-n", "docker", "exec", "-i"]
-        for k, v in env.items():
-            cmd += ["-e", k+"="+str(v)]
-        cmd += [container] + argv
+        # Transfer private identifiers over SSH stdin, not remote process arguments.
+        # sudo normally strips environment variables; inject values inside
+        # the container's interpreter via its private stdin instead.
+        cmd = ["sudo", "-n", "docker", "exec", "-i", container] + argv
+        if container == ak:
+            source = "import os\n" + "\n".join("os.environ[" + repr(k) + "] = " + repr(str(v)) for k,v in env.items()) + "\n" + source
+        else:
+            import base64
+            prefix = "\n".join("putenv(base64_decode('" + base64.b64encode((k+"="+str(v)).encode()).decode() + "'));" for k,v in env.items())
+            source = source.replace("<?php", "<?php\n"+prefix+"\n", 1)
         return run(["ssh", "-T", a.ssh, shlex.join(cmd)], source)
     wp = "docker-rootedpsyche-wordpress-1"
     ak = "authentik-server"
