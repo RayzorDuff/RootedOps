@@ -31,7 +31,7 @@ Your Rooted Psyche Workspace account is also your sign-in for Rooted Psyche serv
 
 **Optional: use your personal Google account**
 
-Please use your new Rooted Psyche email address the first time you sign in. If you prefer to use your personal Google account in the future, you can link it to your Rooted Psyche sign-in. Please contact us if you would like help with that.
+Please sign in with your new Rooted Psyche account first. If you prefer to use your personal Gmail account for future sign-ins, visit **https://auth.danks.store/** while signed in with your Rooted Psyche account. Open your account settings and look for connected accounts or social login connections. Choose the personal Google connection and sign in to your personal Google account when prompted. Once connected, you can choose the personal Google sign-in option when visiting the board portal. This is optional and does not change your Rooted Psyche email address. If you cannot find the connection option or encounter any problems, please reply to this email so we can help.
 
 If you have any trouble signing in or accessing the board portal, please reply to this email.
 
@@ -40,7 +40,7 @@ Rooted Psyche
 
 ## Notes for implementation
 
-The email uses the **current three-source Google login UI**. Do not describe a single Google button; that simplification is deferred. Its WordPress SSO instructions are **conditional**, not yet deployed. If the final WordPress login button or callback differs, update this draft after testing. WordPress user IDs remain site-local; manage organizational board membership in authentik, and project/revoke its `board_director` privileges into WordPress.
+The email uses the **current three-source Google login UI**. Do not describe a single Google button; that simplification is deferred. Its WordPress SSO instructions have passed the representative production pilot; personal linking instructions remain provisional until tested. If the final WordPress login button or callback differs, update this draft after testing. WordPress user IDs remain site-local; manage organizational board membership in authentik, and project/revoke its `board_director` privileges into WordPress.
 
 **Pilot identity path:** rehearse first-time enrollment with a separate organization-issued Workspace account and an existing personal-email WordPress director account. Preapprove the association privately; do not require users to change WordPress email or create a second account. Existing administrator and linked identities are excluded from this rehearsal.
 
@@ -53,7 +53,7 @@ Persistent OIDC login to existing WP ID 8 succeeded with Link Existing Users OFF
 return {"groups": ["rootedpsyche-board-directors"] if ak_is_group_member(request.user, name="rootedpsyche-board-directors") else []}
 ```
 
-Attach only to the dedicated Rooted Psyche WordPress provider, preserving verified email and other existing scopes. Request `openid email profile rootedpsyche_groups` in WP OIDC settings. Check for duplicate groups claim from profile and resolve before activation. Repeat pilot login; run `scripts/wordpress_auth_claim_check.php` from PR #147 through PHP CLI in the Rooted Psyche WP container with ROOTEDOPS_WP_USER_ID=8. Require persistent subject, matching user claim subject, verified matching email, groups array and board group. Never print token contents. Do not enable bridge yet.
+Attach only to the dedicated Rooted Psyche WordPress provider, preserving verified email and other existing scopes. Request `openid email profile rootedpsyche_groups offline_access` in WP OIDC settings; offline access was subsequently enabled and refresh-token issuance verified. Check for duplicate groups claim from profile and resolve before activation. Repeat pilot login; run `scripts/wordpress_auth_claim_check.php` from PR #147 through PHP CLI in the Rooted Psyche WP container with ROOTEDOPS_WP_USER_ID=8. Require persistent subject, matching user claim subject, verified matching email, groups array and board group. Never print token contents. Do not enable bridge yet.
 
 PR #147 now requires explicit ROOTEDOPS_AUTHENTIK_WP_MANAGED_IDS cohort (initially [8]); legacy IDs 2,4,5,6 remain unchanged until reconciled. The 300-second freshness guard is still a pilot limitation; production deployment requires tested refresh/revocation, coverage of protected resources and rollback. Keep current recovery login and miniOrange. Automatic creation remains deferred. No changes to MailFlow or Dank WooCommerce.
 
@@ -70,3 +70,8 @@ Use scripts/wordpress_auth_subject_link.php with ROOTEDOPS_WP_USER_ID, ROOTEDOPS
 ### Live verified-email repair acceptance (2026-11-27)
 
 Pre-provisioned Workspace users initially lacked the verified-email marker: the default source authentication flow contained only login, whereas enrollment contained User Write. Operator created dedicated `rootedpsyche-workspace-authentication`, with existing-user-only User Write at order 10 and default source login at order 20, and an expression policy `rootedpsyche-workspace-verified-email-persistence` intended to restrict writes to mapped verified organizational email matching the pending user's canonical email. Runtime evaluation on, planning evaluation off for the write binding. Assigned only to `google-rootedpsyche`; matching and enrollment unchanged. Fresh production login to the existing personal-email WordPress account passed: both claims have matching subject, verified email true and board group true; contact-email comparison false intentionally. Verify exact policy binding and approved-email metadata before enabling role projection; retain independent admin recovery. Board library listing restored after mount recovery (#148). This is not yet acceptance of role synchronization or revocation.
+
+
+## Production acceptance update (2026-11-27)
+
+Role projection for two managed test accounts passed, including global and blog-prefixed OIDC subject metadata. The dedicated Workspace write-stage policy is bound and enabled. Session renewal is deployed for the test cohort at revision 6c5062a1d31845bb6d2847df4f7ba46e137144e3; browser access and document download continued beyond five minutes without interactive authentication. Account deactivation and group removal denied new authorization; restoring group membership restored sign-in. Existing-session negative renewal and direct-download revocation have not been conclusively observed; expired stored snapshots were reported, but not a subsequent denied renewal. Keep this as a focused security follow-up before broad enforcement. Desktop OAuth read-only Google Directory lookup and immediate credential reuse passed; no manual API Explorer lookup is needed. Personal Google linking still requires representative acceptance; never link by email alone. Preserve Workspace canonical email, verification marker, stable subject and board group when connecting the personal source. The email above remains a draft until these conditions and roster reconciliation are satisfied.
