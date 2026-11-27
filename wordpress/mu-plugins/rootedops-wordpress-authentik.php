@@ -18,6 +18,13 @@ function rootedops_oidc_pilot_enabled(): bool {
         && ROOTEDOPS_AUTHENTIK_WP_SITE === 'rootedpsyche';
 }
 
+// Explicit pilot cohort; legacy directors remain unchanged until reconciled.
+function rootedops_oidc_managed_user(int $id): bool {
+    return defined('ROOTEDOPS_AUTHENTIK_WP_MANAGED_IDS')
+        && is_array(ROOTEDOPS_AUTHENTIK_WP_MANAGED_IDS)
+        && in_array($id, ROOTEDOPS_AUTHENTIK_WP_MANAGED_IDS, true);
+}
+
 function rootedops_oidc_subject($claim): string {
     return is_array($claim) && isset($claim['sub']) && is_string($claim['sub'])
         ? trim($claim['sub']) : '';
@@ -67,14 +74,16 @@ add_action('openid-connect-generic-update-user-using-current-claim',
             return;
         }
         $linked = rootedops_oidc_linked_user($claim);
-        if (!$linked || $linked->ID !== $user->ID
+        if (!rootedops_oidc_managed_user((int) $user->ID) || !$linked || $linked->ID !== $user->ID
             || in_array('administrator', (array) $user->roles, true)
             || in_array('customer', (array) $user->roles, true)) {
             return;
         }
         // A signed/validated Google/authentik claim must explicitly certify
         // the *canonical* email before any privileged role is projected.
-        if (($claim['email_verified'] ?? false) !== true) {
+        if (($claim['email_verified'] ?? false) !== true
+            || !is_string($claim['email'] ?? null)
+            || strcasecmp($claim['email'], $user->user_email) !== 0) {
             $user->remove_role('board_director');
             update_user_meta($user->ID, 'rootedops_board_claim_authorized', '0');
             return;
@@ -115,7 +124,8 @@ add_filter('rootedpsyche_board_library_authorized', static function ($authorized
     if ($user instanceof WP_User && in_array('administrator', (array) $user->roles, true)) {
         return true; // Independently recoverable local WP admin.
     }
-    return $user instanceof WP_User && rootedops_oidc_board_access((int) $user->ID);
+    return $user instanceof WP_User && (!rootedops_oidc_managed_user((int) $user->ID)
+        || rootedops_oidc_board_access((int) $user->ID));
 }, 10, 2);
 
 // Board page including descendants: no direct access on stale WordPress roles.
@@ -147,7 +157,8 @@ add_action('template_redirect', static function (): void {
         return;
     }
     if (!in_array('board_director', (array) $user->roles, true)
-        || !rootedops_oidc_board_access((int) $user->ID)) {
+        || (rootedops_oidc_managed_user((int) $user->ID)
+            && !rootedops_oidc_board_access((int) $user->ID))) {
         nocache_headers();
         status_header(403);
         exit;
