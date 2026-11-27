@@ -46,15 +46,29 @@ function rootedops_oidc_linked_user($claim): ?WP_User {
     if ($sub === '' || strlen($sub) > 255) {
         return null;
     }
-    // OpenID Connect Generic 3.11.x uses blog-scoped *user option* metadata,
-    // not the custom metadata key used in the first draft. Match its lookup.
-    $users = get_users([
-        'meta_key' => $GLOBALS['wpdb']->get_blog_prefix() . 'openid-connect-generic-subject-identity',
-        'meta_value' => $sub,
-        'number' => 2,
-        'count_total' => false,
-    ]);
-    return count($users) === 1 && $users[0] instanceof WP_User ? $users[0] : null;
+    $key = 'openid-connect-generic-subject-identity';
+    $matches = [];
+    foreach (array_unique([$key, $GLOBALS['wpdb']->get_blog_prefix() . $key]) as $meta_key) {
+        foreach (get_users(['meta_key' => $meta_key, 'meta_value' => $sub,
+            'number' => 2, 'count_total' => false]) as $candidate) {
+            if (!$candidate instanceof WP_User) {
+                return null;
+            }
+            $matches[(int) $candidate->ID] = $candidate;
+        }
+    }
+    if (count($matches) !== 1) {
+        return null;
+    }
+    $user = reset($matches);
+    foreach (array_unique([$key, $GLOBALS['wpdb']->get_blog_prefix() . $key]) as $meta_key) {
+        foreach ((array) get_user_meta($user->ID, $meta_key, false) as $stored) {
+            if ($stored !== '' && $stored !== $sub) {
+                return null;
+            }
+        }
+    }
+    return $user;
 }
 
 // This hook is the upstream client's actual conditional-creation filter.
@@ -74,9 +88,16 @@ add_action('openid-connect-generic-update-user-using-current-claim',
             return;
         }
         $linked = rootedops_oidc_linked_user($claim);
-        if (!rootedops_oidc_managed_user((int) $user->ID) || !$linked || $linked->ID !== $user->ID
+        if (!rootedops_oidc_managed_user((int) $user->ID)
             || in_array('administrator', (array) $user->roles, true)
             || in_array('customer', (array) $user->roles, true)) {
+            return;
+        }
+        if (!$linked || (int) $linked->ID !== (int) $user->ID) {
+            update_user_meta($user->ID, 'rootedops_board_claim_authorized', '0');
+            update_user_meta($user->ID, 'rootedops_board_claim_at', time());
+            update_user_meta($user->ID, 'rootedops_board_claim_result', 'subject_mismatch');
+            $user->remove_role('board_director');
             return;
         }
         // A signed/validated Google/authentik claim must explicitly certify
@@ -88,6 +109,8 @@ add_action('openid-connect-generic-update-user-using-current-claim',
             || strcasecmp($claim['email'], $expected_email) !== 0) {
             $user->remove_role('board_director');
             update_user_meta($user->ID, 'rootedops_board_claim_authorized', '0');
+            update_user_meta($user->ID, 'rootedops_board_claim_at', time());
+            update_user_meta($user->ID, 'rootedops_board_claim_result', 'email_mismatch_or_unverified');
             return;
         }
         $board = rootedops_oidc_board_claim($claim);
@@ -99,6 +122,7 @@ add_action('openid-connect-generic-update-user-using-current-claim',
         // Snapshot is intentionally short-lived; stale board privileges fail
         // closed even if the WP browser session remains active.
         update_user_meta($user->ID, 'rootedops_board_claim_authorized', $board ? '1' : '0');
+        update_user_meta($user->ID, 'rootedops_board_claim_result', $board ? 'authorized' : 'group_missing');
         update_user_meta($user->ID, 'rootedops_board_claim_at', time());
     }, 20, 2);
 
