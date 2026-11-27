@@ -2,7 +2,9 @@
 /**
  * RootedOps WordPress OIDC subject prelink (CLI-only, dry-run by default).
  * NEVER run with inferred emails. Supply a validated issuer-specific OIDC sub
- * for the human's authentik identity and the approved existing WordPress ID.\n * Uses the native OpenID Connect Generic subject identity metadata; never infer\n * a subject from email or numeric authentik user ID.
+ * for the human's authentik identity and the approved existing WordPress ID.
+ * Uses the native OpenID Connect Generic subject identity metadata; never infer
+ * a subject from email or numeric authentik user ID.
  *
  * ROOTEDOPS_WP_USER_ID=2 ROOTEDOPS_OIDC_SUB='<verified-id-token-sub>' php this-file.php
  * ROOTEDOPS_WP_USER_ID=2 ROOTEDOPS_OIDC_SUB='<verified-id-token-sub>' ROOTEDOPS_APPLY=YES php this-file.php
