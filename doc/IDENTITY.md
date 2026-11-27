@@ -123,3 +123,37 @@ Tracked in [RootedOps #139](https://github.com/RayzorDuff/RootedOps/issues/139).
 **Implementation sequence:** shared integration contract and dual-site regression tests → Rooted Psyche board director SSO pilot → Rooted Psyche revocation and existing-session acceptance → optional Dank Mushrooms staff/developer SSO on a non-production or controlled installation, with *negative tests proving WooCommerce customer login/checkout never touches authentik*. No live Dank Mushrooms storefront authentication change is authorized by the initial Rooted Psyche work.
 
 Track first site in [#146](https://github.com/RayzorDuff/RootedOps/issues/146) and overarching identity in [#139](https://github.com/RayzorDuff/RootedOps/issues/139). Continue changes in existing documentation PR #141.
+
+
+### Read-only production inventory before WordPress SSO deployment
+
+**Code PR:** `feature/wordpress-auth-inventory-146` introduces `scripts/wordpress_auth_inventory.php` (CLI-only; static lint checked). It reports **active plugin names/versions, role counts and board-director user IDs, SSO-related option *names only*, board-page existence, site hostname, and WooCommerce presence**. It deliberately does not export wp_options **values**, emails, access tokens, or passwords. The repository contains Rooted Psyche WordPress `wordpress:6.8.3-php8.3-apache` and separate Dank WordPress `wordpress:7.1.4-php8.3-apache` in distinct Compose files/DB volumes. The Rooted Psyche board-library plugin currently checks *local* WP `administrator` or `board_director` role on each shortcode and download request; WordPress role projection and revocation thus need a real implementation, not just authentik login.
+
+**No live site inventory has been executed by this PR.** The active miniOrange edition/configuration and board Members role assignments must be confirmed using the following read-only runtime probe before picking a role mapper or registering OAuth callback URIs.
+
+After the **code** PR is reviewed/merged and pulled to the host, run from `~/RootedOps`:
+
+```bash
+set -euo pipefail
+cd ~/RootedOps
+# Read-only runtime report: no container recreation, plugin activation or database mutation.
+sudo docker cp scripts/wordpress_auth_inventory.php \
+  rootedpsyche-wordpress:/tmp/rootedops-wordpress-auth-inventory.php
+sudo docker exec rootedpsyche-wordpress \
+  php /tmp/rootedops-wordpress-auth-inventory.php
+# Run the same non-invasive probe on the independently deployed WooCommerce stack:
+sudo docker cp scripts/wordpress_auth_inventory.php \
+  dank-wordpress:/tmp/rootedops-wordpress-auth-inventory.php
+sudo docker exec dank-wordpress \
+  php /tmp/rootedops-wordpress-auth-inventory.php
+```
+
+The running containers may have different names (check `sudo docker ps --format '{{.Names}}'`); use the *actual* names rather than modifying Compose. **Treat output as internal operational information** even though it excludes values. Do not paste live OAuth client secrets, login-option values, WordPress password hashes, database exports or full user profile data into an issue.
+
+Inventory interpretation checklist:
+- Rooted Psyche: exact miniOrange plugin basename/version, its SSO configuration *capabilities* (not secrets), active Members plugin/role and board library, existing WP board user IDs, site-specific login/logout.
+- Dank: WooCommerce and customer registration/My Account/checkout, customer webhook plugin, any staff login plugins, existing admin users, protected ERPNext customer linking.
+- Both: administrator break-glass, any SSO modules requiring a paid license for group→role mapping or user linking, and whether there is a trustworthy session-revocation mechanism.
+- Design a **reusable** integration with independently configured OIDC applications/clients per WordPress site. Initial code/rollout must change only Rooted Psyche; no automatic redirect of Dank customers to authentik.
+
+Implementation gate: do **not** cut over login, enable a group/role synchronizer, change `board_director` memberships, or remove miniOrange until runtime plugin inventory and a staged login + role-removal test have established continuity for existing board users, denial to non-board Spiritual Practitioners, and revocation for already-authenticated board sessions. Track in [issue #146](https://github.com/RayzorDuff/RootedOps/issues/146).
