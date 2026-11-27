@@ -51,13 +51,24 @@ if (count($matches) > 1 || (count($matches) === 1 && (int) $matches[0]->ID !== $
     exit(3);
 }
 $existing = get_user_option('openid-connect-generic-subject-identity', $id);
-if ($existing !== '' && $existing !== $sub) {
+if ($existing !== false && $existing !== '' && $existing !== $sub) {
     fwrite(STDERR, "Refusing: target WordPress ID already linked to another OIDC subject\n");
     exit(3);
+}
+$approved = getenv('ROOTEDOPS_APPROVED_WORKSPACE_EMAIL');
+if ($approved !== false && (!is_email($approved) || !str_ends_with(strtolower($approved), '@rootedpsyche.org'))) {
+    fwrite(STDERR, "Invalid approved Workspace email\n"); exit(2);
+}
+$prior = get_user_meta($id, 'rootedops_approved_workspace_email', true);
+if ($prior !== '' && $approved !== false && strcasecmp($prior, $approved) !== 0) {
+    fwrite(STDERR, "Existing approved email differs; reconcile separately\n"); exit(3);
 }
 if (!$apply) {
     echo "DRY RUN: target WP ID validated; no subject metadata changed. Set ROOTEDOPS_APPLY=YES after operator approval.\n";
     exit(0);
+}
+if ($approved !== false) {
+    update_user_meta($id, 'rootedops_approved_workspace_email', strtolower($approved));
 }
 if ($existing === $sub) {
     echo "No change: exact subject already linked to approved WordPress ID.\n";
