@@ -40,7 +40,7 @@ function rootedops_oidc_linked_user($claim): ?WP_User {
         return null;
     }
     $users = get_users([
-        'meta_key' => 'rootedops_authentik_subject',
+        'meta_key' => '_rootedops_authentik_subject',
         'meta_value' => $sub,
         'number' => 2,
         'count_total' => false,
