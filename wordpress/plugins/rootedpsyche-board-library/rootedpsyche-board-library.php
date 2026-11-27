@@ -19,8 +19,10 @@ function rp_board_library_authorized(): bool {
     }
     $user = wp_get_current_user();
     $roles = (array) $user->roles;
-    return in_array('administrator', $roles, true)
+    $authorized = in_array('administrator', $roles, true)
         || in_array('board_director', $roles, true);
+    // Optional authentik pilot guard. No change when the integration is disabled.
+    return (bool) apply_filters('rootedpsyche_board_library_authorized', $authorized, $user);
 }
 
 function rp_board_library_no_cache(): void {

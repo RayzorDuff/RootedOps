@@ -1,0 +1,38 @@
+name: WordPress authentik pilot checks
+on:
+  pull_request:
+    paths:
+      - "wordpress/mu-plugins/rootedops-wordpress-authentik.php"
+      - "wordpress/plugins/rootedpsyche-board-library/**"
+      - "scripts/wordpress_auth_*.php"
+      - "tests/test_wordpress_authentik_pilot.php"
+      - ".github/workflows/wordpress-auth-pilot.yml"
+  push:
+    branches: [main]
+    paths:
+      - "wordpress/mu-plugins/rootedops-wordpress-authentik.php"
+      - "wordpress/plugins/rootedpsyche-board-library/**"
+      - "scripts/wordpress_auth_*.php"
+      - "tests/test_wordpress_authentik_pilot.php"
+      - ".github/workflows/wordpress-auth-pilot.yml"
+jobs:
+  lint-and-test:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: "8.3"
+          coverage: none
+      - name: PHP syntax lint
+        run: |
+          php -l scripts/wordpress_auth_inventory.php
+          php -l scripts/wordpress_auth_subject_link.php
+          php -l wordpress/mu-plugins/rootedops-wordpress-authentik.php
+          php -l wordpress/plugins/rootedpsyche-board-library/rootedpsyche-board-library.php
+          php -l tests/test_wordpress_authentik_pilot.php
+      - name: Pilot group, access and expiry tests
+        run: php tests/test_wordpress_authentik_pilot.php
