@@ -2,7 +2,7 @@
 /**
  * RootedOps WordPress OIDC subject prelink (CLI-only, dry-run by default).
  * NEVER run with inferred emails. Supply a validated issuer-specific OIDC sub
- * for the human's authentik identity and the approved existing WordPress ID.
+ * for the human's authentik identity and the approved existing WordPress ID.\n * Uses the native OpenID Connect Generic subject identity metadata; never infer\n * a subject from email or numeric authentik user ID.
  *
  * ROOTEDOPS_WP_USER_ID=2 ROOTEDOPS_OIDC_SUB='<verified-id-token-sub>' php this-file.php
  * ROOTEDOPS_WP_USER_ID=2 ROOTEDOPS_OIDC_SUB='<verified-id-token-sub>' ROOTEDOPS_APPLY=YES php this-file.php
@@ -39,7 +39,7 @@ if (!$user instanceof WP_User || in_array('administrator', (array) $user->roles,
     exit(2);
 }
 $matches = get_users([
-    'meta_key' => '_rootedops_authentik_subject',
+    'meta_key' => $wpdb->get_blog_prefix() . 'openid-connect-generic-subject-identity',
     'meta_value' => $sub,
     'number' => 2,
     'count_total' => false,
@@ -48,7 +48,7 @@ if (count($matches) > 1 || (count($matches) === 1 && (int) $matches[0]->ID !== $
     fwrite(STDERR, "Refusing: OIDC subject already linked to a different WordPress ID\n");
     exit(3);
 }
-$existing = get_user_meta($id, '_rootedops_authentik_subject', true);
+$existing = get_user_option('openid-connect-generic-subject-identity', $id);
 if ($existing !== '' && $existing !== $sub) {
     fwrite(STDERR, "Refusing: target WordPress ID already linked to another OIDC subject\n");
     exit(3);
@@ -61,7 +61,7 @@ if ($existing === $sub) {
     echo "No change: exact subject already linked to approved WordPress ID.\n";
     exit(0);
 }
-if (!update_user_meta($id, '_rootedops_authentik_subject', $sub)) {
+if (!update_user_option($id, 'openid-connect-generic-subject-identity', $sub, true)) {
     fwrite(STDERR, "Subject metadata was not saved\n");
     exit(4);
 }
