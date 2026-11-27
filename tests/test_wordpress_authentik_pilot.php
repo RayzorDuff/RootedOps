@@ -39,7 +39,8 @@ function get_user_by($field, $email) {
     return false;
 }
 function get_user_meta($id, $key, $single = true) {
-    return $GLOBALS['rootedops_meta'][$id][$key] ?? '';
+    $value = $GLOBALS['rootedops_meta'][$id][$key] ?? '';
+    return $single ? $value : ($value === '' ? [] : [$value]);
 }
 function get_user_option($key, $id) { return get_user_meta($id, 'wp_' . $key, true); }
 function update_user_meta($id, $key, $value) {
@@ -84,4 +85,17 @@ $sync($person, array_merge($valid, ['email' => 'approved@rootedpsyche.org']));
 assert_pilot(in_array('board_director', $person->roles, true), 'approved separate organizational email accepted');
 $sync($person, $valid);
 assert_pilot(!in_array('board_director', $person->roles, true), 'old contact email is not approved authentication email');
+$native = 'openid-connect-generic-subject-identity';
+$global = new WP_User(8, 'global@example.invalid');
+$GLOBALS['rootedops_users'][] = $global;
+update_user_meta(8, $native, 'global-sub');
+assert_pilot(rootedops_oidc_linked_user(['sub'=>'global-sub'])->ID === 8, 'global metadata resolves');
+update_user_meta(8, 'wp_' . $native, 'global-sub');
+assert_pilot(rootedops_oidc_linked_user(['sub'=>'global-sub'])->ID === 8, 'same account both formats resolves');
+update_user_meta(8, 'wp_' . $native, 'conflict');
+assert_pilot(rootedops_oidc_linked_user(['sub'=>'global-sub']) === null, 'conflicting formats rejected');
+update_user_meta(8, $native, 'stable-sub-001');
+assert_pilot(rootedops_oidc_linked_user($valid) === null, 'cross-account collision rejected');
+$sync($person, $valid);
+assert_pilot(get_user_meta(2, 'rootedops_board_claim_result', true) === 'subject_mismatch', 'collision reason recorded');
 echo "WordPress authentik pilot acceptance tests passed\n";
