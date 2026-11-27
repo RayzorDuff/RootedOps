@@ -40,21 +40,21 @@ if (!$user instanceof WP_User || in_array('administrator', (array) $user->roles,
     fwrite(STDERR, "Refusing: WordPress ID unavailable or is an excluded account type\n");
     exit(2);
 }
-$matches = get_users([
-    'meta_key' => $wpdb->get_blog_prefix() . 'openid-connect-generic-subject-identity',
-    'meta_value' => $sub,
-    'number' => 2,
-    'count_total' => false,
-]);
-if (count($matches) > 1 || (count($matches) === 1 && (int) $matches[0]->ID !== $id)) {
-    fwrite(STDERR, "Refusing: OIDC subject already linked to a different WordPress ID\n");
-    exit(3);
+$key = 'openid-connect-generic-subject-identity';
+foreach (array_unique([$key, $wpdb->get_blog_prefix() . $key]) as $meta_key) {
+    foreach (get_users(['meta_key' => $meta_key, 'meta_value' => $sub,
+        'number' => 2, 'count_total' => false]) as $match) {
+        if ((int) $match->ID !== $id) {
+            fwrite(STDERR, "Refusing: subject linked to another account\n"); exit(3);
+        }
+    }
+    foreach (get_user_meta($id, $meta_key, false) as $stored) {
+        if ($stored !== '' && $stored !== $sub) {
+            fwrite(STDERR, "Refusing: conflicting subject metadata\n"); exit(3);
+        }
+    }
 }
-$existing = get_user_option('openid-connect-generic-subject-identity', $id);
-if ($existing !== false && $existing !== '' && $existing !== $sub) {
-    fwrite(STDERR, "Refusing: target WordPress ID already linked to another OIDC subject\n");
-    exit(3);
-}
+$existing = get_user_option($key, $id);
 $approved = getenv('ROOTEDOPS_APPROVED_WORKSPACE_EMAIL');
 if ($approved !== false && (!is_email($approved) || !str_ends_with(strtolower($approved), '@rootedpsyche.org'))) {
     fwrite(STDERR, "Invalid approved Workspace email\n"); exit(2);
