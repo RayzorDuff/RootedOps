@@ -28,6 +28,22 @@ python3 -m unittest discover -s tests -p 'test_recovery_bundle.py' -v
 
 For a **later PR revision**, preserve local staging logs and verify the tree is clean before refreshing with `git -C "$STAGE" fetch origin refs/pull/162/head && git -C "$STAGE" switch --detach FETCH_HEAD`. Record the reviewed SHA for each acceptance.
 
+## Live staging outcome and inventory-drift follow-up (2026-11-28)
+
+The first live grouped rehearsal reached the end of the `operations` capture, restarted its paused services, and then stopped before `documents` with `Drift: binds (mount inventory changed)`. No staged backup was published. Production's original global cron and snapshot remain unchanged.
+
+The original verifier compared ordered bind records that received positional archive filenames from Docker's mount enumeration. An unchanged mount set may be enumerated in a different order after stop/start. The PR now compares the **identity and content** of each bind (project/service/destination, host source, read-only status) independently of enumeration order while preserving the original manifest's archive numbering. It still refuses missing, added or genuinely changed binds and reports service/destination without printing private host paths.
+
+After fetching the latest PR head, first run:
+
+```bash
+cd /home/dankmushrooms/rootedops-staging/issue-160-pr-162
+python3 -m unittest tests.test_recovery_bundle.InventoryTests.test_bind_mount_reordering_is_not_drift_but_source_change_is -v
+python3 -m unittest discover -s tests -p 'test_recovery_bundle.py' -v
+```
+
+Only rerun the grouped live backup after these tests and the exact-commit GitHub recovery CI pass. If the next run reports an actual bind source or access change, **stop** and inspect that specific service; do not bypass the invariant.
+
 ## Read-only / no-stop inventory and image preflight
 
 `BACKUP_IMAGE_PLAN_ONLY=true` returns after runtime inventory and image provenance selection, before pausing any applications or writing/uploading any SQL/volume snapshot. The staging runner explicitly requires a separate remote root and non-pruning mode even for preflight. The remote target is a distinct path on the existing configured rclone remote; this command does **not** upload there.
