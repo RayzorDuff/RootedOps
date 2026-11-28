@@ -118,7 +118,8 @@ def cycle(inbox, mp, config):
     clover = None
     if config.get('automatic_capture') is True:
         clover = CloverSandboxEvidence(site_key=SITE, merchant_id=os.environ['CLOVER_LIVE_MERCHANT_ID'],
-                  private_key=os.environ['CLOVER_LIVE_PRIVATE_KEY'], enabled=True, production=True)
+                  private_key=os.environ['CLOVER_LIVE_PRIVATE_KEY'], enabled=True, production=True,
+                  platform_token=os.environ.get('CLOVER_LIVE_PLATFORM_TOKEN'))
     outcomes = []
     for path in sorted(directory.glob('*.json')):
         order_id = path.stem
@@ -251,7 +252,8 @@ def main():
         if event.get('processor_payment_id') != charge:
             parser.error('Woo receipt differs from the approved Clover charge')
         clover = CloverSandboxEvidence(site_key=SITE, merchant_id=os.environ['CLOVER_LIVE_MERCHANT_ID'],
-                    private_key=os.environ['CLOVER_LIVE_PRIVATE_KEY'], enabled=True, production=True)
+                    private_key=os.environ['CLOVER_LIVE_PRIVATE_KEY'], enabled=True, production=True,
+                  platform_token=os.environ.get('CLOVER_LIVE_PLATFORM_TOKEN'))
         print(json.dumps(reconcile_capture(inbox, mp, erp, clover, key, args.posting_date,
                          os.environ['COMMERCE_CAPTURE_EVIDENCE_KEY'], production=True)))
     else:

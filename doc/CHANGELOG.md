@@ -1,5 +1,17 @@
 # Changelog
 
+## [1.5.37] - 2026-11-27
+
+- Add a same-host stock-only publisher and activation procedure for the reviewed 24-product MP/Woo cohort, preserving Woo native deductions while new orders await manual ERP review.
+- Preserve live WordPress environment/image and enable its existing stock mutex; schedule readback-verified inventory publication without enabling financial or fulfillment automation.
+- Prepare legacy frontend HTTP redirects from the reviewed 42-path manifest; DNS, certificate issuance, and public checkout opening remain explicit operator steps. Phase patch only, no tag.
+
+## [1.5.36] - 2026-11-27
+
+- Verify production Clover Ecommerce responses against a second authenticated merchant payment when capture metadata is missing or inconsistent. Require matching identity, order, amount, successful online AUTH/CLOSED state, and explicit empty refunds.
+- Use the existing platform token only in the private order-worker environment; preserve strict sandbox checks and all ERP approval gates. No charge/capture/refund mutation endpoints added.
+- Add production response, rejection, redaction, and fixed-origin GET regression coverage. Patch phase only; no tag.
+
 ## [1.5.35] - 2026-11-24
 
 - Add reviewed Ecwid history conversion into Woo orders and ERP draft Sales Orders, preserving source payment/fulfillment and exact monetary totals.
