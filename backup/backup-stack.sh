@@ -24,10 +24,10 @@ source "$ENV_FILE"
 set +a
 
 TIMESTAMP="$(date +%Y%m%d-%H%M%S)"
-BACKUP_PREFIX="${BACKUP_PREFIX:-rootedops}"
+BACKUP_PREFIX="${BACKUP_PREFIX_OVERRIDE:-${BACKUP_PREFIX:-rootedops}}"
 LOCAL_STAGING_PARENT="${LOCAL_STAGING_PARENT:-/var/tmp/rootedops-backups}"
 RCLONE_REMOTE="${RCLONE_REMOTE:-signaturegate-gdrive-free}"
-REMOTE_BACKUP_ROOT="${REMOTE_BACKUP_ROOT:-${RCLONE_REMOTE}:SignatureGateBackups}"
+REMOTE_BACKUP_ROOT="${BACKUP_REMOTE_ROOT_OVERRIDE:-${REMOTE_BACKUP_ROOT:-${RCLONE_REMOTE}:SignatureGateBackups}}"
 REMOTE_PREFIX_PATH="${REMOTE_BACKUP_ROOT%/}/${BACKUP_PREFIX}"
 DOCKER_BIN="${DOCKER_BIN:-sudo docker}"
 # Optional explicit path to the rclone config used by unattended backups.
@@ -40,6 +40,14 @@ if [[ "$MINECRAFT_BEDROCK_DATA_PATH" != /* ]]; then
 fi
 MINECRAFT_BACKUP_STOP_CONTAINER="${MINECRAFT_BACKUP_STOP_CONTAINER:-true}"
 KEEP_DAILY_DAYS="${KEEP_DAILY_DAYS:-7}"
+# Staged code may operate on the live Docker host, but it MUST use a distinct
+# remote prefix and must not run retention. Preserve the shared host lock.
+if [[ "$BACKUP_SOURCE_ROOT" != "$REPO_ROOT" ]]; then
+  [[ "$BACKUP_SOURCE_ROOT" == /* ]] || { echo "Staged BACKUP_SOURCE_ROOT must be absolute" >&2; exit 1; }
+  [[ -n "${BACKUP_REMOTE_ROOT_OVERRIDE:-}" ]] || { echo "Staged backup requires BACKUP_REMOTE_ROOT_OVERRIDE" >&2; exit 1; }
+  [[ "${SKIP_BACKUP_PRUNE:-false}" == true ]] || { echo "Staged backups require SKIP_BACKUP_PRUNE=true" >&2; exit 1; }
+  [[ "$REMOTE_BACKUP_ROOT" != "${RCLONE_REMOTE}:SignatureGateBackups" ]] || { echo "Refusing production remote root in staged backup" >&2; exit 1; }
+fi
 
 mkdir -p "$LOCAL_STAGING_PARENT"
 # Cron and manual runs must never overlap while applications are quiesced.
