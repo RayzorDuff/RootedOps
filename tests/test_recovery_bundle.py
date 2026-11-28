@@ -70,6 +70,45 @@ def write_fixture(root, manifest=None):
 
 
 class VolumeArchiveTests(unittest.TestCase):
+    def test_authentik_media_link_allowlisted_only_at_exact_path_and_target(self):
+        with tempfile.TemporaryDirectory() as directory:
+            for archive_name, member_name, destination, valid in (
+                ('authentik_data.tgz', './media', '/media', True),
+                ('authentik_data.tgz', './media', '/etc', False),
+                ('authentik_data.tgz', './uploads', '/media', False),
+                ('authentik_certs.tgz', './media', '/media', False),
+                ('appsmith_stacks.tgz', './media', '/media', False),
+            ):
+                path = Path(directory) / archive_name
+                with tarfile.open(path, 'w:gz') as archive:
+                    link = tarfile.TarInfo(member_name)
+                    link.type = tarfile.SYMTYPE
+                    link.linkname = destination
+                    archive.addfile(link)
+                result = subprocess.run(
+                    ['bash', '-c', 'source backup/volume-tools.sh; validate_managed_volume_archive "$1" allow-empty',
+                     'test', str(path)], cwd=ROOT, capture_output=True, text=True)
+                self.assertEqual(result.returncode == 0, valid,
+                                 f'{archive_name} {member_name} -> {destination}: {result.stderr}')
+
+    def test_authentik_media_link_cannot_redirect_nested_archive_payloads(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / 'authentik_data.tgz'
+            with tarfile.open(path, 'w:gz') as archive:
+                link = tarfile.TarInfo('media')
+                link.type = tarfile.SYMTYPE
+                link.linkname = '/media'
+                archive.addfile(link)
+                payload = tarfile.TarInfo('media/escape.txt')
+                payload.size = 1
+                archive.addfile(payload, io.BytesIO(b'x'))
+            result = subprocess.run(
+                ['bash', '-c', 'source backup/volume-tools.sh; validate_managed_volume_archive "$1" allow-empty',
+                 'test', str(path)], cwd=ROOT, capture_output=True, text=True)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn('Unsafe archive member underneath Authentik media symlink', result.stderr)
+
+
     def test_authentik_optional_archives_may_be_empty_without_weakening_required_volumes(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
