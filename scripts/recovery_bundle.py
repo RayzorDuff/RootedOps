@@ -537,6 +537,26 @@ def capture(backup, docker):
     return inventory
 
 
+# Snapshot groups are intentionally coarser than individual containers. Writers
+# sharing the MP/ERP/Woo operational ledger remain in the same group; a whole-
+# stack snapshot is not atomic across groups.
+SNAPSHOT_GROUPS = ('operations', 'documents', 'communications', 'identity', 'chat', 'scheduling')
+
+
+def snapshot_group(project, service):
+    if project in ('tymeslot', 'rallly'):
+        return 'scheduling'
+    if service.startswith('librechat'):
+        return 'chat'
+    if service.startswith('authentik'):
+        return 'identity'
+    if service.startswith('mailflow') or service.startswith('listmonk'):
+        return 'communications'
+    if service.startswith('documenso'):
+        return 'documents'
+    return 'operations'
+
+
 def verify_sources(backup, docker, allow_stopped=False):
     original = json.loads((backup / MANIFEST).read_text())
     ids = checked_output(docker + ['ps', '-aq']).split()
@@ -787,6 +807,7 @@ def main():
     parser.add_argument('--docker-command', default='sudo docker')
     parser.add_argument('--kind', choices=('images', 'volumes', 'binds', 'cold', 'dank', 'rootedpsyche', 'groups'))
     parser.add_argument('--allow-stopped', action='store_true')
+    parser.add_argument('--group', choices=SNAPSHOT_GROUPS, help='Filter snapshot plans by dependency group')
     args = parser.parse_args()
     if args.action == 'capture':
         capture(args.backup, shlex.split(args.docker_command))
@@ -808,13 +829,18 @@ def main():
                     print(record['image_id'])
         elif args.kind == 'volumes':
             for r in m['volumes']:
+                if args.group and snapshot_group(r['project'], r['service']) != args.group:
+                    continue
                 print(r['volume'] + '\t' + Path(r['archive']).name)
         elif args.kind == 'binds':
             for r in m['binds']:
+                if args.group and snapshot_group(r['project'], r['service']) != args.group:
+                    continue
                 print('\t'.join((r['source'], Path(r['archive']).name, r['project'], r['service'], r['destination'])))
         elif args.kind == 'cold':
             # Stop clients before embedded/raw database services; restart in reverse.
-            records = [r for r in m['services'] if r['running'] and r['service'] not in LIVE_DATABASES]
+            records = [r for r in m['services'] if r['running'] and r['service'] not in LIVE_DATABASES
+                       and (not args.group or snapshot_group(r['project'], r['service']) == args.group)]
             records.sort(key=lambda r: r['service'].endswith('-mongodb') or r['service'] in ('db', 'garage', 'erpnext-redis-cache', 'erpnext-redis-queue'))
             print('\n'.join(r['container'] for r in records))
         elif args.kind in ('dank', 'rootedpsyche'):
