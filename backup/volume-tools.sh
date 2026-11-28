@@ -37,6 +37,15 @@ if re.fullmatch(r'erpnext_assets_[0-9]{2}\.tgz',archive_name):
         }
 with tarfile.open(sys.argv[1],'r:gz') as archive:
     members=archive.getmembers()
+    # Authentik creates a /data/media -> /media redirect in its optional
+    # application-data volume. Allow only that exact link in that archive.
+    # No member may live underneath it: extraction must never write through
+    # the link to the container's absolute /media directory.
+    if archive_name == 'authentik_data.tgz' and any(
+        posixpath.normpath(m.name) == 'media' and m.issym() and m.linkname == '/media'
+        for m in members
+    ) and any(posixpath.normpath(m.name).startswith('media/') for m in members):
+        raise SystemExit('Unsafe archive member underneath Authentik media symlink')
     if sys.argv[2]!='allow-empty' and not any(m.isfile() and m.size>0 for m in members):
         raise SystemExit('Refusing empty volume archive: no nonempty regular files')
     for member in members:
@@ -48,7 +57,7 @@ with tarfile.open(sys.argv[1],'r:gz') as archive:
         if member.issym() or member.islnk():
             target=posixpath.normpath(posixpath.join(posixpath.dirname(name) if member.issym() else '',member.linkname))
             if target.startswith('/') or target=='..' or target.startswith('../'):
-                if not (member.issym() and (frappe_asset_links.get(name)==member.linkname or frappe_app_links.get(name)==member.linkname or member.linkname in frappe_nested_asset_links.get(name,set()))):
+                if not (member.issym() and (frappe_asset_links.get(name)==member.linkname or frappe_app_links.get(name)==member.linkname or member.linkname in frappe_nested_asset_links.get(name,set()) or (archive_name=='authentik_data.tgz' and name=='media' and member.linkname=='/media'))):
                     raise SystemExit('Unsafe archive link: '+member.name+' -> '+member.linkname)
 PY
 }
