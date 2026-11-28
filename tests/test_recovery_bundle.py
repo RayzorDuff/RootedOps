@@ -69,6 +69,25 @@ def write_fixture(root, manifest=None):
     return manifest
 
 
+class VolumeArchiveTests(unittest.TestCase):
+    def test_authentik_optional_archives_may_be_empty_without_weakening_required_volumes(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            for name in ('authentik_data.tgz', 'authentik_certs.tgz', 'appsmith_stacks.tgz'):
+                path = root / name
+                with tarfile.open(path, 'w:gz') as archive:
+                    folder = tarfile.TarInfo('./')
+                    folder.type = tarfile.DIRTYPE
+                    archive.addfile(folder)
+                command = ['bash', '-c', 'source backup/volume-tools.sh; validate_managed_volume_archive "$1"', 'test', str(path)]
+                result = subprocess.run(command, cwd=ROOT, capture_output=True, text=True)
+                if name.startswith('authentik_'):
+                    self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+                else:
+                    self.assertNotEqual(result.returncode, 0)
+                    self.assertIn('Refusing empty volume archive', result.stderr)
+
+
 class InventoryTests(unittest.TestCase):
     def test_authentik_optional_inventory_and_secret_contract(self):
         absent = bundle.make_inventory(containers(set(bundle.GROUPS) - {'authentik'}), [])
@@ -259,8 +278,10 @@ class InventoryTests(unittest.TestCase):
                     bundle.verify_sources(root, ['docker'])
                 bundle.verify_sources(root, ['docker'], allow_stopped=True)
                 source[0]['Image'] = 'sha256:' + '9' * 64
-                with self.assertRaisesRegex(ValueError, 'changed during backup'):
+                with self.assertRaisesRegex(ValueError, 'services:core/erpnext-backend|services:') as failure:
                     bundle.verify_sources(root, ['docker'], allow_stopped=True)
+                self.assertIn('image_id', str(failure.exception))
+                self.assertNotIn('PRIVATE_TOKEN', str(failure.exception))
 
 
 class ImageSelectionTests(unittest.TestCase):
