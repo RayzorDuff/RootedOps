@@ -42,6 +42,13 @@ Do not supplement the old `20261110-231728` snapshot with separately exported
 images. Keep that set unchanged as historical evidence and use a fresh snapshot
 for the next attempt. No production backup or restore is executed by this commit.
 
+
+## Legacy host-level Frappe Bench cron retirement (2026-11-28)
+
+RootedOps runs ERPNext/Frappe inside Docker and its nightly recovery bundle includes the ERPNext MariaDB `erpnext-all-databases.sql.gz` dump plus `erpnext_sites.tgz`, `erpnext_apps.tgz`, and `erpnext_logs.tgz` volume archives. The former host-level cron line `/home/dankmushrooms/.local/bin/bench --verbose --site all backup` attempted a separate six-hourly backup from `~/frappe-bench` and repeatedly returned `Please specify --site sitename`; it is not part of the containerized RootedOps backup contract. Retire **only this specific host-level cron entry**, retaining `~/frappe-bench` until independently audited, and retaining the nightly `backup/backup-stack.sh` schedule. This does not disable Frappe/ERPNext's own in-container background scheduler, and is not a reason to remove sites or backup files from volumes.
+
+A validated manual backup on 2026-11-28 completed successfully with `SKIP_BACKUP_PRUNE=true`; remote `signaturegate-gdrive-free:SignatureGateBackups/rootedops/20261128-040620` reported 70 matching files and zero differences. That establishes upload/hash verification, **not** a completed clean-host restore rehearsal. The nightly server cron is currently configured at `07:30 UTC` (00:30 MST or 01:30 MDT), assuming the host remains on UTC. Keep monitoring completion logs and periodically rehearse restoration from a complete timestamped bundle.
+
 ## What the nightly job now captures
 
 - `meta/recovery-bundle.json`: format version, explicit installed/not-installed
