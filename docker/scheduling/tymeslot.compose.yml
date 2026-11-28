@@ -3,7 +3,7 @@
 # docker compose --env-file .env -p rootedops-scheduling -f docker/scheduling/tymeslot.compose.yml up -d
 services:
   tymeslot:
-    image: ${TYMESLOT_IMAGE_REPOSITORY:-luka1thb/tymeslot}:${TYMESLOT_IMAGE_TAG:?Set pinned TYMESLOT_IMAGE_TAG}
+    image: luka1thb/tymeslot:${TYMESLOT_IMAGE_TAG:?Set pinned TYMESLOT_IMAGE_TAG}
     container_name: rootedops-tymeslot
     restart: unless-stopped
     ports:
