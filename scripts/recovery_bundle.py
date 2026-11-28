@@ -557,6 +557,24 @@ def snapshot_group(project, service):
     return 'operations'
 
 
+def bind_identity_map(records):
+    """Compare bind identity, not Docker's noncontractual mount ordering.
+
+    Runtime bind archive numbers are assigned in capture order and kept in
+    the original manifest for restores. A later docker inspect may enumerate
+    identical mounts in a different order after stop/start. That must not
+    invalidate the captured snapshot, but actual changes in source, access or
+    destination must still be rejected.
+    """
+    result = {}
+    for record in records:
+        key = (record['project'], record['service'], record['destination'])
+        if key in result:
+            raise ValueError('Duplicate runtime bind identity')
+        result[key] = (record['source'], record['read_only'])
+    return result
+
+
 def verify_sources(backup, docker, allow_stopped=False):
     original = json.loads((backup / MANIFEST).read_text())
     ids = checked_output(docker + ['ps', '-aq']).split()
@@ -570,7 +588,12 @@ def verify_sources(backup, docker, allow_stopped=False):
     # Never log raw inspect payloads or container environment variables.
     changes = []
     for key in ('groups', 'services', 'volumes', 'binds', 'non_data_mounts'):
-        if current.get(key, []) == original.get(key, []):
+        if key == 'binds':
+            before_binds = bind_identity_map(original.get('binds', []))
+            after_binds = bind_identity_map(current.get('binds', []))
+            if before_binds == after_binds:
+                continue
+        elif current.get(key, []) == original.get(key, []):
             continue
         if key == 'services':
             before = {(r['project'], r['service']): r for r in original['services']}
@@ -586,9 +609,14 @@ def verify_sources(backup, docker, allow_stopped=False):
             for group in sorted(set(original['groups']) | set(current['groups'])):
                 if original['groups'].get(group) != current['groups'].get(group):
                     changes.append(key + ':' + group)
+        elif key == 'binds':
+            # Never disclose raw host source paths; identify the affected
+            # container and its mount destination instead.
+            for identity in sorted(before_binds.keys() | after_binds.keys()):
+                if before_binds.get(identity) != after_binds.get(identity):
+                    changes.append('binds:' + '/'.join(identity) + ' (source or access changed)')
         else:
-            # A mount comparison can include private source paths. Record only
-            # its inventory category, not the raw mount descriptors.
+            # A volume comparison can contain private source paths.
             changes.append(key + ' (mount inventory changed)')
     if changes:
         raise ValueError('Source containers, images, mounts or installation changed during backup; '
