@@ -48,3 +48,10 @@ If activation fails, leave checkout restricted and inspect its private receipts.
 If stock publication later fails, inspect `systemctl status dank-woo-stock.service`
 and its journal; last-snapshot/last-readback are in the private publisher state
 directory. Restrict checkout before a rollback or any unreviewed stock correction.
+
+After DNS-only apex/www records resolve to 45.33.107.185, run
+`scripts/commerce_finish_public_opening.sh` from the same pinned worktree. It
+obtains/deploys the old-domain certificate, validates all 42 legacy paths and
+canonical product targets, verifies fresh stock publication plus notification
+settings, promotes the redirects to 301, and archives the manager-only checkout
+guard before removing it. Explicit DNS edits remain with the operator.
