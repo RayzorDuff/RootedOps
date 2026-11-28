@@ -1,6 +1,6 @@
-"""Read-only sandbox charge evidence. No charge/capture/refund mutation methods.
+"""Read-only Clover charge and merchant-payment evidence. No charge/capture/refund mutation methods.
 
-Strict contracts need verification against a real sandbox response before rollout.
+Production fallback requires two authenticated, matching provider records.
 Only this authenticated fetch boundary marks evidence verified; webhook payloads
 must never be passed as transport responses by the receiver.
 """
@@ -19,9 +19,24 @@ def get_charge(charge_id, private_key, *, production=False):
         raise ValueError('Invalid charge identity')
     if not isinstance(private_key,str) or len(private_key)<32 or any(c in private_key for c in '\r\n'):
         raise ValueError('Private sandbox key required')
+    return _get_json((PRODUCTION_BASE if production else BASE)+charge_id, private_key)
+
+
+def get_payment(payment_id, merchant_id, access_token):
+    """Fixed production merchant-scoped GET; never capture or mutate a payment."""
+    for value in (payment_id, merchant_id):
+        if not isinstance(value, str) or not re.fullmatch(r'[A-Za-z0-9_-]{5,128}', value):
+            raise ValueError('Invalid merchant payment identity')
+    if not isinstance(access_token, str) or len(access_token) < 16 or any(c in access_token for c in '\r\n'):
+        raise ValueError('Production platform token required')
+    return _get_json('https://api.clover.com/v3/merchants/' + merchant_id +
+                     '/payments/' + payment_id + '?expand=refunds,cardTransaction', access_token)
+
+
+def _get_json(url, key):
     class NoRedirect(HTTPRedirectHandler):
         def redirect_request(self,*args,**kwargs):raise ValueError('Clover redirect refused')
-    request=Request((PRODUCTION_BASE if production else BASE)+charge_id,headers={'Authorization':'Bearer '+private_key,
+    request=Request(url,headers={'Authorization':'Bearer '+key,
         'Accept':'application/json','User-Agent':'RootedOps-Commerce/0.3 charge-reconciliation'},method='GET')
     try:
         with build_opener(NoRedirect).open(request,timeout=30) as response:
@@ -45,7 +60,8 @@ def cents(value):
 
 
 class CloverSandboxEvidence:
-    def __init__(self, *, site_key, merchant_id, private_key, enabled=False, transport=None, production=False):
+    def __init__(self, *, site_key, merchant_id, private_key, enabled=False, transport=None, production=False,
+                 platform_token=None, payment_transport=None):
         if enabled is not True:raise ValueError('Explicit sandbox evidence opt-in required')
         allowed = ('danks.store',) if production else ('shop-test', 'shop-test.danks.store', 'shop-test2.danks.store', 'synthetic')
         if site_key not in allowed:
@@ -54,6 +70,13 @@ class CloverSandboxEvidence:
         if not isinstance(private_key,str) or len(private_key)<32 or any(c in private_key for c in '\r\n'):
             raise ValueError('Private sandbox key required')
         self.site, self.merchant, self._key = site_key, merchant_id, private_key
+        if payment_transport is not None and not platform_token:
+            raise ValueError('Platform transport requires its own credential')
+        if platform_token is not None and (not production or not isinstance(platform_token, str)
+                or len(platform_token) < 16 or any(c in platform_token for c in '\r\n')):
+            raise ValueError('Production platform credential required')
+        self._platform_token = platform_token
+        self._payment_get = payment_transport or get_payment
         self.production = production
         self._get = transport or (lambda charge, key: get_charge(charge, key, production=production))
 
@@ -71,22 +94,57 @@ class CloverSandboxEvidence:
         try:charge=self._get(charge_id,self._key)
         except Exception:
             raise RuntimeError('Clover charge lookup failed; reconciliation remains unverified') from None
-        if not isinstance(charge,dict) or charge.get('object')!='charge' or charge.get('id')!=charge_id:
+        corroborated = self.production and self._platform_token is not None
+        if (not isinstance(charge,dict) or charge.get('id')!=charge_id
+                or (charge.get('object') != 'charge' and not (corroborated and 'object' not in charge))):
             raise ValueError('Exact single charge response required')
         reported_merchant = charge.get('merchant_id')
         if reported_merchant is not None and reported_merchant != self.merchant:
             raise ValueError('Clover charge merchant mismatch')
-        if charge.get('livemode') is not self.production:raise ValueError('Explicit Clover environment required')
+        if charge.get('livemode') is not self.production and not (corroborated and 'livemode' not in charge):
+            raise ValueError('Explicit Clover environment required')
         if charge.get('external_reference_id')!=reviewed_order_number:raise ValueError('Charge/order reference mismatch')
-        if charge.get('status')!='succeeded' or charge.get('paid') is not True or charge.get('captured') is not True:
+        if charge.get('status')!='succeeded' or charge.get('paid') is not True or (not corroborated and charge.get('captured') is not True):
             raise ValueError('Successful captured charge required; authorization/failed IDs are insufficient')
         if charge.get('currency')!=order['currency'].lower():raise ValueError('Charge currency mismatch')
-        amount=cents(charge.get('amount'));captured=cents(charge.get('amount_captured'));refunded=cents(charge.get('amount_refunded'))
+        if corroborated:
+            self._closed_payment(charge, reviewed_order_number)
+        amount=cents(charge.get('amount'));captured=cents(charge.get('amount_captured'))
+        refunded=cents(charge.get('amount_refunded', 0) if corroborated else charge.get('amount_refunded'))
         if amount!=captured or Decimal(refunded)>Decimal(captured):raise ValueError('Partial capture or invalid refund requires review')
         result={'verification':'verified_adapter','processor':'clover','state':'captured',
             'site_key':self.site,'merchant_id':self.merchant,'provider_environment':'production' if self.production else 'sandbox',
             'external_order_id':order['external_order_id'],'external_order_number':reviewed_order_number,
             'payment_id':charge_id,'processor_reference_type':'clover_ecommerce_charge',
             'currency':order['currency'],'captured_amount':captured,'refunded_amount':refunded}
+        if corroborated:
+            result['capture_verification'] = 'matching_merchant_payment_auth_closed'
         reconcile_clover(order,result)
         return result
+
+    def _closed_payment(self, charge, order_number):
+        try:
+            payment = self._payment_get(charge['id'], self.merchant, self._platform_token)
+        except Exception:
+            raise RuntimeError('Clover merchant payment lookup failed; reconciliation remains unverified') from None
+        if not isinstance(payment, dict):
+            raise ValueError('Exact merchant payment response required')
+        card = payment.get('cardTransaction') or {}
+        refunds = payment.get('refunds')
+        if (payment.get('id') != charge['id'] or payment.get('result') != 'SUCCESS'
+                or payment.get('offline') is not False or payment.get('voided', False) is not False
+                or payment.get('externalReferenceId') != order_number
+                or not isinstance(card, dict) or card.get('type') != 'AUTH' or card.get('state') != 'CLOSED'
+                or not isinstance(payment.get('order'), dict)
+                or payment['order'].get('id') != charge.get('order') or not charge.get('order')
+                or type(payment.get('amount')) is not int or payment['amount'] != charge.get('amount')):
+            raise ValueError('Matching successful closed merchant payment required')
+        # Missing refund information is unknown, not zero. Empty expanded
+        # refunds plus the matching closed payment corroborate this charge.
+        if (not isinstance(refunds, dict) or refunds.get('elements') != []
+                or set(refunds) - {'elements', 'href'}
+                or charge.get('amount_refunded', 0) != 0 or type(charge.get('amount_refunded', 0)) is not int
+                or charge.get('refunded', False) is not False):
+            raise ValueError('Explicit unrefunded merchant payment required')
+        if 'captured' in charge and type(charge['captured']) is not bool:
+            raise ValueError('Invalid Ecommerce capture field')

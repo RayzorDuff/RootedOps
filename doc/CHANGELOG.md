@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.5.36] - 2026-11-27
+
+- Verify production Clover Ecommerce responses against a second authenticated merchant payment when capture metadata is missing or inconsistent. Require matching identity, order, amount, successful online AUTH/CLOSED state, and explicit empty refunds.
+- Use the existing platform token only in the private order-worker environment; preserve strict sandbox checks and all ERP approval gates. No charge/capture/refund mutation endpoints added.
+- Add production response, rejection, redaction, and fixed-origin GET regression coverage. Patch phase only; no tag.
+
 ## [1.5.34] - 2026-11-22
 
 - Integrate the existing Woo signed intake, reviewed order cycle, verified Clover capture, MP fulfillment/stock projection, hostname and optional cash stacks with deployed customer sync.
