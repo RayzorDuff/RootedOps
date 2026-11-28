@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.5.35] - 2026-11-24
+
+- Add reviewed Ecwid history conversion into Woo orders and ERP draft Sales Orders, preserving source payment/fulfillment and exact monetary totals.
+- Keep historical records outside payment collection, stock/fulfillment replay, notifications and live intake. Add repeat-import identities, private receipts and native Woo acceptance.
+- Historical posted accounting remains separate; hosted preview and ERP draft acceptance are pending. Patch phase only; no tag.
+
 ## [1.5.34] - 2026-11-22
 
 - Integrate the existing Woo signed intake, reviewed order cycle, verified Clover capture, MP fulfillment/stock projection, hostname and optional cash stacks with deployed customer sync.

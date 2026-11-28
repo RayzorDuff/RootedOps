@@ -48,6 +48,7 @@ services:
       - dank_wordpress_html:/var/www/html
       - ../wordpress/dank-mu-plugins/rootedops-customer-webhook.php:/var/www/html/wp-content/mu-plugins/rootedops-customer-webhook.php:ro
       - ../wordpress/dank-mu-plugins/rootedops-fulfillment.php:/var/www/html/wp-content/mu-plugins/rootedops-fulfillment.php:ro
+      - ../wordpress/dank-mu-plugins/rootedops-ecwid-history.php:/var/www/html/wp-content/mu-plugins/rootedops-ecwid-history.php:ro
   dank-wordpress-cli:
     image: wordpress:cli-php8.3
     profiles: [tools]

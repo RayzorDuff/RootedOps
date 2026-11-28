@@ -20,6 +20,9 @@ jobs:
       - run: php -l wordpress/dank-mu-plugins/rootedops-customer-webhook.php
       - run: php -l scripts/commerce_wordpress_hostname.php
       - run: php -l wordpress/dank-mu-plugins/rootedops-fulfillment.php
+      - run: php -l wordpress/dank-mu-plugins/rootedops-ecwid-history.php
+      - run: php -l scripts/commerce_history_woo.php
+      - run: php -l scripts/commerce_history_woo_ci.php
       - run: php tests/php/woo-customer-admin-sync.php
       - run: make commerce-test
   native-restore:
