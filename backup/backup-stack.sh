@@ -4,6 +4,10 @@ umask 077
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+# When executing reviewed code from a separate checkout, read operational host
+# payloads from the production source tree rather than staging placeholders.
+BACKUP_SOURCE_ROOT="${BACKUP_SOURCE_ROOT:-$REPO_ROOT}"
+[[ -d "$BACKUP_SOURCE_ROOT" ]] || { echo "Missing BACKUP_SOURCE_ROOT" >&2; exit 1; }
 # shellcheck source=volume-tools.sh
 source "$SCRIPT_DIR/volume-tools.sh"
 COMPOSE_FILE="$REPO_ROOT/docker/docker-compose.yml"
@@ -30,9 +34,9 @@ DOCKER_BIN="${DOCKER_BIN:-sudo docker}"
 # Rclone may otherwise select a different config for each Unix user.
 RCLONE_CONFIG_FILE="${RCLONE_CONFIG_FILE:-}"
 COMPOSE_SH=(sudo docker compose --env-file "$ENV_FILE" -f "$COMPOSE_FILE")
-MINECRAFT_BEDROCK_DATA_PATH="${MINECRAFT_BEDROCK_DATA_PATH:-$REPO_ROOT/minecraft/bedrock}"
+MINECRAFT_BEDROCK_DATA_PATH="${MINECRAFT_BEDROCK_DATA_PATH:-$BACKUP_SOURCE_ROOT/minecraft/bedrock}"
 if [[ "$MINECRAFT_BEDROCK_DATA_PATH" != /* ]]; then
-  MINECRAFT_BEDROCK_DATA_PATH="$REPO_ROOT/${MINECRAFT_BEDROCK_DATA_PATH#./}"
+  MINECRAFT_BEDROCK_DATA_PATH="$BACKUP_SOURCE_ROOT/${MINECRAFT_BEDROCK_DATA_PATH#./}"
 fi
 MINECRAFT_BACKUP_STOP_CONTAINER="${MINECRAFT_BACKUP_STOP_CONTAINER:-true}"
 KEEP_DAILY_DAYS="${KEEP_DAILY_DAYS:-7}"
@@ -294,7 +298,7 @@ if [[ "$BACKUP_QUIESCE_MODE" == grouped ]]; then
     done < "$LOCAL_STAGE_ROOT/bind-plan.tsv"
     rm "$LOCAL_STAGE_ROOT/bind-plan.tsv"
     if [[ "$group" == scheduling ]] && [[ -f "$BACKUP_DIR/volumes/rallly-selfhosted_db-data.tgz" ]]; then
-      rallly_env="$REPO_ROOT/docker/scheduling/rallly-selfhosted/.env"
+      rallly_env="$BACKUP_SOURCE_ROOT/docker/scheduling/rallly-selfhosted/.env"
       [[ -f "$rallly_env" ]] || { echo "Rallly .env missing; incomplete backup" >&2; exit 1; }
       $DOCKER_BIN run --rm --network none \
         -v "$rallly_env:/source/.env:ro" -v "$BACKUP_DIR/bind_mounts:/backup" \
@@ -307,10 +311,10 @@ if [[ "$BACKUP_QUIESCE_MODE" == grouped ]]; then
     log "Snapshot group complete; services restarted: $group"
   done
   # Non-runtime repository configuration is archived after all writers resume.
-  backup_bind_path "$REPO_ROOT/documenso/certs" documenso-certs.tgz
-  backup_bind_path "$REPO_ROOT/listmonk" listmonk.tgz
-  backup_bind_path "$REPO_ROOT/nginx" nginx.tgz
-  backup_bind_path "$REPO_ROOT/LINODE_SETUP.md" linode-setup-md.tgz
+  backup_bind_path "$BACKUP_SOURCE_ROOT/documenso/certs" documenso-certs.tgz
+  backup_bind_path "$BACKUP_SOURCE_ROOT/listmonk" listmonk.tgz
+  backup_bind_path "$BACKUP_SOURCE_ROOT/nginx" nginx.tgz
+  backup_bind_path "$BACKUP_SOURCE_ROOT/LINODE_SETUP.md" linode-setup-md.tgz
 else
 # Quiesce all managed application writers, then raw cluster/cache containers.
 # Logical PostgreSQL/MariaDB servers remain up for their transactional dumps.
@@ -384,7 +388,7 @@ rm "$LOCAL_STAGE_ROOT/bind-plan.tsv"
 
 # Rallly credentials are required separately from the host's root .env.
 if [[ -f "$BACKUP_DIR/volumes/rallly-selfhosted_db-data.tgz" ]]; then
-  rallly_env="$REPO_ROOT/docker/scheduling/rallly-selfhosted/.env"
+  rallly_env="$BACKUP_SOURCE_ROOT/docker/scheduling/rallly-selfhosted/.env"
   [[ -f "$rallly_env" ]] || { echo "Rallly .env missing; incomplete backup" >&2; exit 1; }
   $DOCKER_BIN run --rm --network none \
     -v "$rallly_env:/source/.env:ro" -v "$BACKUP_DIR/bind_mounts:/backup" \
@@ -393,10 +397,10 @@ if [[ -f "$BACKUP_DIR/volumes/rallly-selfhosted_db-data.tgz" ]]; then
 fi
 
 # Repo bind mounts and config required for a full restore.
-backup_bind_path "$REPO_ROOT/documenso/certs" documenso-certs.tgz
-backup_bind_path "$REPO_ROOT/listmonk" listmonk.tgz
-backup_bind_path "$REPO_ROOT/nginx" nginx.tgz
-backup_bind_path "$REPO_ROOT/LINODE_SETUP.md" linode-setup-md.tgz
+backup_bind_path "$BACKUP_SOURCE_ROOT/documenso/certs" documenso-certs.tgz
+backup_bind_path "$BACKUP_SOURCE_ROOT/listmonk" listmonk.tgz
+backup_bind_path "$BACKUP_SOURCE_ROOT/nginx" nginx.tgz
+backup_bind_path "$BACKUP_SOURCE_ROOT/LINODE_SETUP.md" linode-setup-md.tgz
 
 # Writers can resume before image validation, upload and retention. Any restart
 # failure is fatal; the EXIT trap retries, and no successful backup is published.
