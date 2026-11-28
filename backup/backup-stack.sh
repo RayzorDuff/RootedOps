@@ -7,6 +7,11 @@ REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 # When executing reviewed code from a separate checkout, read operational host
 # payloads from the production source tree rather than staging placeholders.
 BACKUP_SOURCE_ROOT="${BACKUP_SOURCE_ROOT:-$REPO_ROOT}"
+# Command-line staging controls must retain priority over the sourced private
+# .env. This matters for both SKIP_BACKUP_PRUNE and safe image-only preflight.
+REQUESTED_BACKUP_QUIESCE_MODE="${BACKUP_QUIESCE_MODE-}"
+REQUESTED_SKIP_BACKUP_PRUNE="${SKIP_BACKUP_PRUNE-}"
+REQUESTED_BACKUP_IMAGE_PLAN_ONLY="${BACKUP_IMAGE_PLAN_ONLY-}"
 [[ -d "$BACKUP_SOURCE_ROOT" ]] || { echo "Missing BACKUP_SOURCE_ROOT" >&2; exit 1; }
 # shellcheck source=volume-tools.sh
 source "$SCRIPT_DIR/volume-tools.sh"
@@ -22,6 +27,9 @@ set -a
 # shellcheck disable=SC1090
 source "$ENV_FILE"
 set +a
+[[ -z "$REQUESTED_BACKUP_QUIESCE_MODE" ]] || BACKUP_QUIESCE_MODE="$REQUESTED_BACKUP_QUIESCE_MODE"
+[[ -z "$REQUESTED_SKIP_BACKUP_PRUNE" ]] || SKIP_BACKUP_PRUNE="$REQUESTED_SKIP_BACKUP_PRUNE"
+[[ -z "$REQUESTED_BACKUP_IMAGE_PLAN_ONLY" ]] || BACKUP_IMAGE_PLAN_ONLY="$REQUESTED_BACKUP_IMAGE_PLAN_ONLY"
 
 TIMESTAMP="$(date +%Y%m%d-%H%M%S)"
 PRODUCTION_BACKUP_PREFIX="${BACKUP_PREFIX:-rootedops}"
