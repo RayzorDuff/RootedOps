@@ -27,7 +27,9 @@ and can be reconciled/closed once the combined promotion reaches main.
   https://dankmushrooms.net; authenticated reads work through Cloudflare with the
   explicit RootedOps user agent. Keep that fix and both webhook host routes.
 - Seven real purchasing customer accounts linked; the administrator remains
-  unchanged and unlinked. Historical Ecwid order import is explicitly excluded.
+  unchanged and unlinked. Historical Ecwid order import remains in scope as a
+  separate backfill; it must not delay hostname or storefront preparation. See
+  [historical orders #131](https://github.com/RayzorDuff/RootedOps/issues/131).
 - Ecwid's current Coco stock matches MP net 2. Order intake, ERP cash posting and
   Woo fulfillment/publication gates remain disabled. Merge does not change them.
 
@@ -76,7 +78,17 @@ DNS, reopen public checkout or retire Ecwid by itself.
 
 Continue the redirect/QR, feed ownership and rollback sections of the walkthrough.
 Keep Ecwid available until the new storefront is accepted. Do not restart migration
-with broad catalog/customer/history imports or overwrite the installed baseline.
+with broad catalog/customer reimports or overwrite the installed baseline.
+Historical orders are separately previewed/imported using stable source identities,
+existing customer/product links and preserved source dates/statuses/totals. The
+owner confirmed these orders have not reached ERP: create corresponding ERP sales
+records as well as Woo history, not an archive-only result. Preview the appropriate
+Sales Orders, invoices and actual-payment receipts by source status, with original
+dates/tender and no invoice stock posting. Review accounts, closed posting periods
+and bank/clearing entries before submitting historical financial documents. Keep
+history imports outside live intake and suppress payment collection, stock/hold
+changes, notifications, fulfillment replay and duplicate ERP accounting. Open source
+orders require review against existing MP commitments before operational handover.
 
 ## Immediate performance repair before the wider rollout
 
