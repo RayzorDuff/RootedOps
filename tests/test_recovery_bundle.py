@@ -297,6 +297,37 @@ class InventoryTests(unittest.TestCase):
         # Adult absence is independent of an installed kids instance.
         bundle.make_inventory(containers(['core', 'rootedpsyche', 'librechat-kids']), ['docker_librechat_kids_data'])
 
+    def test_bind_mount_reordering_is_not_drift_but_source_change_is(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source = containers()
+            app = next(c for c in source if c['Name'] == '/n8n')
+            app['Mounts'].extend([
+                {'Type': 'bind', 'Source': '/srv/private/first', 'Destination': '/app/config-a', 'RW': False},
+                {'Type': 'bind', 'Source': '/srv/private/second', 'Destination': '/app/config-b', 'RW': True},
+            ])
+            original = bundle.make_inventory(source, [])
+            (root / 'meta').mkdir()
+            (root / bundle.MANIFEST).write_text(json.dumps(original))
+
+            def inspect(command):
+                if command[1:3] == ['ps', '-aq']:
+                    return 'fixture-id'
+                if command[1] == 'inspect':
+                    return json.dumps(source)
+                return ''
+
+            with patch.object(bundle, 'checked_output', side_effect=inspect):
+                bundle.verify_sources(root, ['docker'])
+                # Docker may re-enumerate the same bind mounts after restart.
+                app['Mounts'].reverse()
+                bundle.verify_sources(root, ['docker'])
+                # A real change must still be refused, without leaking host paths.
+                next(m for m in app['Mounts'] if m['Destination'] == '/app/config-a')['Source'] = '/srv/private/changed'
+                with self.assertRaisesRegex(ValueError, 'binds:core/n8n//app/config-a') as failure:
+                    bundle.verify_sources(root, ['docker'])
+                self.assertNotIn('/srv/private', str(failure.exception))
+
     def test_source_drift_refuses_mixing_images_and_data_but_allows_our_pause(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
