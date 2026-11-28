@@ -697,6 +697,29 @@ class NightlyScriptTests(unittest.TestCase):
                 self.assertEqual(state['State']['Running'], row['running'])
             self.assertEqual((backup / bundle.MANIFEST).stat().st_mode & 0o777, 0o600)
 
+    def test_staging_refuses_missing_or_production_remote_and_pruning(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            checkout, env = self.fixture(root)
+            prod_root = root / 'production-tree'
+            prod_root.mkdir()
+            env['BACKUP_SOURCE_ROOT'] = str(prod_root)
+            env['BACKUP_QUIESCE_MODE'] = 'grouped'
+            cmd = ['bash', str(checkout / 'backup/backup-stack.sh')]
+            missing = subprocess.run(cmd, env=env, capture_output=True, text=True)
+            self.assertNotEqual(missing.returncode, 0)
+            self.assertIn('requires BACKUP_REMOTE_ROOT_OVERRIDE', missing.stderr)
+            env['BACKUP_REMOTE_ROOT_OVERRIDE'] = 'fixture:SignatureGateBackups/rootedops'
+            nested = subprocess.run(cmd, env=env, capture_output=True, text=True)
+            self.assertNotEqual(nested.returncode, 0)
+            self.assertIn('Refusing staging backup inside production prefix', nested.stderr)
+            env['BACKUP_REMOTE_ROOT_OVERRIDE'] = 'fixture:SignatureGateBackups/rootedops-issue160-staging'
+            env['SKIP_BACKUP_PRUNE'] = 'false'
+            pruning = subprocess.run(cmd, env=env, capture_output=True, text=True)
+            self.assertNotEqual(pruning.returncode, 0)
+            self.assertIn('require SKIP_BACKUP_PRUNE=true', pruning.stderr)
+            self.assertFalse((root / 'events').exists())
+
     def test_grouped_snapshot_restores_each_group_before_stopping_next(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
