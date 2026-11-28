@@ -546,8 +546,34 @@ def verify_sources(backup, docker, allow_stopped=False):
         for inventory in (current, original):
             for record in inventory['services']:
                 record.pop('running', None)
-    if any(current.get(key, []) != original.get(key, []) for key in ('groups', 'services', 'volumes', 'binds', 'non_data_mounts')):
-        raise ValueError('Source containers, images, mounts or installation changed during backup; refusing mixed snapshot')
+    # Report bounded, non-secret drift details rather than only a generic error.
+    # Never log raw inspect payloads or container environment variables.
+    changes = []
+    for key in ('groups', 'services', 'volumes', 'binds', 'non_data_mounts'):
+        if current.get(key, []) == original.get(key, []):
+            continue
+        if key == 'services':
+            before = {(r['project'], r['service']): r for r in original['services']}
+            after = {(r['project'], r['service']): r for r in current['services']}
+            for identity in sorted(before.keys() | after.keys()):
+                prior, now = before.get(identity), after.get(identity)
+                if prior == now:
+                    continue
+                fields = sorted(set(prior or {}) | set(now or {}))
+                changed = [field for field in fields if (prior or {}).get(field) != (now or {}).get(field)]
+                changes.append(key + ':' + '/'.join(identity) + ' (' + ','.join(changed) + ')')
+        elif key == 'groups':
+            for group in sorted(set(original['groups']) | set(current['groups'])):
+                if original['groups'].get(group) != current['groups'].get(group):
+                    changes.append(key + ':' + group)
+        else:
+            # A mount comparison can include private source paths. Record only
+            # its inventory category, not the raw mount descriptors.
+            changes.append(key + ' (mount inventory changed)')
+    if changes:
+        raise ValueError('Source containers, images, mounts or installation changed during backup; '
+                         'refusing mixed snapshot. Drift: ' + '; '.join(changes[:20]) +
+                         ('; ...' if len(changes) > 20 else ''))
 
 
 def validate_bundle(backup):

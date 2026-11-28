@@ -53,7 +53,9 @@ with tarfile.open(sys.argv[1],'r:gz') as archive:
 PY
 }
 
-# Cache, unused standalone Mongo configdb and upload/log directories can be empty.
+# Cache, optional Authentik media/certificates, unused Mongo configdb and upload/log
+# directories can be empty. Authentik's authoritative database is dumped separately;
+# the named media/cert volumes are still archived and checked for unsafe paths.
 # Primary MongoDB/Appsmith/n8n/scheduling databases must contain real files.
 validate_managed_volume_archive() {
   # A declared assets child may be empty or contain only public asset symlinks.
@@ -62,7 +64,7 @@ validate_managed_volume_archive() {
     return
   fi
   case "${1##*/}" in
-    erpnext_redis_cache_data.tgz|erpnext_redis_queue_data.tgz|librechat-data.tgz|librechat-uploads.tgz|librechat-logs.tgz|librechat-kids-data.tgz|librechat-kids-uploads.tgz|librechat-kids-logs.tgz|librechat-mongodb-config.tgz|librechat-kids-mongodb-config.tgz)
+    authentik_data.tgz|authentik_certs.tgz|erpnext_redis_cache_data.tgz|erpnext_redis_queue_data.tgz|librechat-data.tgz|librechat-uploads.tgz|librechat-logs.tgz|librechat-kids-data.tgz|librechat-kids-uploads.tgz|librechat-kids-logs.tgz|librechat-mongodb-config.tgz|librechat-kids-mongodb-config.tgz)
       validate_volume_archive "$1" allow-empty ;;
     *) validate_volume_archive "$1" ;;
   esac
