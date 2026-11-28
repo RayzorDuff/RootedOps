@@ -4,6 +4,15 @@ umask 077
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+# When executing reviewed code from a separate checkout, read operational host
+# payloads from the production source tree rather than staging placeholders.
+BACKUP_SOURCE_ROOT="${BACKUP_SOURCE_ROOT:-$REPO_ROOT}"
+# Command-line staging controls must retain priority over the sourced private
+# .env. This matters for both SKIP_BACKUP_PRUNE and safe image-only preflight.
+REQUESTED_BACKUP_QUIESCE_MODE="${BACKUP_QUIESCE_MODE-}"
+REQUESTED_SKIP_BACKUP_PRUNE="${SKIP_BACKUP_PRUNE-}"
+REQUESTED_BACKUP_IMAGE_PLAN_ONLY="${BACKUP_IMAGE_PLAN_ONLY-}"
+[[ -d "$BACKUP_SOURCE_ROOT" ]] || { echo "Missing BACKUP_SOURCE_ROOT" >&2; exit 1; }
 # shellcheck source=volume-tools.sh
 source "$SCRIPT_DIR/volume-tools.sh"
 COMPOSE_FILE="$REPO_ROOT/docker/docker-compose.yml"
@@ -18,24 +27,42 @@ set -a
 # shellcheck disable=SC1090
 source "$ENV_FILE"
 set +a
+[[ -z "$REQUESTED_BACKUP_QUIESCE_MODE" ]] || BACKUP_QUIESCE_MODE="$REQUESTED_BACKUP_QUIESCE_MODE"
+[[ -z "$REQUESTED_SKIP_BACKUP_PRUNE" ]] || SKIP_BACKUP_PRUNE="$REQUESTED_SKIP_BACKUP_PRUNE"
+[[ -z "$REQUESTED_BACKUP_IMAGE_PLAN_ONLY" ]] || BACKUP_IMAGE_PLAN_ONLY="$REQUESTED_BACKUP_IMAGE_PLAN_ONLY"
 
 TIMESTAMP="$(date +%Y%m%d-%H%M%S)"
-BACKUP_PREFIX="${BACKUP_PREFIX:-rootedops}"
+PRODUCTION_BACKUP_PREFIX="${BACKUP_PREFIX:-rootedops}"
+BACKUP_PREFIX="${BACKUP_PREFIX_OVERRIDE:-$PRODUCTION_BACKUP_PREFIX}"
 LOCAL_STAGING_PARENT="${LOCAL_STAGING_PARENT:-/var/tmp/rootedops-backups}"
 RCLONE_REMOTE="${RCLONE_REMOTE:-signaturegate-gdrive-free}"
-REMOTE_BACKUP_ROOT="${REMOTE_BACKUP_ROOT:-${RCLONE_REMOTE}:SignatureGateBackups}"
+PRODUCTION_REMOTE_BACKUP_ROOT="${REMOTE_BACKUP_ROOT:-${RCLONE_REMOTE}:SignatureGateBackups}"
+REMOTE_BACKUP_ROOT="${BACKUP_REMOTE_ROOT_OVERRIDE:-$PRODUCTION_REMOTE_BACKUP_ROOT}"
 REMOTE_PREFIX_PATH="${REMOTE_BACKUP_ROOT%/}/${BACKUP_PREFIX}"
 DOCKER_BIN="${DOCKER_BIN:-sudo docker}"
 # Optional explicit path to the rclone config used by unattended backups.
 # Rclone may otherwise select a different config for each Unix user.
 RCLONE_CONFIG_FILE="${RCLONE_CONFIG_FILE:-}"
 COMPOSE_SH=(sudo docker compose --env-file "$ENV_FILE" -f "$COMPOSE_FILE")
-MINECRAFT_BEDROCK_DATA_PATH="${MINECRAFT_BEDROCK_DATA_PATH:-$REPO_ROOT/minecraft/bedrock}"
+MINECRAFT_BEDROCK_DATA_PATH="${MINECRAFT_BEDROCK_DATA_PATH:-$BACKUP_SOURCE_ROOT/minecraft/bedrock}"
 if [[ "$MINECRAFT_BEDROCK_DATA_PATH" != /* ]]; then
-  MINECRAFT_BEDROCK_DATA_PATH="$REPO_ROOT/${MINECRAFT_BEDROCK_DATA_PATH#./}"
+  MINECRAFT_BEDROCK_DATA_PATH="$BACKUP_SOURCE_ROOT/${MINECRAFT_BEDROCK_DATA_PATH#./}"
 fi
 MINECRAFT_BACKUP_STOP_CONTAINER="${MINECRAFT_BACKUP_STOP_CONTAINER:-true}"
 KEEP_DAILY_DAYS="${KEEP_DAILY_DAYS:-7}"
+# Staged code may operate on the live Docker host, but it MUST use a distinct
+# remote prefix and must not run retention. Preserve the shared host lock.
+if [[ "$BACKUP_SOURCE_ROOT" != "$REPO_ROOT" ]]; then
+  [[ "$BACKUP_SOURCE_ROOT" == /* ]] || { echo "Staged BACKUP_SOURCE_ROOT must be absolute" >&2; exit 1; }
+  [[ -n "${BACKUP_REMOTE_ROOT_OVERRIDE:-}" ]] || { echo "Staged backup requires BACKUP_REMOTE_ROOT_OVERRIDE" >&2; exit 1; }
+  [[ "${SKIP_BACKUP_PRUNE:-false}" == true ]] || { echo "Staged backups require SKIP_BACKUP_PRUNE=true" >&2; exit 1; }
+  # A staging destination must not nest under the production published prefix,
+  # including when the production remote root is custom.
+  production_prefix="${PRODUCTION_REMOTE_BACKUP_ROOT%/}/$PRODUCTION_BACKUP_PREFIX"
+  case "${REMOTE_PREFIX_PATH%/}/" in
+    "${production_prefix%/}/"*) echo "Refusing staging backup inside production prefix" >&2; exit 1 ;;
+  esac
+fi
 
 mkdir -p "$LOCAL_STAGING_PARENT"
 # Cron and manual runs must never overlap while applications are quiesced.
@@ -220,6 +247,98 @@ backup_minecraft_bedrock() {
   fi
 }
 
+# The default global mode remains unchanged until isolated grouped-mode
+# acceptance is complete. The grouped mode preserves the same manifest and
+# required payloads, but shortens each independent group's maintenance window.
+# Do not enable it in the production .env or nightly cron before restore testing.
+BACKUP_QUIESCE_MODE="${BACKUP_QUIESCE_MODE:-global}"
+case "$BACKUP_QUIESCE_MODE" in global|grouped) ;; *)
+  echo "Unsupported BACKUP_QUIESCE_MODE: $BACKUP_QUIESCE_MODE" >&2; exit 1 ;;
+esac
+
+if [[ "$BACKUP_QUIESCE_MODE" == grouped ]]; then
+  log "Grouped quiescence enabled (operator opt-in; non-atomic across groups)"
+  for group in operations documents communications identity chat scheduling; do
+    log "Beginning snapshot group: $group"
+    # Refuse external changes before interrupting additional applications.
+    python3 "$REPO_ROOT/scripts/recovery_bundle.py" verify-sources "$BACKUP_DIR" --docker-command "$DOCKER_BIN"
+    mapfile -t group_containers < <(python3 "$REPO_ROOT/scripts/recovery_bundle.py" records "$BACKUP_DIR" --kind cold --group "$group")
+    for container in "${group_containers[@]}"; do
+      PAUSED_CONTAINERS+=("$container")
+      log "Stopping $container in group $group"
+      $DOCKER_BIN stop "$container" >/dev/null
+    done
+    case "$group" in
+      operations)
+        pg_dump_container signaturegate-postgres "$SIG_DB_USER" "$SIG_DB_NAME" "$SIG_DB_PASSWORD" "$BACKUP_DIR/db/signaturegate-postgres.sql.gz"
+        pg_dump_container mushroomprocess-bridge-postgres "$MP_BRIDGE_DB_USER" "$MP_BRIDGE_DB_NAME" "$MP_BRIDGE_DB_PASSWORD" "$BACKUP_DIR/db/mushroomprocess-bridge-postgres.sql.gz"
+        pg_dump_container nocodb-meta-postgres "$NC_DB_USER" "$NC_DB_NAME" "$NC_DB_PASSWORD" "$BACKUP_DIR/db/nocodb-meta-postgres.sql.gz"
+        mariadb_dump_all erpnext-db "$ERPNEXT_DB_ROOT_PASSWORD" "$BACKUP_DIR/db/erpnext-all-databases.sql.gz"
+        rootedpsyche_db="$(python3 "$REPO_ROOT/scripts/recovery_bundle.py" records "$BACKUP_DIR" --kind rootedpsyche)"
+        mariadb_dump_all "$rootedpsyche_db" "$ROOTEDPSYCHE_WP_DB_ROOT_PASSWORD" "$BACKUP_DIR/db/rootedpsyche-wordpress-all-databases.sql.gz"
+        dank_db="$(python3 "$REPO_ROOT/scripts/recovery_bundle.py" records "$BACKUP_DIR" --kind dank)"
+        if [[ -n "$dank_db" ]]; then
+          mariadb_dump_all "$dank_db" "${DANK_WP_DB_ROOT_PASSWORD:?Dank WordPress root password required}" "$BACKUP_DIR/db/dank-wordpress-all-databases.sql.gz"
+        fi
+        ;;
+      documents)
+        pg_dump_container documenso-postgres "$DOCUMENSO_DB_USER" "$DOCUMENSO_DB_NAME" "$DOCUMENSO_DB_PASSWORD" "$BACKUP_DIR/db/documenso-postgres.sql.gz"
+        ;;
+      communications)
+        pg_dump_container listmonk-postgres "$LISTMONK_DB_USER" "$LISTMONK_DB_NAME" "$LISTMONK_DB_PASSWORD" "$BACKUP_DIR/db/listmonk-postgres.sql.gz"
+        if python3 "$REPO_ROOT/scripts/recovery_bundle.py" records "$BACKUP_DIR" --kind groups | grep -q '"mailflow": "installed"'; then
+          : "${MAILFLOW_ENCRYPTION_KEY:?MailFlow encryption key required for recoverable backup}"
+          : "${MAILFLOW_SESSION_SECRET:?MailFlow session secret required for recoverable backup}"
+          : "${MAILFLOW_DB_PASSWORD:?MailFlow DB password required for recoverable backup}"
+          pg_dump_container mailflow-postgres mailflow mailflow "$MAILFLOW_DB_PASSWORD" "$BACKUP_DIR/db/mailflow-postgres.sql.gz"
+        fi
+        ;;
+      identity)
+        if python3 "$REPO_ROOT/scripts/recovery_bundle.py" records "$BACKUP_DIR" --kind groups | grep -q '"authentik": "installed"'; then
+          : "${ROOTEDOPS_AUTHENTIK_SECRET_KEY:?authentik signing key is required for recoverable backup}"
+          : "${ROOTEDOPS_AUTHENTIK_DB_PASSWORD:?authentik DB password is required for recoverable backup}"
+          pg_dump_container authentik-postgres authentik authentik "$ROOTEDOPS_AUTHENTIK_DB_PASSWORD" "$BACKUP_DIR/db/authentik-postgres.sql.gz"
+        fi
+        ;;
+      chat|scheduling) ;;
+    esac
+    # All named volumes and runtime binds are captured only while their
+    # particular writer group is down; retain the same archive names.
+    python3 "$REPO_ROOT/scripts/recovery_bundle.py" records "$BACKUP_DIR" --kind volumes --group "$group" > "$LOCAL_STAGE_ROOT/volume-plan.tsv"
+    while IFS=$'\t' read -r volume archive; do
+      [[ -n "$volume" ]] || continue
+      backup_volume "$volume" "$archive"
+    done < "$LOCAL_STAGE_ROOT/volume-plan.tsv"
+    rm "$LOCAL_STAGE_ROOT/volume-plan.tsv"
+    python3 "$REPO_ROOT/scripts/recovery_bundle.py" records "$BACKUP_DIR" --kind binds --group "$group" > "$LOCAL_STAGE_ROOT/bind-plan.tsv"
+    while IFS=$'\t' read -r src archive project service destination; do
+      [[ -n "$src" ]] || continue
+      log "Archiving runtime bind $archive ($project/$service -> $destination)"
+      $DOCKER_BIN run --rm --network none \
+        --mount "type=bind,source=$src,target=/source/payload,readonly" -v "$BACKUP_DIR/bind_mounts:/backup" \
+        alpine:3.20 sh -ec 'tar -czf "/backup/$1" --numeric-owner -C /source payload' archive "$archive"
+      validate_volume_archive "$BACKUP_DIR/bind_mounts/$archive" allow-empty
+    done < "$LOCAL_STAGE_ROOT/bind-plan.tsv"
+    rm "$LOCAL_STAGE_ROOT/bind-plan.tsv"
+    if [[ "$group" == scheduling ]] && [[ -f "$BACKUP_DIR/volumes/rallly-selfhosted_db-data.tgz" ]]; then
+      rallly_env="$BACKUP_SOURCE_ROOT/docker/scheduling/rallly-selfhosted/.env"
+      [[ -f "$rallly_env" ]] || { echo "Rallly .env missing; incomplete backup" >&2; exit 1; }
+      $DOCKER_BIN run --rm --network none \
+        -v "$rallly_env:/source/.env:ro" -v "$BACKUP_DIR/bind_mounts:/backup" \
+        alpine:3.20 sh -ec 'cd /source && tar -czf /backup/rallly-selfhosted-env.tgz .env'
+      cp "$REPO_ROOT/docker/scheduling/tymeslot.compose.yml" "$BACKUP_DIR/meta/tymeslot.compose.yml"
+    fi
+    python3 "$REPO_ROOT/scripts/recovery_bundle.py" verify-sources "$BACKUP_DIR" --docker-command "$DOCKER_BIN" --allow-stopped
+    resume_paused_containers
+    python3 "$REPO_ROOT/scripts/recovery_bundle.py" verify-sources "$BACKUP_DIR" --docker-command "$DOCKER_BIN"
+    log "Snapshot group complete; services restarted: $group"
+  done
+  # Non-runtime repository configuration is archived after all writers resume.
+  backup_bind_path "$BACKUP_SOURCE_ROOT/documenso/certs" documenso-certs.tgz
+  backup_bind_path "$BACKUP_SOURCE_ROOT/listmonk" listmonk.tgz
+  backup_bind_path "$BACKUP_SOURCE_ROOT/nginx" nginx.tgz
+  backup_bind_path "$BACKUP_SOURCE_ROOT/LINODE_SETUP.md" linode-setup-md.tgz
+else
 # Quiesce all managed application writers, then raw cluster/cache containers.
 # Logical PostgreSQL/MariaDB servers remain up for their transactional dumps.
 # Keep a list before stop, so EXIT can recover even if stop reports an error.
@@ -292,7 +411,7 @@ rm "$LOCAL_STAGE_ROOT/bind-plan.tsv"
 
 # Rallly credentials are required separately from the host's root .env.
 if [[ -f "$BACKUP_DIR/volumes/rallly-selfhosted_db-data.tgz" ]]; then
-  rallly_env="$REPO_ROOT/docker/scheduling/rallly-selfhosted/.env"
+  rallly_env="$BACKUP_SOURCE_ROOT/docker/scheduling/rallly-selfhosted/.env"
   [[ -f "$rallly_env" ]] || { echo "Rallly .env missing; incomplete backup" >&2; exit 1; }
   $DOCKER_BIN run --rm --network none \
     -v "$rallly_env:/source/.env:ro" -v "$BACKUP_DIR/bind_mounts:/backup" \
@@ -301,15 +420,16 @@ if [[ -f "$BACKUP_DIR/volumes/rallly-selfhosted_db-data.tgz" ]]; then
 fi
 
 # Repo bind mounts and config required for a full restore.
-backup_bind_path "$REPO_ROOT/documenso/certs" documenso-certs.tgz
-backup_bind_path "$REPO_ROOT/listmonk" listmonk.tgz
-backup_bind_path "$REPO_ROOT/nginx" nginx.tgz
-backup_bind_path "$REPO_ROOT/LINODE_SETUP.md" linode-setup-md.tgz
+backup_bind_path "$BACKUP_SOURCE_ROOT/documenso/certs" documenso-certs.tgz
+backup_bind_path "$BACKUP_SOURCE_ROOT/listmonk" listmonk.tgz
+backup_bind_path "$BACKUP_SOURCE_ROOT/nginx" nginx.tgz
+backup_bind_path "$BACKUP_SOURCE_ROOT/LINODE_SETUP.md" linode-setup-md.tgz
 
 # Writers can resume before image validation, upload and retention. Any restart
 # failure is fatal; the EXIT trap retries, and no successful backup is published.
 python3 "$REPO_ROOT/scripts/recovery_bundle.py" verify-sources "$BACKUP_DIR" --docker-command "$DOCKER_BIN" --allow-stopped
 resume_paused_containers
+fi
 
 backup_minecraft_bedrock "$MINECRAFT_BEDROCK_DATA_PATH" minecraft-bedrock.tgz
 

@@ -297,6 +297,37 @@ class InventoryTests(unittest.TestCase):
         # Adult absence is independent of an installed kids instance.
         bundle.make_inventory(containers(['core', 'rootedpsyche', 'librechat-kids']), ['docker_librechat_kids_data'])
 
+    def test_bind_mount_reordering_is_not_drift_but_source_change_is(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source = containers()
+            app = next(c for c in source if c['Name'] == '/n8n')
+            app['Mounts'].extend([
+                {'Type': 'bind', 'Source': '/srv/private/first', 'Destination': '/app/config-a', 'RW': False},
+                {'Type': 'bind', 'Source': '/srv/private/second', 'Destination': '/app/config-b', 'RW': True},
+            ])
+            original = bundle.make_inventory(source, [])
+            (root / 'meta').mkdir()
+            (root / bundle.MANIFEST).write_text(json.dumps(original))
+
+            def inspect(command):
+                if command[1:3] == ['ps', '-aq']:
+                    return 'fixture-id'
+                if command[1] == 'inspect':
+                    return json.dumps(source)
+                return ''
+
+            with patch.object(bundle, 'checked_output', side_effect=inspect):
+                bundle.verify_sources(root, ['docker'])
+                # Docker may re-enumerate the same bind mounts after restart.
+                app['Mounts'].reverse()
+                bundle.verify_sources(root, ['docker'])
+                # A real change must still be refused, without leaking host paths.
+                next(m for m in app['Mounts'] if m['Destination'] == '/app/config-a')['Source'] = '/srv/private/changed'
+                with self.assertRaisesRegex(ValueError, 'binds:core/n8n//app/config-a') as failure:
+                    bundle.verify_sources(root, ['docker'])
+                self.assertNotIn('/srv/private', str(failure.exception))
+
     def test_source_drift_refuses_mixing_images_and_data_but_allows_our_pause(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
@@ -696,6 +727,83 @@ class NightlyScriptTests(unittest.TestCase):
                 state = next(c for c in json.loads((root / 'state.json').read_text()) if c['Name'].lstrip('/') == row['container'])
                 self.assertEqual(state['State']['Running'], row['running'])
             self.assertEqual((backup / bundle.MANIFEST).stat().st_mode & 0o777, 0o600)
+
+    def test_staging_refuses_missing_or_production_remote_and_pruning(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            checkout, env = self.fixture(root)
+            prod_root = root / 'production-tree'
+            prod_root.mkdir()
+            env['BACKUP_SOURCE_ROOT'] = str(prod_root)
+            env['BACKUP_QUIESCE_MODE'] = 'grouped'
+            cmd = ['bash', str(checkout / 'backup/backup-stack.sh')]
+            missing = subprocess.run(cmd, env=env, capture_output=True, text=True)
+            self.assertNotEqual(missing.returncode, 0)
+            self.assertIn('requires BACKUP_REMOTE_ROOT_OVERRIDE', missing.stderr)
+            env['BACKUP_REMOTE_ROOT_OVERRIDE'] = 'fixture:SignatureGateBackups/rootedops'
+            nested = subprocess.run(cmd, env=env, capture_output=True, text=True)
+            self.assertNotEqual(nested.returncode, 0)
+            self.assertIn('Refusing staging backup inside production prefix', nested.stderr)
+            env['BACKUP_REMOTE_ROOT_OVERRIDE'] = 'fixture:SignatureGateBackups/rootedops-issue160-staging'
+            env['SKIP_BACKUP_PRUNE'] = 'false'
+            pruning = subprocess.run(cmd, env=env, capture_output=True, text=True)
+            self.assertNotEqual(pruning.returncode, 0)
+            self.assertIn('require SKIP_BACKUP_PRUNE=true', pruning.stderr)
+            self.assertFalse((root / 'events').exists())
+
+    def test_grouped_snapshot_restores_each_group_before_stopping_next(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            checkout, env = self.fixture(root)
+            env['BACKUP_QUIESCE_MODE'] = 'grouped'
+            result = subprocess.run(['bash', str(checkout / 'backup/backup-stack.sh')],
+                                    env=env, capture_output=True, text=True)
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            backup = next(p for p in (root / 'remote').iterdir() if p.is_dir() and not p.is_symlink())
+            inventory = bundle.validate_bundle(backup)
+            self.assertEqual(inventory['groups']['authentik'], 'installed')
+            events = [json.loads(line) for line in (root / 'events').read_text().splitlines()]
+            self.assertLess(events.index(['start', 'n8n']), events.index(['stop', 'documenso']))
+            self.assertLess(events.index(['start', 'documenso']), events.index(['stop', 'listmonk']))
+            self.assertLess(events.index(['start', 'listmonk']), events.index(['stop', 'authentik-server']))
+            self.assertLess(events.index(['start', 'authentik-server']), events.index(['stop', 'librechat']))
+            self.assertLess(events.index(['start', 'librechat-mongodb']), events.index(['stop', 'rootedops-tymeslot']))
+            self.assertNotIn(['start', 'librechat-kids'], events)
+            self.assertIn('Snapshot group complete; services restarted: scheduling', result.stdout)
+            for row in inventory['services']:
+                state = next(c for c in json.loads((root / 'state.json').read_text())
+                             if c['Name'].lstrip('/') == row['container'])
+                self.assertEqual(state['State']['Running'], row['running'])
+
+    def test_grouped_snapshot_failure_restores_group_and_blocks_upload(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            checkout, env = self.fixture(root)
+            env['BACKUP_QUIESCE_MODE'] = 'grouped'
+            env['FAIL_ARCHIVE'] = 'librechat-mongodb.tgz'
+            result = subprocess.run(['bash', str(checkout / 'backup/backup-stack.sh')],
+                                    env=env, capture_output=True, text=True)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn('Backup FAILED', result.stdout)
+            self.assertFalse((root / 'remote').exists())
+            events = [json.loads(line) for line in (root / 'events').read_text().splitlines()]
+            self.assertIn(['start', 'librechat-mongodb'], events)
+            self.assertIn(['start', 'n8n'], events)
+            self.assertNotIn(['stop', 'rootedops-tymeslot'], events)
+            self.assertNotIn(['start', 'librechat-kids'], events)
+
+    def test_snapshot_group_plan_covers_every_volume_and_bind_once(self):
+        m = bundle.make_inventory(containers(), [])
+        self.assertEqual(set(bundle.SNAPSHOT_GROUPS),
+                         {bundle.snapshot_group(r['project'], r['service']) for r in m['services']})
+        for key in ('volumes', 'binds'):
+            grouped = [r for group in bundle.SNAPSHOT_GROUPS for r in m[key]
+                       if bundle.snapshot_group(r['project'], r['service']) == group]
+            self.assertEqual(grouped, sorted(m[key], key=lambda r: (
+                bundle.SNAPSHOT_GROUPS.index(bundle.snapshot_group(r['project'], r['service'])),
+                m[key].index(r))))
+            self.assertCountEqual([r['archive'] for r in grouped],
+                                  [r['archive'] for r in m[key]])
 
     def test_nightly_job_captures_shared_anonymous_assets_once(self):
         with tempfile.TemporaryDirectory() as directory:
