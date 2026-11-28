@@ -24,10 +24,12 @@ source "$ENV_FILE"
 set +a
 
 TIMESTAMP="$(date +%Y%m%d-%H%M%S)"
-BACKUP_PREFIX="${BACKUP_PREFIX_OVERRIDE:-${BACKUP_PREFIX:-rootedops}}"
+PRODUCTION_BACKUP_PREFIX="${BACKUP_PREFIX:-rootedops}"
+BACKUP_PREFIX="${BACKUP_PREFIX_OVERRIDE:-$PRODUCTION_BACKUP_PREFIX}"
 LOCAL_STAGING_PARENT="${LOCAL_STAGING_PARENT:-/var/tmp/rootedops-backups}"
 RCLONE_REMOTE="${RCLONE_REMOTE:-signaturegate-gdrive-free}"
-REMOTE_BACKUP_ROOT="${BACKUP_REMOTE_ROOT_OVERRIDE:-${REMOTE_BACKUP_ROOT:-${RCLONE_REMOTE}:SignatureGateBackups}}"
+PRODUCTION_REMOTE_BACKUP_ROOT="${REMOTE_BACKUP_ROOT:-${RCLONE_REMOTE}:SignatureGateBackups}"
+REMOTE_BACKUP_ROOT="${BACKUP_REMOTE_ROOT_OVERRIDE:-$PRODUCTION_REMOTE_BACKUP_ROOT}"
 REMOTE_PREFIX_PATH="${REMOTE_BACKUP_ROOT%/}/${BACKUP_PREFIX}"
 DOCKER_BIN="${DOCKER_BIN:-sudo docker}"
 # Optional explicit path to the rclone config used by unattended backups.
@@ -46,7 +48,12 @@ if [[ "$BACKUP_SOURCE_ROOT" != "$REPO_ROOT" ]]; then
   [[ "$BACKUP_SOURCE_ROOT" == /* ]] || { echo "Staged BACKUP_SOURCE_ROOT must be absolute" >&2; exit 1; }
   [[ -n "${BACKUP_REMOTE_ROOT_OVERRIDE:-}" ]] || { echo "Staged backup requires BACKUP_REMOTE_ROOT_OVERRIDE" >&2; exit 1; }
   [[ "${SKIP_BACKUP_PRUNE:-false}" == true ]] || { echo "Staged backups require SKIP_BACKUP_PRUNE=true" >&2; exit 1; }
-  [[ "$REMOTE_BACKUP_ROOT" != "${RCLONE_REMOTE}:SignatureGateBackups" ]] || { echo "Refusing production remote root in staged backup" >&2; exit 1; }
+  # A staging destination must not nest under the production published prefix,
+  # including when the production remote root is custom.
+  production_prefix="${PRODUCTION_REMOTE_BACKUP_ROOT%/}/$PRODUCTION_BACKUP_PREFIX"
+  case "${REMOTE_PREFIX_PATH%/}/" in
+    "${production_prefix%/}/"*) echo "Refusing staging backup inside production prefix" >&2; exit 1 ;;
+  esac
 fi
 
 mkdir -p "$LOCAL_STAGING_PARENT"
