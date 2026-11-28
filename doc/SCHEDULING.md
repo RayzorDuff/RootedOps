@@ -4,7 +4,7 @@ Production endpoints (operator configured with Nginx/Certbot): **Rallly** `https
 
 **Operational status (October 2026):** Tymeslot and Rallly have been brought online, with Google login/Calendar and Google Meet integration exercised by the operator. Google OAuth verification and final appointment-type testing are separate acceptance work. The shared RootedOps backup completed a production upload on 2026-10-28, but an **isolated restore test is still required**. Subsequent sections include historical setup steps and test-host examples; treat them as a runbook, not a claim that production remains unconfigured.
 
-## Tymeslot 1.40.0 upgrade and invitation-only hosts (RootedOps #17)
+## Historical: Tymeslot 1.40.0 upgrade and invitation-only hosts (RootedOps #17)
 
 Tymeslot 1.40.0 (2026-11-05) adds **Admin → Users → Invite** for new scheduling organizers, including when public registration is disabled. Public booking guests still do not need Tymeslot user accounts. The existing deployment used 1.6.0; do not assume a large version jump has been validated against local data until the smoke test below passes.
 
@@ -37,55 +37,28 @@ Check migration completion, `PHX_HOST`, admin Google Workspace login, existing b
 
 Reference: https://tymeslot.app/changelog and https://tymeslot.app/docs/admin-setup
 
-## Tested Tymeslot PR-source image for RootedOps #122 (2026-11-21)
+## Return to official Tymeslot release after invitation CSP fix (RootedOps #122)
 
-**Purpose:** test the upstream invitation Google-OAuth CSP fix at [Tymeslot PR #225](https://github.com/Tymeslot/tymeslot/pull/225) against the existing (mostly fresh) Rooted Psyche production Tymeslot installation without merging that PR or requiring an isolated Tymeslot environment. **Do not merge or close upstream PR #225 until the exact tested revision passes acceptance.**
+The Google invitation-only login CSP defect was fixed by upstream [Tymeslot PR #225](https://github.com/Tymeslot/tymeslot/pull/225), merged on 2026-11-22. The earliest verified post-fix release **v1.48.1** includes `https://accounts.google.com` in the dynamically generated CSP `form-action` directive. The prior custom PR image `ghcr.io/rayzorduff/tymeslot:pr225-2f4d5fbef2e7` was built and successfully tested on production; it is no longer required after switching to an official upstream build. RootedOps now uses the published `luka1thb/tymeslot` image with a pinned version tag by default.
 
-The RootedOps Compose service accepts an optional `TYMESLOT_IMAGE_REPOSITORY`, defaulting to the published `luka1thb/tymeslot`. This keeps normal releases untouched while allowing a locally built, immutable PR-source image. Preserve the existing root `.env` secrets and both named Compose volumes. Never use `down -v` for this upgrade.
+**Before switching production:** An upstream GitHub release does not itself verify Docker Hub availability; run `sudo docker pull luka1thb/tymeslot:1.48.1` and stop if the tag cannot be retrieved. Review [Tymeslot upgrade guidance](https://tymeslot.app/docs/upgrading) and the release notes for the transition. Back up the embedded database using the running container's PostgreSQL tools and validate the dump archive. Preserve both Compose volumes, the private root `.env` secrets, Google OAuth keys and `TYMESLOT_PUBLIC_HOST=schedule.rootedpsyche.org`. Never use `down -v`.
 
-**Prepare and build:** on the deployment Linode, where Docker is available and your fork is accessible:
-
-```bash
-# Use the exact reviewed PR head; if PR changes, update the SHA and repeat checks.
-PR_SHA=2f4d5fbef2e741c5637ffddaab52c60ba4103eac
-PR_TAG="pr225-${PR_SHA:0:12}"
-
-git clone https://github.com/RayzorDuff/tymeslot.git "$HOME/tymeslot-pr225"
-cd "$HOME/tymeslot-pr225"
-git fetch origin "$PR_SHA"
-git checkout --detach "$PR_SHA"
-test "$(git rev-parse HEAD)" = "$PR_SHA" || exit 1
-sudo docker build -f Dockerfile.docker -t "rootedops/tymeslot:$PR_TAG" .
-sudo docker image inspect "rootedops/tymeslot:$PR_TAG" --format '{{.Id}}'
-```
-
-The upstream Dockerfile's default final stage (`release`) **includes embedded PostgreSQL**, matching the existing two-volume RootedOps Compose service. Do not build its `release-slim` stage, which requires external PostgreSQL.
-
-**Pre-change backup:** From `~/RootedOps`, verify the existing Tymeslot backup or make a new custom-format PostgreSQL dump using the running container. Check the archive with the running container's own `pg_restore -l`; the Ubuntu host's `pg_restore` may be older than the archive format. For rollback, remember that reverting an image does not revert database migrations; preserve volume data and a compatible pre-upgrade dump.
-
-**Pin PR image in the private `~/RootedOps/.env`:**
-
-```dotenv
-TYMESLOT_IMAGE_REPOSITORY=rootedops/tymeslot
-TYMESLOT_IMAGE_TAG=pr225-2f4d5fbef2e7
-```
-
-Then check Compose resolution **without printing secrets**:
+In the **private** `~/RootedOps/.env` set `TYMESLOT_IMAGE_TAG=1.48.1` and **remove `TYMESLOT_IMAGE_REPOSITORY`** (the PR-image override is retired). Preserve all other settings. In `~/RootedOps`:
 
 ```bash
-cd ~/RootedOps
+sudo docker pull luka1thb/tymeslot:1.48.1
+# Print only the resolved image; full Compose output may contain secrets.
 sudo docker compose --env-file .env -p rootedops-scheduling -f docker/scheduling/tymeslot.compose.yml config --format json \
   | python3 -c 'import json,sys; c=json.load(sys.stdin); print(c["services"]["tymeslot"]["image"])'
-# MUST print rootedops/tymeslot:pr225-2f4d5fbef2e7
+# Expected: luka1thb/tymeslot:1.48.1
 sudo docker compose --env-file .env -p rootedops-scheduling -f docker/scheduling/tymeslot.compose.yml up -d --no-deps --no-build --force-recreate tymeslot
 sudo docker logs --tail 100 rootedops-tymeslot
+sudo docker exec rootedops-tymeslot bin/tymeslot version
 ```
 
-**Do not run Compose `pull` for the locally built image.** Keep `TYMESLOT_PUBLIC_HOST=schedule.rootedpsyche.org` and existing OAuth/encryption/SMTP credentials.
+**Acceptance:** Check startup/migration status and official image identity; admin Google Workspace login; invitation Google OAuth for an eligible Workspace user with registration and password login disabled; existing appointment creation, rescheduling and cancellation and Google Calendar/Meet/email notices. Only after successful official-image acceptance, mark #122 completed and remove the temporary fork branch/workflow and unneeded container registry test image. Do **not** delete the running image or database volumes as part of cleanup.
 
-**Acceptance:** Confirm admin Workspace sign-in; create a fresh invite (prior invitation URL/token was shared), click Google in Chrome, confirm the provider redirect is not blocked by CSP and that the invited Workspace identity completes registration; public registration and password auth remain disabled; guest booking, confirmations, reschedule, cancel and Calendar/Meet integration still work. Record the tested commit and image digest in #122. Report result on upstream PR #225 without sensitive tokens/headers.
-
-**Rollback:** If the current PR image does not work, stop and collect non-secret logs. Restore prior private image configuration (published `luka1thb/tymeslot:1.40.0`) only if the database schema remains compatible; otherwise coordinate database restore from the pre-change dump rather than running old code on migrated tables. Keep the PR open while debugging.
+**Rollback:** Newer images may apply schema migrations. Merely reverting to an older tag can be unsafe; preserve the pre-upgrade database dump and follow upstream's database restore instructions if rollback is required.
 
 ## SMTP: reuse the Listmonk Gmail pattern
 
